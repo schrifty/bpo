@@ -78,6 +78,24 @@ def test_resolve_portfolio_snapshot_folder_id_none_without_config(monkeypatch: p
     assert pendo_portfolio_snapshot_drive.resolve_portfolio_snapshot_folder_id() is None
 
 
+def test_iter_portfolio_snapshot_folder_ids_appends_cortex_sys_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pendo_portfolio_snapshot_drive._resolved_generator_cache_folder_id = pendo_portfolio_snapshot_drive._UNRESOLVED
+    monkeypatch.setattr(
+        pendo_portfolio_snapshot_drive,
+        "resolve_portfolio_snapshot_folder_id",
+        lambda: "qbr-cache",
+    )
+    monkeypatch.setattr(
+        "src.drive_config.get_cortex_sys_cache_folder_id",
+        lambda: "cx-sys-cache",
+    )
+    from src.pendo_portfolio_snapshot_drive import iter_portfolio_snapshot_folder_ids
+
+    assert iter_portfolio_snapshot_folder_ids() == ["qbr-cache", "cx-sys-cache"]
+
+
 def test_parse_envelope_report_days_mismatch() -> None:
     report = {"type": "portfolio", "days": 60, "customers": []}
     env = {

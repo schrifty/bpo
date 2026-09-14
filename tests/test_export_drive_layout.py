@@ -173,11 +173,14 @@ def test_output_root_metrics_deck_filename_keeps_persistent_not_month_copy() -> 
     assert is_output_root_metrics_deck_filename("KPI Metrics")
     assert not is_output_root_metrics_deck_filename("AKKR Metrics - July")
     assert not is_output_root_metrics_deck_filename("AKKR Metrics — 2026-08-01")
-    assert not is_output_root_metrics_deck_filename("Cortex Export - User Guide.md")
+    assert not is_output_root_metrics_deck_filename("User Guide.md")
+    assert not is_output_root_metrics_deck_filename("all-customers-persistent.md")
     assert not is_output_root_metrics_deck_filename("LLM-Context-Portfolio-persistent.md")
+    assert is_output_root_resident_filename("User Guide.md")
+    assert is_output_root_resident_filename("Cortex Export - User Guide.md")
+    assert is_output_root_resident_filename("all-customers-persistent.md")
     assert is_output_root_resident_filename("AKKR Metrics")
     assert is_output_root_resident_filename("Engineering-Review-Portfolio-persistent")
-    assert is_output_root_resident_filename("Cortex Export - User Guide.md")
     assert is_output_root_resident_filename("CSR-Dump-source.json")
 
 

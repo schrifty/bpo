@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from .config import _PROJECT_ROOT, logger
-from .export_drive_layout import EXPORT_USER_GUIDE_DRIVE_FILENAME
+from .export_drive_layout import EXPORT_USER_GUIDE_DRIVE_FILENAME, EXPORT_USER_GUIDE_REPO_FILENAME
 
-_USER_GUIDE_REPO_PATH = _PROJECT_ROOT / "docs" / EXPORT_USER_GUIDE_DRIVE_FILENAME
+_USER_GUIDE_REPO_PATH = _PROJECT_ROOT / "docs" / EXPORT_USER_GUIDE_REPO_FILENAME
 _sync_ran = False
 
 

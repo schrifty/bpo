@@ -56,7 +56,7 @@ def test_maybe_sync_uploads_when_drive_missing(tmp_path: Path, monkeypatch: pyte
     result = maybe_sync_export_user_guide_on_startup(force=True)
     assert result["action"] == "created"
     assert result["file_id"] == "file-new"
-    assert uploads == [("Cortex Export - User Guide.md", "# Guide\n", "out-root")]
+    assert uploads == [("User Guide.md", "# Guide\n", "out-root")]
 
 
 def test_maybe_sync_skips_when_drive_is_current(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

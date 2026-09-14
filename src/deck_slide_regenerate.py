@@ -292,6 +292,15 @@ def regenerate_deck_slides(
         logger.info("Regenerated slide %s at index %d", slide_type, insertion_index)
 
     url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
+    charts = rep.get("_charts")
+    ss_id = getattr(charts, "spreadsheet_id", None) if charts is not None else None
+    if ss_id:
+        from .drive_config import mirror_chart_spreadsheet_to_cortex
+
+        mirror_chart_spreadsheet_to_cortex(
+            ss_id,
+            name=f"{pres.get('title') or deck_id} — Chart Data",
+        )
     return {
         "presentation_id": pres_id,
         "url": url,

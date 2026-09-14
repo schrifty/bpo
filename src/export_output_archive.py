@@ -20,6 +20,7 @@ from typing import Any
 
 from .config import logger
 from .export_drive_layout import (
+    CSR_DUMP_SOURCE_MARKER_FILENAME,
     HISTORICAL_DATA_FOLDER,
     PERSISTENT_SUFFIX,
     CUSTOMER_EXPORTS_FOLDER,
@@ -27,6 +28,7 @@ from .export_drive_layout import (
     _ARCHIVE_MONTH_RE,
     _DATED_OUTPUT_FOLDER_RE,
     _MIME_FOLDER,
+    PORTFOLIO_DRIVE_FILENAME_RENAMES,
     dated_output_folder_date,
     ensure_customer_export_folders,
     ensure_customer_exports_parent_folder,
@@ -1369,17 +1371,83 @@ def _relocate_named_folder(
     return {"moved": [{"id": src_id, "name": dest_name}], "src": src_name, "dest_id": src_id, "action": "relocated"}
 
 
+def _rename_drive_titles_in_folder(folder_id: str) -> list[dict[str, str]]:
+    """Apply :data:`PORTFOLIO_DRIVE_FILENAME_RENAMES` in one folder."""
+    changed: list[dict[str, str]] = []
+    for old_name, new_name in PORTFOLIO_DRIVE_FILENAME_RENAMES:
+        old_id = find_file_in_folder(old_name, folder_id)
+        if not old_id:
+            continue
+        new_id = find_file_in_folder(new_name, folder_id)
+        if new_id and new_id != old_id:
+            delete_drive_file(old_id)
+            changed.append({"action": "dropped_legacy", "name": old_name, "kept": new_name})
+            continue
+        rename_drive_file(old_id, new_name)
+        changed.append({"action": "renamed", "from": old_name, "to": new_name, "id": old_id})
+        logger.info("Renamed Drive file %r → %r", old_name, new_name)
+    return changed
+
+
+def rename_portfolio_export_drive_titles(
+    *,
+    root_id: str,
+    historical_id: str | None = None,
+) -> list[dict[str, str]]:
+    """Rename persistent/historical portfolio files (LLM context + user guide) in place."""
+    changed = _rename_drive_titles_in_folder(root_id)
+    if not historical_id:
+        return changed
+    changed.extend(_rename_drive_titles_in_folder(historical_id))
+    for child in _list_folder_children(historical_id):
+        if str(child.get("mimeType") or "") != _MIME_FOLDER:
+            continue
+        cid = str(child.get("id") or "")
+        if not cid:
+            continue
+        changed.extend(_rename_drive_titles_in_folder(cid))
+        for nested in _list_folder_children(cid):
+            if str(nested.get("mimeType") or "") != _MIME_FOLDER:
+                continue
+            nid = str(nested.get("id") or "")
+            if nid:
+                changed.extend(_rename_drive_titles_in_folder(nid))
+    return changed
+
+
+def _relocate_named_file(
+    *,
+    src_parent_id: str,
+    dest_parent_id: str,
+    name: str,
+) -> dict[str, Any]:
+    """Move a file into dest_parent, replacing a same-name dest if needed."""
+    src_id = find_file_in_folder(name, src_parent_id)
+    if not src_id:
+        return {"action": "missing", "name": name}
+    if src_parent_id == dest_parent_id:
+        return {"action": "already", "id": src_id, "name": name}
+    dest_id = find_file_in_folder(name, dest_parent_id)
+    if dest_id and dest_id != src_id:
+        delete_drive_file(dest_id)
+    _move_drive_item(src_id, src_parent_id, dest_parent_id)
+    return {"action": "relocated", "id": src_id, "name": name}
+
+
 def migrate_cortex_shared_drive_layout() -> dict[str, Any]:
     """Move Cortex shared-drive ``Output/`` artifacts into ``exports/`` and ``decks/``.
 
     Idempotent. QBR Generator ``Output/`` is not touched.
     """
     from .drive_config import (
+        CORTEX_SYS_CACHE_FOLDER,
+        CORTEX_SYS_CHART_DATA_FOLDER,
         _cortex_output_dual_write_enabled,
         get_cortex_decks_folder_id,
         get_cortex_exports_customer_folder_id,
         get_cortex_exports_history_folder_id,
         get_cortex_exports_root_folder_id,
+        get_cortex_sys_folder_id,
     )
 
     if not _cortex_output_dual_write_enabled():
@@ -1388,12 +1456,10 @@ def migrate_cortex_shared_drive_layout() -> dict[str, Any]:
     customer_id = get_cortex_exports_customer_folder_id()
     history_id = get_cortex_exports_history_folder_id()
     decks_id = get_cortex_decks_folder_id()
+    sys_id = get_cortex_sys_folder_id()
     if not exports_id or not customer_id or not history_id or not decks_id:
         return {"skipped": "cortex_folders_unresolved"}
 
-    output_id = find_file_in_folder(
-        QBR_OUTPUT_SUBFOLDER, CORTEX_SHARED_DRIVE_ID, mime_type=_MIME_FOLDER
-    )
     result: dict[str, Any] = {
         "exports_id": exports_id,
         "customer_id": customer_id,
@@ -1403,8 +1469,32 @@ def migrate_cortex_shared_drive_layout() -> dict[str, Any]:
         "export_files": [],
         "customer": None,
         "history": None,
+        "cache": None,
+        "chart_data": None,
         "output_deleted": False,
     }
+    if sys_id:
+        result["cache"] = _relocate_named_folder(
+            src_parent_id=CORTEX_SHARED_DRIVE_ID,
+            src_names=("Cache",),
+            dest_parent_id=sys_id,
+            dest_name=CORTEX_SYS_CACHE_FOLDER,
+        )
+        result["chart_data"] = _relocate_named_folder(
+            src_parent_id=CORTEX_SHARED_DRIVE_ID,
+            src_names=("chart-data",),
+            dest_parent_id=sys_id,
+            dest_name=CORTEX_SYS_CHART_DATA_FOLDER,
+        )
+        result["csr_dump_source"] = _relocate_named_file(
+            src_parent_id=exports_id,
+            dest_parent_id=sys_id,
+            name=CSR_DUMP_SOURCE_MARKER_FILENAME,
+        )
+
+    output_id = find_file_in_folder(
+        QBR_OUTPUT_SUBFOLDER, CORTEX_SHARED_DRIVE_ID, mime_type=_MIME_FOLDER
+    )
     if not output_id:
         return {**result, "skipped": "no_legacy_output"}
 
@@ -1500,6 +1590,12 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
         return {"skipped": "no_output_folder"}
 
     try:
+        qbr_hist = ensure_historical_data_folder(root_id)
+        rename_portfolio_export_drive_titles(root_id=root_id, historical_id=qbr_hist)
+    except Exception as e:
+        logger.warning("Portfolio Drive title rename failed (continuing): %s", e)
+
+    try:
         customer_exports_id = ensure_customer_exports_parent_folder(root_id)
         combined = _summarize_archive_walk(
             root_id=root_id,
@@ -1534,6 +1630,10 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
         cortex_customer = get_cortex_exports_customer_folder_id()
         cortex_history = get_cortex_exports_history_folder_id()
         if cortex_exports and cortex_customer and cortex_history:
+            rename_portfolio_export_drive_titles(
+                root_id=cortex_exports,
+                historical_id=cortex_history,
+            )
             _summarize_archive_walk(
                 root_id=cortex_exports,
                 customer_parent_id=cortex_customer,

@@ -284,6 +284,25 @@ def test_csr_dump_source_fingerprint_requires_file_and_modified() -> None:
     )
 
 
+def test_save_csr_dump_source_marker_dual_writes_cortex_sys(monkeypatch) -> None:
+    from src.export_csr_dump import save_csr_dump_source_marker
+
+    uploads: list[tuple[str, str]] = []
+    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "qbr-out")
+    monkeypatch.setattr("src.drive_config.get_cortex_sys_folder_id", lambda: "cx-sys")
+
+    def fake_upload(name: str, content: str, folder_id: str, **kwargs: object) -> str:
+        uploads.append((name, folder_id))
+        return f"file-{folder_id}"
+
+    monkeypatch.setattr("src.drive_config.upload_text_file_to_drive_folder", fake_upload)
+    save_csr_dump_source_marker({"file": "CS Report.xlsx", "modified": "2026-09-14T00:00:00.000Z"})
+    assert uploads == [
+        ("CSR-Dump-source.json", "qbr-out"),
+        ("CSR-Dump-source.json", "cx-sys"),
+    ]
+
+
 def _stub_csr_dump_load(monkeypatch, *, meta: dict | None = None) -> None:
     monkeypatch.setattr(
         "src.export_csr_dump.load_latest_csr_week_rows",

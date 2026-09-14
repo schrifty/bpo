@@ -116,7 +116,7 @@ def save_csr_dump_source_marker(payload: dict[str, Any]) -> None:
     """Replace ``CSR-Dump-source.json`` on Drive ``Output/``. Failures are warnings only."""
     try:
         from .drive_config import (
-            get_cortex_exports_root_folder_id,
+            get_cortex_sys_folder_id,
             get_qbr_output_root_folder_id,
             upload_text_file_to_drive_folder,
         )
@@ -127,7 +127,7 @@ def save_csr_dump_source_marker(payload: dict[str, Any]) -> None:
             return
         body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         targets = [root_id]
-        cortex = get_cortex_exports_root_folder_id()
+        cortex = get_cortex_sys_folder_id()
         if cortex and cortex not in targets:
             targets.append(cortex)
         for i, fid_root in enumerate(targets):

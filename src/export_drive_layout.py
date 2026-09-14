@@ -54,15 +54,29 @@ CSR_DUMP_RUN_SLOTS = ("0000", "0600", "1200", "1800")
 CSR_DUMP_LEVELS = ("site", "bu", "entity")
 _MANAGED_EXPORT_PREFIXES = (
     "Pendo Export  ",  # legacy customer export stem prefix
-    "LLM-Context-Portfolio",
+    "all-customers",
+    "LLM-Context-Portfolio",  # legacy portfolio LLM stem
     "match-customer-names",
     "Engineering-Review-Portfolio",
     "Portfolio - Engineering Review",  # legacy name — keep so pre-rename files stay managed
 )
-EXPORT_USER_GUIDE_DRIVE_FILENAME = "Cortex Export - User Guide.md"
+LLM_CONTEXT_EXPORT_STEM = "all-customers"
+LLM_CONTEXT_EXPORT_STEM_LEGACY = "LLM-Context-Portfolio"
+EXPORT_USER_GUIDE_DRIVE_FILENAME = "User Guide.md"
+EXPORT_USER_GUIDE_DRIVE_FILENAME_LEGACY = "Cortex Export - User Guide.md"
+EXPORT_USER_GUIDE_REPO_FILENAME = "Cortex Export - User Guide.md"
 CSR_DUMP_SOURCE_MARKER_FILENAME = "CSR-Dump-source.json"
 OUTPUT_ROOT_STATIC_FILENAMES = frozenset(
-    {EXPORT_USER_GUIDE_DRIVE_FILENAME, CSR_DUMP_SOURCE_MARKER_FILENAME}
+    {
+        EXPORT_USER_GUIDE_DRIVE_FILENAME,
+        EXPORT_USER_GUIDE_DRIVE_FILENAME_LEGACY,
+        CSR_DUMP_SOURCE_MARKER_FILENAME,
+    }
+)
+PORTFOLIO_DRIVE_FILENAME_RENAMES: tuple[tuple[str, str], ...] = (
+    ("LLM-Context-Portfolio-persistent.md", "all-customers-persistent.md"),
+    ("LLM-Context-Portfolio.md", "all-customers.md"),
+    (EXPORT_USER_GUIDE_DRIVE_FILENAME_LEGACY, EXPORT_USER_GUIDE_DRIVE_FILENAME),
 )
 # Persistent metrics decks in Output/ (e.g. ``AKKR Metrics``). Historical copies use
 # ``{TAG} Metrics - {Month}`` and must not match this pattern.

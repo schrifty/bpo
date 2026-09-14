@@ -134,28 +134,16 @@ def resolve_portfolio_snapshot_folder_id() -> str | None:
 
 
 def iter_portfolio_snapshot_folder_ids() -> list[str]:
-    """Env Cache folder first, then Cortex shared-drive Cache when dual-write is on."""
-    from .drive_config import (
-        CORTEX_SHARED_DRIVE_ID,
-        _cortex_output_dual_write_enabled,
-        _find_or_create_folder,
-    )
+    """Env Cache folder first, then Cortex ``sys/cache`` when dual-write is on."""
+    from .drive_config import get_cortex_sys_cache_folder_id
 
     ids: list[str] = []
     primary = resolve_portfolio_snapshot_folder_id()
     if primary:
         ids.append(primary)
-    if not _cortex_output_dual_write_enabled():
-        return ids
-    try:
-        mirror = _find_or_create_folder(
-            PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME,
-            CORTEX_SHARED_DRIVE_ID,
-        )
-        if mirror and mirror not in ids:
-            ids.append(mirror)
-    except Exception as e:
-        logger.error("Cortex Cache dual-write folder failed: %s", e)
+    mirror = get_cortex_sys_cache_folder_id()
+    if mirror and mirror not in ids:
+        ids.append(mirror)
     return ids
 
 

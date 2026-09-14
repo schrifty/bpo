@@ -25,6 +25,54 @@ from src.export_output_archive import (
 )
 
 
+def test_relocate_named_file_moves_into_dest(monkeypatch) -> None:
+    from src.export_output_archive import _relocate_named_file
+
+    moves: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        "src.export_output_archive.find_file_in_folder",
+        lambda name, parent, **k: "src-id" if parent == "exports" else None,
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive._move_drive_item",
+        lambda fid, src, dest: moves.append((fid, src, dest)),
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.delete_drive_file",
+        lambda *_a, **_k: pytest.fail("unexpected delete"),
+    )
+    result = _relocate_named_file(
+        src_parent_id="exports",
+        dest_parent_id="sys",
+        name="CSR-Dump-source.json",
+    )
+    assert result["action"] == "relocated"
+    assert moves == [("src-id", "exports", "sys")]
+
+
+def test_rename_drive_titles_in_folder_renames_legacy(monkeypatch) -> None:
+    from src.export_output_archive import _rename_drive_titles_in_folder
+
+    names = {"LLM-Context-Portfolio-persistent.md": "old-llm"}
+    renames: list[tuple[str, str]] = []
+
+    def fake_find(name: str, parent: str, **kwargs: object) -> str | None:
+        return names.get(name)
+
+    monkeypatch.setattr("src.export_output_archive.find_file_in_folder", fake_find)
+    monkeypatch.setattr(
+        "src.export_output_archive.rename_drive_file",
+        lambda fid, new: renames.append((fid, new)) or names.__setitem__(new, fid),
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.delete_drive_file",
+        lambda *_a, **_k: pytest.fail("unexpected delete"),
+    )
+    changed = _rename_drive_titles_in_folder("root")
+    assert any(row["to"] == "all-customers-persistent.md" for row in changed)
+    assert ("old-llm", "all-customers-persistent.md") in renames
+
+
 def test_previous_month_key_july_2026() -> None:
     assert previous_month_key(today=dt.date(2026, 7, 6)) == "2026-06"
 
@@ -393,6 +441,14 @@ def test_maybe_migrate_walks_customer_exports(monkeypatch) -> None:
         lambda pid: "customer-exports-id" if pid == "output-root" else pytest.fail("unexpected"),
     )
     monkeypatch.setattr(
+        "src.export_output_archive.ensure_historical_data_folder",
+        lambda pid: "hist-id",
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.rename_portfolio_export_drive_titles",
+        lambda **_k: [],
+    )
+    monkeypatch.setattr(
         "src.export_output_archive._list_folder_children",
         lambda pid: (
             [{"id": "ford-folder", "name": "Ford", "mimeType": _MIME_FOLDER, "modifiedTime": "2026-01-01T00:00:00.000Z"}]
@@ -505,10 +561,12 @@ def test_relocate_non_persistent_skips_user_guide_at_output_root() -> None:
 
     child = {
         "id": "guide-1",
-        "name": "Cortex Export - User Guide.md",
+        "name": "User Guide.md",
         "mimeType": "text/markdown",
         "modifiedTime": "2026-07-01T00:00:00.000Z",
     }
+    assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
+    child["name"] = "Cortex Export - User Guide.md"
     assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
 
 

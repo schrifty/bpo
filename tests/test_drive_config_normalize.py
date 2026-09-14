@@ -191,6 +191,29 @@ def test_parallel_output_folder_ids_mirrors_to_cortex_decks(monkeypatch) -> None
     assert parallel_output_folder_ids("cortex-decks") == []
 
 
+def test_get_cortex_sys_cache_and_chart_data_nest_under_sys(monkeypatch) -> None:
+    from src.drive_config import (
+        get_cortex_sys_cache_folder_id,
+        get_cortex_sys_chart_data_folder_id,
+    )
+
+    monkeypatch.setattr("src.drive_config._cortex_output_dual_write_enabled", lambda: True)
+    monkeypatch.setattr("src.drive_config.get_cortex_sys_folder_id", lambda: "sys-id")
+    created: list[tuple[str, str]] = []
+
+    def fake_create(name: str, parent: str) -> str | None:
+        created.append((name, parent))
+        return f"{parent}/{name}"
+
+    monkeypatch.setattr("src.drive_config._find_or_create_cortex_folder", fake_create)
+    monkeypatch.delenv("CORTEX_DRIVE_SYS_CACHE_FOLDER_ID", raising=False)
+    monkeypatch.delenv("CORTEX_DRIVE_SYS_CHART_DATA_FOLDER_ID", raising=False)
+
+    assert get_cortex_sys_cache_folder_id() == "sys-id/cache"
+    assert get_cortex_sys_chart_data_folder_id() == "sys-id/chart-data"
+    assert created == [("cache", "sys-id"), ("chart-data", "sys-id")]
+
+
 def test_upload_to_qbr_output_folders_fails_without_folders(monkeypatch) -> None:
     monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: None)
 

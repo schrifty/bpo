@@ -70,6 +70,9 @@ CORTEX_EXPORTS_FOLDER = "exports"
 CORTEX_EXPORTS_CUSTOMER_FOLDER = "customer"
 CORTEX_EXPORTS_HISTORY_FOLDER = "history"
 CORTEX_DECKS_FOLDER = "decks"
+CORTEX_SYS_FOLDER = "sys"
+CORTEX_SYS_CACHE_FOLDER = "cache"
+CORTEX_SYS_CHART_DATA_FOLDER = "chart-data"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
 _MIME_PRESENTATION = "application/vnd.google-apps.presentation"
 
@@ -472,6 +475,36 @@ def get_cortex_decks_folder_id() -> str | None:
     return _find_or_create_cortex_folder(CORTEX_DECKS_FOLDER, CORTEX_SHARED_DRIVE_ID)
 
 
+def get_cortex_sys_folder_id() -> str | None:
+    """Return ``sys/`` on the Cortex shared drive (cache and chart-data)."""
+    explicit = _env_folder_id("CORTEX_DRIVE_SYS_FOLDER_ID")
+    if explicit:
+        return explicit if _cortex_output_dual_write_enabled() else None
+    return _find_or_create_cortex_folder(CORTEX_SYS_FOLDER, CORTEX_SHARED_DRIVE_ID)
+
+
+def get_cortex_sys_cache_folder_id() -> str | None:
+    """Return ``sys/cache/`` (maps from QBR ``Cache``)."""
+    explicit = _env_folder_id("CORTEX_DRIVE_SYS_CACHE_FOLDER_ID")
+    if explicit:
+        return explicit if _cortex_output_dual_write_enabled() else None
+    parent = get_cortex_sys_folder_id()
+    if not parent:
+        return None
+    return _find_or_create_cortex_folder(CORTEX_SYS_CACHE_FOLDER, parent)
+
+
+def get_cortex_sys_chart_data_folder_id() -> str | None:
+    """Return ``sys/chart-data/`` (maps from QBR ``chart-data``)."""
+    explicit = _env_folder_id("CORTEX_DRIVE_SYS_CHART_DATA_FOLDER_ID")
+    if explicit:
+        return explicit if _cortex_output_dual_write_enabled() else None
+    parent = get_cortex_sys_folder_id()
+    if not parent:
+        return None
+    return _find_or_create_cortex_folder(CORTEX_SYS_CHART_DATA_FOLDER, parent)
+
+
 def get_cortex_shared_output_root_folder_id() -> str | None:
     """Cortex dual-write root for non-deck Output files: ``exports/`` (not QBR ``Output/``)."""
     return get_cortex_exports_root_folder_id()
@@ -514,6 +547,23 @@ def mirror_finished_drive_file(
             logger.info("Dual-wrote Drive file %r → %s", name, dest)
         except Exception as e:
             logger.error("Dual-write copy failed for %r → %s: %s", name, dest, e)
+
+
+def mirror_chart_spreadsheet_to_cortex(file_id: str, *, name: str) -> None:
+    """Copy a finished chart spreadsheet into Cortex ``sys/chart-data/``."""
+    if not file_id or not name:
+        return
+    dest = get_cortex_sys_chart_data_folder_id()
+    if not dest:
+        return
+    try:
+        existing = find_file_in_folder(name, dest)
+        if existing:
+            trash_drive_file(existing)
+        copy_drive_file_to_folder(file_id, name=name, parent_id=dest)
+        logger.info("Dual-wrote chart spreadsheet %r → Cortex sys/chart-data", name)
+    except Exception as e:
+        logger.error("Cortex dual-write chart spreadsheet failed for %r: %s", name, e)
 
 
 def _get_config_folder_ids() -> tuple[str, str, str]:

@@ -6,7 +6,7 @@ Cortex produces three main kinds of markdown exports:
 
 | Export | Who it’s for | What it covers |
 |--------|----------------|----------------|
-| **Portfolio LLM context** (`LLM-Context-Portfolio`) | Leadership, CS, AMs — whole book | Pendo headlines, Jira, Salesforce, CS Report, signals, risk — **all customers** in one file |
+| **Portfolio LLM context** (`all-customers`) | Leadership, CS, AMs — whole book | Pendo headlines, Jira, Salesforce, CS Report, signals, risk — **all customers** in one file |
 | **Per-customer export** (`Customer Export (Nd)`) | Account teams — one strategic customer | Deep **Pendo** usage plus **CS Report** factory metrics when matched — **one customer** per file (+ matching Sheet) |
 | **CSR dump** (`CustomerSuccessReport-DD-MMM-YYYY`) | Account teams — CS Report factories / BUs / entities | Full CS Report **`delta=week`** at site, business-unit, and entity grain (three Sheets, each with a matching markdown twin) |
 
@@ -18,7 +18,7 @@ Both Pendo exports and CSR dumps use the same **Drive layout** (see [Where files
 
 ### What is this file?
 
-Cortex produces a portfolio snapshot whose bookmarkable name is **`LLM-Context-Portfolio-persistent.md`**. Think of it as a **single briefing packet** about your customer portfolio: who they are, how they use the product, support load, contract status, and health signals.
+Cortex produces a portfolio snapshot whose bookmarkable name is **`all-customers-persistent.md`**. Think of it as a **single briefing packet** about your customer portfolio: who they are, how they use the product, support load, contract status, and health signals.
 
 A same-day copy (plain name, no `-persistent`) is also saved under **Historical Data** for that run’s date. Each file has an **Exported (UTC)** date at the top so you know how old the data is. The nightly job refreshes the persistent copy on a schedule.
 
@@ -302,7 +302,7 @@ All Cortex exports under the QBR generator use the same pattern:
 
 **Portfolio exports** (`export-all`, engineering portfolio deck) use `Output/` as the persistent base. **Per-customer Pendo** and **CSR dumps** use each customer’s folder under `Customer Exports/`. **AKKR / metrics decks** stay in `Output/` under `{TAG} Metrics`; only the month-named copy is stored under `Historical Data/{YYYY-MM}/`.
 
-This user guide is also published to **`Output/Cortex Export - User Guide.md`** on Cortex startup when the repo copy is newer than Drive or missing there. It is not archived into `Historical Data/` with export snapshots.
+This user guide is also published to **`Output/User Guide.md`** on Cortex startup when the repo copy is newer than Drive or missing there. It is not archived into `Historical Data/` with export snapshots.
 
 Other artifacts (Jira cache JSON, chart spreadsheets) live under the generator root (`Cache/`, `chart-data/`) — not in this export layout.
 
@@ -320,7 +320,7 @@ Common options: `--days 90` (lookback window), `--skip-risk-insights` (omit Sect
 
 **Shared Pendo ingest:** `pendo-snapshot-refresh` runs at **03:00 UTC** and warms disk preload slices for 7/14/30/60/90-day windows (plus a Drive portfolio rollup). Scheduled Pendo transforms (`llm-context-portfolio-daily`, `pendo-ford-7d` / `pendo-ford-30d`, `pendo-top-arr-detailed`) **require** that snapshot (fail loud if missing/stale >18h) so they do not each cold-crawl Pendo. They start at **07:00 UTC** so a delayed snapshot RunTask can still finish first. Local `export-all` / `--export-pendo` do not require it unless you set `CORTEX_PENDO_SNAPSHOT_REQUIRE=true`.
 
-Drive output: `Output/LLM-Context-Portfolio-persistent.md` and `Output/Historical Data/{today}/LLM-Context-Portfolio.md`.
+Drive output: `Output/all-customers-persistent.md` and `Output/Historical Data/{today}/all-customers.md`.
 
 ### Per-customer Pendo
 
