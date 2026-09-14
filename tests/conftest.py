@@ -7,6 +7,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
+
+_TEST_CACHE_FERNET_KEY = Fernet.generate_key().decode("ascii")
 
 # Ensure src is on the path when running tests from project root or tests/
 _root = Path(__file__).resolve().parent.parent
@@ -35,6 +38,7 @@ def _disable_speaker_notes_llm_by_default(monkeypatch):
 @pytest.fixture(autouse=True)
 def _deterministic_test_env(monkeypatch):
     """Keep unit tests independent of developer .env toggles and live integration caches."""
+    monkeypatch.setenv("CORTEX_CACHE_FERNET_KEY", _TEST_CACHE_FERNET_KEY)
     monkeypatch.setenv("CORTEX_CURSOR_SLIDES_ONLY", "false")
     monkeypatch.setenv("CORTEX_CURSOR_CACHE_TTL_SECONDS", "0")
     monkeypatch.setattr("src.config.CORTEX_CURSOR_SLIDES_ONLY", False)

@@ -20,6 +20,7 @@ from typing import Any
 from googleapiclient.http import MediaIoBaseUpload
 
 from . import config as _config_mod
+from .cache_crypto import CACHE_ALG_FERNET, CACHE_FERNET_ENV, decrypt_jsonable, encrypt_jsonable
 from .config import logger
 from .drive_config import _get_drive, drive_api_lock, find_file_in_folder
 from .pendo_portfolio_snapshot_drive import (
@@ -31,7 +32,7 @@ from .pendo_portfolio_snapshot_drive import (
     resolve_portfolio_snapshot_folder_id,
 )
 
-INTEGRATION_CACHE_SCHEMA_VERSION = 1
+INTEGRATION_CACHE_SCHEMA_VERSION = 2
 KIND_JIRA_SUPPORT = "jira_support"
 KIND_SALESFORCE_COMPREHENSIVE = "salesforce_comprehensive"
 KIND_ENGINEERING_PORTFOLIO = "engineering_portfolio"
@@ -82,10 +83,16 @@ def _validate_envelope(raw: Any, kind: str, customer_key: str) -> dict[str, Any]
         return None
     if (raw.get("customer_key") or "") != customer_key:
         return None
-    payload = raw.get("payload")
-    if not isinstance(payload, dict):
+    if raw.get("alg") != CACHE_ALG_FERNET:
         return None
-    return raw
+    if "payload" in raw:
+        return None
+    inner = decrypt_jsonable(raw.get("ciphertext") or "")
+    if not isinstance(inner, dict):
+        return None
+    env = dict(raw)
+    env["payload"] = inner
+    return env
 
 
 def integration_drive_cache_reads_enabled() -> bool:
@@ -180,6 +187,13 @@ def save_integration_payload(kind: str, customer: str | None, payload: dict[str,
     """Write or replace a cache JSON on Drive (best-effort; same weekend write rule as Pendo preload)."""
     if _config_mod.CORTEX_INTEGRATION_DRIVE_CACHE_DISABLED:
         return
+    ct = encrypt_jsonable(payload)
+    if ct is None:
+        logger.warning(
+            "Integration Drive cache write skipped: %s unset or invalid",
+            CACHE_FERNET_ENV,
+        )
+        return
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
         return
@@ -190,7 +204,8 @@ def save_integration_payload(kind: str, customer: str | None, payload: dict[str,
         "kind": kind,
         "customer_key": customer_key,
         "saved_at": datetime.now(timezone.utc).isoformat(),
-        "payload": payload,
+        "alg": CACHE_ALG_FERNET,
+        "ciphertext": ct,
     }
     body = json.dumps(
         envelope,

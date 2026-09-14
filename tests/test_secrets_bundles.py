@@ -22,6 +22,7 @@ def test_bundle_for_key_routes_credentials() -> None:
     assert bundle_for_key("PENDO_INTEGRATION_KEY") == BUNDLE_INTEGRATIONS
     assert bundle_for_key("SF_PRIVATE_KEY") == BUNDLE_INTEGRATIONS
     assert bundle_for_key("PR_LEANDNA_DATA_API_API_KEY") == BUNDLE_INTEGRATIONS
+    assert bundle_for_key("CORTEX_CACHE_FERNET_KEY") == BUNDLE_INTEGRATIONS
 
 
 def test_split_secret_payload_drops_task_env_and_groups_keys() -> None:

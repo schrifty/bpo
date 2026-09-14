@@ -9,7 +9,7 @@ Idempotent replacement for manual IAM / EFS / ECS / EventBridge setup.
 | ECR repository | `cortex-decks` |
 | Secrets Manager secrets | `cortex/prod/google`, `…/integrations`, `…/llm`, `…/slack`; legacy `cortex/prod/env` still loaded first |
 | CloudWatch log group | `/cortex/decks` |
-| EFS + access point | `cortex-cache` (uid/gid 1000) |
+| EFS + access point | `cortex-cache` (uid/gid 1000); encrypt JSON with `CORTEX_CACHE_FERNET_KEY` in the integrations secret |
 | IAM roles | `cortex-ecs-execution`, `cortex-ecs-task` (full secrets), `cortex-ecs-task-llm` / `-decks` / `-metrics`, `cortex-eventbridge-ecs` (if schedules on) |
 | ECS cluster | `cortex` |
 | ECS task definition | `cortex-decks` |
@@ -41,6 +41,8 @@ terraform apply
 ```
 
 ECS loads the legacy `cortex/prod/env` secret **first**, then the four bundles. Later keys win, so you can upload split JSON over time without breaking jobs. After the split files contain everything, stop updating `cortex/prod/env`.
+
+Add `CORTEX_CACHE_FERNET_KEY` to the integrations JSON (url-safe Fernet key). Without it, Cortex skips EFS disk-cache and Drive `integration_*_v2_*.json` writes instead of storing plaintext.
 
 ```hcl
 secrets_json_dir = "../../output/cortex-secrets"

@@ -68,6 +68,9 @@ def resolve_cortex_cache_root() -> Path:
 
 
 CORTEX_CACHE_ROOT = resolve_cortex_cache_root()
+# Fernet key for EFS/local disk caches and Drive integration JSON (integrations SM bundle).
+# Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+CORTEX_CACHE_FERNET_KEY = (os.environ.get("CORTEX_CACHE_FERNET_KEY") or "").strip()
 
 # Scheduled / unattended runs
 CORTEX_FAIL_ON_INTEGRATION_WARNINGS = _truthy_env("CORTEX_FAIL_ON_INTEGRATION_WARNINGS")
