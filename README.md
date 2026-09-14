@@ -9,6 +9,8 @@ pip install -r requirements.txt
 cp .env.example .env   # then edit with your keys
 ```
 
+Runtime packages are hashed pins in `requirements.txt` (compiled from `requirements.in` for Python 3.11, matching the Docker image). Refresh with `pip-compile --generate-hashes`. The image installs only that lockfile — do not add unpinned packages in the Dockerfile.
+
 Config is in `src/config.py` (reads from env).
 
 ### AWS nightly runs (ECS Fargate)
