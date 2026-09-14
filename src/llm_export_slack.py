@@ -10,6 +10,9 @@ from .config import (
     CORTEX_LLM_EXPORT_SLACK_LOOKBACK_DAYS,
     CORTEX_LLM_EXPORT_SLACK_MAX_MESSAGES_PER_CHANNEL,
     logger,
+    log_production_llm_customer_export_opt_in,
+    production_llm_customer_export_allowed,
+    production_llm_customer_export_block_reason,
 )
 from .llm_export_csr import (
     LLM_EXPORT_TOP_ARR_SCOPE,
@@ -28,6 +31,8 @@ _DEFAULT_SLACK_EXPORT_TOP_N = 10
 def llm_export_slack_enabled() -> bool:
     raw = (os.environ.get("CORTEX_LLM_EXPORT_SLACK") or "").strip().lower()
     if raw in ("0", "false", "no", "off"):
+        return False
+    if not production_llm_customer_export_allowed():
         return False
     if raw in ("1", "true", "yes", "on"):
         return True
@@ -71,14 +76,18 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
             "per_customer": [],
         },
     }
+    if summary["enabled"]:
+        log_production_llm_customer_export_opt_in()
     if not summary["enabled"]:
+        blocked = production_llm_customer_export_block_reason()
+        skipped = blocked or "CORTEX_LLM_EXPORT_SLACK disabled"
         report["slack"] = {
             "scope": LLM_EXPORT_TOP_ARR_SCOPE,
-            "skipped": "CORTEX_LLM_EXPORT_SLACK disabled",
+            "skipped": skipped,
             "customers": {},
         }
         report["_llm_export_slack"] = summary
-        logger.info("LLM export Slack: skipped (CORTEX_LLM_EXPORT_SLACK disabled)")
+        logger.info("LLM export Slack: skipped (%s)", skipped)
         return summary
     if not slack_configured():
         report["slack"] = {

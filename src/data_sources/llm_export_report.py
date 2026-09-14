@@ -166,11 +166,12 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
     try:
         slack_summary = attach_slack_top_customers_for_llm_export(report)
         if not slack_summary.get("enabled"):
+            slack_skip = (report.get("slack") or {}).get("skipped") or "CORTEX_LLM_EXPORT_SLACK disabled"
             provenance.append(
                 _provenance_row(
                     SourceId.SLACK_CUSTOMER_CONVERSATIONS,
                     status="skipped",
-                    detail="CORTEX_LLM_EXPORT_SLACK disabled",
+                    detail=str(slack_skip),
                 )
             )
         elif not slack_summary.get("slack_configured"):

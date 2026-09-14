@@ -26,6 +26,46 @@ def test_llm_export_slack_disabled_by_env():
         assert llm_export_slack_enabled() is False
 
 
+def test_llm_export_slack_disabled_on_production_without_opt_in(monkeypatch):
+    import src.config as cfg
+
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.setattr(cfg, "_is_aws_runtime", lambda: False)
+    monkeypatch.delenv("CORTEX_ALLOW_PRODUCTION_LLM_EXPORT", raising=False)
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_SLACK", "true")
+    assert llm_export_slack_enabled() is False
+
+
+def test_llm_export_slack_enabled_on_production_with_opt_in(monkeypatch):
+    import src.config as cfg
+
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.setattr(cfg, "_is_aws_runtime", lambda: False)
+    monkeypatch.setenv("CORTEX_ALLOW_PRODUCTION_LLM_EXPORT", "true")
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_SLACK", "true")
+    assert llm_export_slack_enabled() is True
+
+
+def test_attach_slack_skipped_when_production_not_opted_in(monkeypatch):
+    import src.config as cfg
+
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.setattr(cfg, "_is_aws_runtime", lambda: False)
+    monkeypatch.delenv("CORTEX_ALLOW_PRODUCTION_LLM_EXPORT", raising=False)
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_SLACK", "true")
+    report: dict = {
+        "days": 30,
+        "_llm_export_salesforce_revenue_book": {
+            "matched_customer_contract_rollups": [
+                {"customer": "BigCo", "arr": 100000, "active": True},
+            ],
+        },
+    }
+    summary = attach_slack_top_customers_for_llm_export(report)
+    assert summary["enabled"] is False
+    assert "CORTEX_ALLOW_PRODUCTION_LLM_EXPORT" in str(report["slack"].get("skipped"))
+
+
 def test_attach_slack_skipped_when_not_configured():
     report: dict = {
         "days": 30,

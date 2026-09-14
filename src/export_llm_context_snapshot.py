@@ -2666,13 +2666,27 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                     )
             md_body_before_section7_bytes = _utf8_byte_len(md)
 
-        if args.skip_risk_insights:
+        skip_risk = bool(args.skip_risk_insights)
+        from src.config import (
+            log_production_llm_customer_export_opt_in,
+            production_llm_customer_export_block_reason,
+        )
+
+        risk_block = None if skip_risk else production_llm_customer_export_block_reason()
+        if skip_risk or risk_block:
             import logging
 
-            logging.getLogger("cortex").info(
-                "LLM export: skipping §7 risk insights (--skip-risk-insights)"
-            )
+            reason = "--skip-risk-insights" if skip_risk else risk_block
+            logging.getLogger("cortex").info("LLM export: skipping §7 risk insights (%s)", reason)
+            if risk_block:
+                collect_export_warning(risk_block, llm_export=True)
+                md = (
+                    md.rstrip()
+                    + "\n\n## 7. Account & churn risk insights (LLM)\n\n"
+                    f"{risk_block}\n"
+                )
         else:
+            log_production_llm_customer_export_opt_in()
             from src.export_llm_risk_insights import render_risk_insights_section
 
             with export_phase(diag, "risk insights (LLM §7)"):

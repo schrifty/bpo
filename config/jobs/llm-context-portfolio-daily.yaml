@@ -1,4 +1,5 @@
 name: llm-context-portfolio-daily
+# Slack + §7 LLM calls stay off on ECS/Production unless CORTEX_ALLOW_PRODUCTION_LLM_EXPORT=true.
 stop_on_failure: true
 fail_on_warnings: false
 steps:

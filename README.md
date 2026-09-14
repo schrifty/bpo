@@ -34,7 +34,7 @@ Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includ
 | Job | Schedule (EventBridge, UTC) | YAML |
 |-----|-----------------------------|------|
 | Shared Pendo ingest | Daily 03:00 UTC (`cortex-pendo-snapshot-refresh`) | `pendo-snapshot-refresh` (preload 7/14/30/60/90 + Drive portfolio 90d) |
-| Portfolio LLM context | Daily 07:00 UTC (`cortex-llm-context-portfolio-daily`) | `llm-context-portfolio-daily` (`cortex export-all`, 90-day window; requires shared snapshot) |
+| Portfolio LLM context | Daily 07:00 UTC (`cortex-llm-context-portfolio-daily`) | `llm-context-portfolio-daily` (`cortex export-all`, 90-day window; requires shared snapshot; Slack/§7 LLM calls need `CORTEX_ALLOW_PRODUCTION_LLM_EXPORT` on ECS) |
 | Engineering portfolio | Daily 07:30 UTC (`cortex-engineering-portfolio`) | `engineering-portfolio` (Claude Opus designs each slide when `ANTHROPIC_API_KEY` is set; else legacy Python builders) |
 | Engineering KPIs | Daily 07:45 UTC (`cortex-engineering-kpis`) | `engineering-kpis` (active engineering KPIs with history charts and notable period-to-period moves; no overall narrative) |
 | Ford Pendo export (7d) | Daily 08:00 UTC (`cortex-pendo-ford-7d`) | `pendo-ford-7d` (`cortex --export-pendo --customer Ford --days 7 --compare-days 7`) |

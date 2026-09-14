@@ -454,6 +454,48 @@ def execution_env_disallows_http_mutations() -> bool:
     return CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET == "production"
 
 
+def production_llm_customer_export_requires_opt_in() -> bool:
+    """True when Slack/§7 LLM calls would run unattended against customer text.
+
+    Covers Production/CI ``EXECUTION_ENV`` and AWS/ECS (Fargate sets metadata URIs
+    even when ``EXECUTION_ENV`` is missing from Secrets Manager).
+    """
+    return execution_env_disallows_http_mutations() or _is_aws_runtime()
+
+
+def production_llm_customer_export_allowed() -> bool:
+    """Whether export-all may send Slack/CRM text to third-party LLM APIs.
+
+    Staging and local (non-AWS) runs are allowed without the flag. Production/CI
+    and ECS require ``CORTEX_ALLOW_PRODUCTION_LLM_EXPORT=true`` (logged). Do not
+    put that flag on the shared Fargate task environment.
+    """
+    if not production_llm_customer_export_requires_opt_in():
+        return True
+    return _truthy_env("CORTEX_ALLOW_PRODUCTION_LLM_EXPORT")
+
+
+def production_llm_customer_export_block_reason() -> str | None:
+    """Human-readable skip reason when production LLM customer export is gated."""
+    if production_llm_customer_export_allowed():
+        return None
+    return (
+        "Production/CI and ECS skip Slack transcripts and §7 risk insights unless "
+        "CORTEX_ALLOW_PRODUCTION_LLM_EXPORT=true (DPA/retention opt-in)."
+    )
+
+
+def log_production_llm_customer_export_opt_in() -> None:
+    if (
+        production_llm_customer_export_requires_opt_in()
+        and _truthy_env("CORTEX_ALLOW_PRODUCTION_LLM_EXPORT")
+    ):
+        logger.warning(
+            "CORTEX_ALLOW_PRODUCTION_LLM_EXPORT is set; Slack and §7 risk-insight "
+            "calls may send customer text to third-party LLM providers"
+        )
+
+
 def _production_http_mutations_explicitly_allowed() -> bool:
     return _truthy_env("CORTEX_ALLOW_PRODUCTION_MUTATIONS")
 
