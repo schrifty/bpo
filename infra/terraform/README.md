@@ -108,11 +108,11 @@ When `enable_schedules` and `enable_job_retries` (default **true**) are on, a fa
 
 `morning-report` live-generates every `config/my-metrics.yaml` row with a `metric-generator`, compares to `target` / `direction`, and emails a plain-text digest via SES.
 
-1. Verify the SES **From** identity in `us-east-1` (sandbox: verify recipient too).
+1. Verify the SES **From** identity in `us-east-1` (sandbox: verify recipient too). Terraform defaults `ses_identity = "leandna.com"` so IAM `ses:SendEmail` is limited to `arn:aws:ses:…:identity/leandna.com` — not `*`. Set `ses_from_address` to pin `ses:FromAddress` to the same mailbox as `CORTEX_METRICS_DIGEST_FROM`. `SendRawEmail` is not granted.
 2. Put these keys in the **integrations** secret (`cortex/prod/integrations`, same names as `.env.example`):
    - `CORTEX_METRICS_DIGEST_TO` — comma-separated recipients (e.g. `marc.schriftman@leandna.com`)
    - `CORTEX_METRICS_DIGEST_FROM` — verified SES identity
-3. `terraform apply` so rule `cortex-morning-report` and task-role `ses:SendEmail` land.
+3. `terraform apply` so rule `cortex-morning-report` and the scoped SES policy on `cortex-ecs-task` / `cortex-ecs-task-metrics` land.
 4. Smoke locally: `./bin/metrics-digest --dry-run`
 
 ## Variables (common)
@@ -128,6 +128,8 @@ When `enable_schedules` and `enable_job_retries` (default **true**) are on, a fa
 | `enable_schedule_alarms` | `true` | FailedInvocations + run-summary-failed + ECS task-failure SNS |
 | `alarm_sns_topic_arn` | empty | Uses `${name_prefix}-cortex-schedule-alarms` when alarms enabled |
 | `name_prefix` | `cortex` | Change if importing existing manual roles |
+| `ses_identity` | `leandna.com` | SES identity ARN for morning-report `SendEmail` |
+| `ses_from_address` | empty | Optional `ses:FromAddress` condition (match `CORTEX_METRICS_DIGEST_FROM`) |
 
 ## Importing existing manual resources
 

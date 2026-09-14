@@ -16,6 +16,18 @@ variable "environment" {
   default     = "prod"
 }
 
+variable "ses_identity" {
+  description = "Verified SES identity (domain or email) that morning-report may send as. IAM SendEmail is limited to this identity ARN."
+  type        = string
+  default     = "leandna.com"
+}
+
+variable "ses_from_address" {
+  description = "Optional exact From address for ses:FromAddress. Empty allows any address on ses_identity. Must match CORTEX_METRICS_DIGEST_FROM when set."
+  type        = string
+  default     = ""
+}
+
 # --- Network ---
 
 variable "use_default_vpc" {

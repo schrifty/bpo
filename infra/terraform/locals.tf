@@ -1,5 +1,8 @@
 locals {
-  account_id = data.aws_caller_identity.current.account_id
+  account_id       = data.aws_caller_identity.current.account_id
+  ses_identity     = trimspace(var.ses_identity)
+  ses_from_address = trimspace(var.ses_from_address)
+  ses_identity_arn = "arn:aws:ses:${var.aws_region}:${local.account_id}:identity/${local.ses_identity}"
 
   vpc_id = var.vpc_id != "" ? var.vpc_id : (
     var.use_default_vpc ? data.aws_vpc.default[0].id : ""

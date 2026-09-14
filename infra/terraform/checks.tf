@@ -5,6 +5,13 @@ check "vpc_configured" {
   }
 }
 
+check "ses_identity_set" {
+  assert {
+    condition     = local.ses_identity != ""
+    error_message = "ses_identity must be a verified SES domain or email (IAM SendEmail is scoped to that identity ARN)."
+  }
+}
+
 check "scheduled_jobs_have_secret_profiles" {
   assert {
     condition = alltrue([

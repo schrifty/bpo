@@ -19,5 +19,9 @@ default_job_command = ["engineering-portfolio"]
 # Set true after first successful manual run-task
 enable_schedules = false
 
+# Morning-report SES: identity ARN (not *). Optional From pin:
+# ses_identity     = "leandna.com"
+# ses_from_address = "metrics@leandna.com"
+
 # task_cpu    = 4096
 # task_memory = 16384

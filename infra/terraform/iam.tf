@@ -44,16 +44,6 @@ data "aws_iam_policy_document" "ecs_task" {
     resources = [aws_efs_file_system.cache.arn]
   }
 
-  statement {
-    sid    = "SesSendMetricsDigest"
-    effect = "Allow"
-    actions = [
-      "ses:SendEmail",
-      "ses:SendRawEmail",
-    ]
-    resources = ["*"]
-  }
-
   dynamic "statement" {
     for_each = var.enable_schedules && var.enable_job_retries ? [1] : []
     content {
@@ -97,6 +87,36 @@ resource "aws_iam_role_policy" "ecs_task" {
   name   = "${local.task_role_name}-policy"
   role   = aws_iam_role.ecs_task.id
   policy = data.aws_iam_policy_document.ecs_task.json
+}
+
+data "aws_iam_policy_document" "ses_send_metrics_digest" {
+  statement {
+    sid       = "SesSendMetricsDigest"
+    effect    = "Allow"
+    actions   = ["ses:SendEmail"]
+    resources = [local.ses_identity_arn]
+
+    dynamic "condition" {
+      for_each = local.ses_from_address != "" ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "ses:FromAddress"
+        values   = [local.ses_from_address]
+      }
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task_ses" {
+  name   = "${local.task_role_name}-ses"
+  role   = aws_iam_role.ecs_task.id
+  policy = data.aws_iam_policy_document.ses_send_metrics_digest.json
+}
+
+resource "aws_iam_role_policy" "ecs_task_metrics_ses" {
+  name   = "${local.task_role_name}-metrics-ses"
+  role   = aws_iam_role.ecs_task_profile["metrics"].id
+  policy = data.aws_iam_policy_document.ses_send_metrics_digest.json
 }
 
 # EventBridge → ECS RunTask

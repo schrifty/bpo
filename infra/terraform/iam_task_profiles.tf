@@ -33,19 +33,6 @@ data "aws_iam_policy_document" "ecs_task_profile" {
   }
 
   dynamic "statement" {
-    for_each = each.key == "metrics" ? [1] : []
-    content {
-      sid    = "SesSendMetricsDigest"
-      effect = "Allow"
-      actions = [
-        "ses:SendEmail",
-        "ses:SendRawEmail",
-      ]
-      resources = ["*"]
-    }
-  }
-
-  dynamic "statement" {
     for_each = var.enable_schedules && var.enable_job_retries ? [1] : []
     content {
       sid    = "CreateJobRetrySchedules"

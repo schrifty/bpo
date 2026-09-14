@@ -82,6 +82,11 @@ output "task_role_arns" {
   value       = local.task_role_arn_by_profile
 }
 
+output "ses_identity_arn" {
+  description = "SES identity ARN that cortex-ecs-task and cortex-ecs-task-metrics may SendEmail as."
+  value       = local.ses_identity_arn
+}
+
 output "ecs_tasks_security_group_id" {
   value = aws_security_group.ecs_tasks.id
 }
