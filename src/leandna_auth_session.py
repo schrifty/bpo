@@ -70,7 +70,7 @@ def fetch_data_api_session_id(
         raise ValueError(
             "LeanDNA Auth API: API key must be identifier:passcode as shown once on the "
             "LeanDNA account page (Auth POST /auth/data/session field `secret`). "
-            "A session Bearer or cookie is not the API key."
+            "A session Bearer is not the API key."
         )
     base = auth_base_url.rstrip("/")
     ck = _cache_key(base, key)

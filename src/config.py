@@ -402,32 +402,20 @@ if CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET == "legacy":
     LEANDNA_DATA_API_BASE_URL = os.environ.get("LEANDNA_DATA_API_BASE_URL", "https://app.leandna.com/api").rstrip("/")
     LEANDNA_DATA_API_API_KEY = (os.environ.get("LEANDNA_DATA_API_API_KEY") or "").strip()
     LEANDNA_DATA_API_BEARER_TOKEN = os.environ.get("LEANDNA_DATA_API_BEARER_TOKEN")
-    LEANDNA_DATA_API_COOKIE = (os.environ.get("LEANDNA_DATA_API_COOKIE") or "").strip()
-    LEANDNA_DATA_API_ORIGIN = (os.environ.get("LEANDNA_DATA_API_ORIGIN") or "").strip()
-    LEANDNA_DATA_API_REFERER = (os.environ.get("LEANDNA_DATA_API_REFERER") or "").strip()
 elif CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET == "staging":
     _LD_PRE = "ST_"
     LEANDNA_DATA_API_BASE_URL = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_BASE_URL") or "").strip().rstrip("/")
     LEANDNA_DATA_API_API_KEY = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_API_KEY") or "").strip()
     LEANDNA_DATA_API_BEARER_TOKEN = os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_BEARER_TOKEN")
-    LEANDNA_DATA_API_COOKIE = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_COOKIE") or "").strip()
-    LEANDNA_DATA_API_ORIGIN = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_ORIGIN") or "").strip()
-    LEANDNA_DATA_API_REFERER = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_REFERER") or "").strip()
 elif CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET == "production":
     _LD_PRE = "PR_"
     LEANDNA_DATA_API_BASE_URL = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_BASE_URL") or "").strip().rstrip("/")
     LEANDNA_DATA_API_API_KEY = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_API_KEY") or "").strip()
     LEANDNA_DATA_API_BEARER_TOKEN = os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_BEARER_TOKEN")
-    LEANDNA_DATA_API_COOKIE = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_COOKIE") or "").strip()
-    LEANDNA_DATA_API_ORIGIN = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_ORIGIN") or "").strip()
-    LEANDNA_DATA_API_REFERER = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_REFERER") or "").strip()
 else:
     LEANDNA_DATA_API_BASE_URL = ""
     LEANDNA_DATA_API_API_KEY = ""
     LEANDNA_DATA_API_BEARER_TOKEN = None
-    LEANDNA_DATA_API_COOKIE = ""
-    LEANDNA_DATA_API_ORIGIN = ""
-    LEANDNA_DATA_API_REFERER = ""
 
 
 def resolve_leandna_data_api_base_url() -> str:

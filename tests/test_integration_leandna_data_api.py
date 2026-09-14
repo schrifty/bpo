@@ -1,7 +1,7 @@
 """Live checks against LeanDNA Data API (read-only).
 
-**This file logs secrets in full** (Bearer token, Cookie, curl replay) when a test runs — intended
-for disposable sandbox tokens only.
+**This file logs whether credentials are set and may emit curl replay** when a test runs — intended
+for disposable sandbox tokens only. Do not log full Bearer values.
 
 Tests **skip** when LeanDNA credentials are missing. **Fail** when ``EXECUTION_ENV=Production`` or
 ``CI``. Require ``EXECUTION_ENV=Staging`` with ``ST_LEANDNA_DATA_API_*`` in ``.env``::
@@ -92,15 +92,10 @@ def _ensure_verbose_logging() -> None:
 
 
 def _credential_summary(_config: object) -> None:
+    api_key = (getattr(_config, "LEANDNA_DATA_API_API_KEY", None) or "").strip()
     bt = (getattr(_config, "LEANDNA_DATA_API_BEARER_TOKEN", None) or "").strip()
-    ck = (getattr(_config, "LEANDNA_DATA_API_COOKIE", None) or "").strip()
-    _LOG.info("LEANDNA_DATA_API_BEARER_TOKEN=%r", bt)
-    _LOG.info("LEANDNA_DATA_API_COOKIE=%r", ck)
-    _LOG.info(
-        "origin=%r referer=%r",
-        (getattr(_config, "LEANDNA_DATA_API_ORIGIN", None) or "").strip() or "(default from base URL)",
-        (getattr(_config, "LEANDNA_DATA_API_REFERER", None) or "").strip() or "(default)",
-    )
+    _LOG.info("LEANDNA_DATA_API_API_KEY_set=%s", bool(api_key))
+    _LOG.info("LEANDNA_DATA_API_BEARER_TOKEN_set=%s", bool(bt))
 
 
 def _log_headers(headers: dict[str, str]) -> None:
@@ -108,7 +103,7 @@ def _log_headers(headers: dict[str, str]) -> None:
 
 
 def _curl_equivalent(url: str, params: dict[str, str], headers: dict[str, str]) -> str:
-    """Single-line curl for logs (verbatim Authorization / Cookie)."""
+    """Single-line curl for logs (redact Authorization before sharing)."""
     q = urlencode(sorted(params.items())) if params else ""
     full_url = f"{url}?{q}" if q else url
     bits: list[str] = ["curl", "-sS", "-X", "GET", shlex.quote(full_url)]
@@ -145,7 +140,7 @@ def test_leandna_metric_report_live_displays_first_kpi(capsys) -> None:
     if not leandna_data_api_credentials_configured():
         pytest.skip(
             "LeanDNA Data API credentials missing — set LEANDNA_DATA_API_API_KEY "
-            "(or BEARER_TOKEN / COOKIE)"
+            "(or BEARER_TOKEN)"
         )
 
     fiscal_year = date.today().year
@@ -195,11 +190,14 @@ def test_leandna_metrics_list_endpoint_live() -> None:
     disk_bearer = _last_dotenv_value(dotenv_path, "LEANDNA_DATA_API_BEARER_TOKEN")
     env_bearer = (os.environ.get("LEANDNA_DATA_API_BEARER_TOKEN") or "").strip()
     _LOG.info(
-        "LEANDNA_DATA_API_BEARER_TOKEN last assignment on disk in %s: %r",
+        "LEANDNA_DATA_API_BEARER_TOKEN last assignment on disk in %s: set=%s",
         dotenv_path,
-        disk_bearer if disk_bearer is not None else "(no line found)",
+        disk_bearer is not None and bool(str(disk_bearer).strip()),
     )
-    _LOG.info("LEANDNA_DATA_API_BEARER_TOKEN in os.environ after load_dotenv: %r", env_bearer)
+    _LOG.info(
+        "LEANDNA_DATA_API_BEARER_TOKEN in os.environ after load_dotenv: set=%s",
+        bool(env_bearer),
+    )
     if disk_bearer is not None and disk_bearer != env_bearer:
         _LOG.error(
             "Disk .env bearer != os.environ after load_dotenv — check for parse errors, "
@@ -226,7 +224,7 @@ def test_leandna_metrics_list_endpoint_live() -> None:
     if not leandna_data_api_credentials_configured():
         pytest.skip(
             "LeanDNA Data API credentials missing — set LEANDNA_DATA_API_API_KEY "
-            "(or BEARER_TOKEN / COOKIE)"
+            "(or BEARER_TOKEN)"
         )
 
     base = (_config.LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api").rstrip("/")
@@ -263,8 +261,8 @@ def test_leandna_metrics_list_endpoint_live() -> None:
         _LOG.error("GET failed: %s body_prefix=%r", e, snippet)
         if resp.status_code in (401, 403):
             pytest.skip(
-                f"LeanDNA returned {resp.status_code} for GET /data/Metric (invalid/expired token, "
-                f"wrong LEANDNA_DATA_API_BASE_URL, or missing Cookie). body_prefix={snippet!r}"
+                f"LeanDNA returned {resp.status_code} for GET /data/Metric (invalid/expired token "
+                f"or wrong LEANDNA_DATA_API_BASE_URL). body_prefix={snippet!r}"
             )
         hint = ""
         if resp.status_code == 401 and "Session not found" in (resp.text or ""):

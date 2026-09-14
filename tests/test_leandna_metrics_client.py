@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 def test_displays_single_kpi_value_from_metric_report(monkeypatch, capsys) -> None:
     """HTTP is **mocked** — no LeanDNA call. Exercises ``format_first_kpi_line_from_metric_report`` + terminal display."""
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
-    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
     report_body: dict[str, Any] = {
         "fiscalYear": 2026,
         "metrics": [{"id": 501, "name": "Supplier On-Time %", "siteId": 1}],
@@ -45,7 +44,6 @@ def test_displays_single_kpi_value_from_metric_report(monkeypatch, capsys) -> No
 
 def test_list_metric_definitions_raw_list(monkeypatch):
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
-    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
     with patch("src.leandna_metrics_client.requests.get") as mock_get:
         mock_get.return_value = MagicMock()
         mock_get.return_value.json.return_value = [{"id": "1", "name": "OTIF"}]
@@ -64,7 +62,6 @@ def test_list_metric_definitions_raw_list(monkeypatch):
 
 def test_list_metric_definitions_wrapped(monkeypatch):
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
-    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
     with patch("src.leandna_metrics_client.requests.get") as mock_get:
         mock_get.return_value = MagicMock()
         mock_get.return_value.json.return_value = {"metrics": [{"id": "a"}]}
@@ -77,7 +74,6 @@ def test_list_metric_definitions_wrapped(monkeypatch):
 
 def test_fetch_metric_report_query(monkeypatch):
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
-    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
     with patch("src.leandna_metrics_client.requests.get") as mock_get:
         mock_get.return_value = MagicMock()
         mock_get.return_value.json.return_value = {
@@ -133,7 +129,6 @@ def test_resolve_metric_datapoint_window_explicit_and_lookback() -> None:
 
 def test_fetch_metric_datapoints_sorts_and_error(monkeypatch) -> None:
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
-    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
 
     from src.leandna_metrics_client import fetch_metric_datapoints
 
@@ -209,14 +204,13 @@ def test_summarize_metric_datapoint_values() -> None:
 
 def test_missing_token_raises(monkeypatch):
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "")
-    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", "")
     from src.leandna_metrics_client import list_metric_definitions
 
     try:
         list_metric_definitions()
     except ValueError as e:
-        assert "LEANDNA_DATA_API_COOKIE" in str(e) or "LEANDNA_DATA_API_BEARER_TOKEN" in str(e) or "LEANDNA_DATA_API_API_KEY" in str(e)
+        assert "LEANDNA_DATA_API_BEARER_TOKEN" in str(e) or "LEANDNA_DATA_API_API_KEY" in str(e)
     else:
         raise AssertionError("expected ValueError")
 

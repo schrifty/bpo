@@ -40,7 +40,6 @@ def test_build_leandna_data_api_headers_uses_auth_session_when_api_key_set() -> 
         "src.leandna_data_api_http",
         LEANDNA_DATA_API_API_KEY="id:passcode",
         LEANDNA_DATA_API_BEARER_TOKEN="stale-session",
-        LEANDNA_DATA_API_COOKIE="",
     ), patch(
         "src.leandna_data_api_http._resolved_data_api_base_url",
         return_value="https://app.leandna.com/api",
@@ -64,7 +63,6 @@ def test_build_leandna_data_api_headers_strips_redundant_bearer_prefix() -> None
         "src.leandna_data_api_http",
         LEANDNA_DATA_API_API_KEY="",
         LEANDNA_DATA_API_BEARER_TOKEN="Bearer  abc123",
-        LEANDNA_DATA_API_COOKIE="",
     ):
         h = build_leandna_data_api_headers()
     assert h["Authorization"] == "Bearer abc123"
@@ -85,14 +83,15 @@ def test_format_data_api_error_envelope_parses_json_reason() -> None:
     assert "401" in msg
     assert "Session not found" in msg
     assert "PR_LEANDNA_DATA_API_API_KEY" in msg
+    assert "PR_LEANDNA_DATA_API_BEARER_TOKEN" in msg
 
 
 def test_data_api_get_json_missing_credentials_envelope() -> None:
     from src.leandna_data_api_request import data_api_get_json
 
     with patch("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", ""), patch(
-        "src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", ""
-    ), patch("src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", ""):
+        "src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", ""
+    ):
         out = data_api_get_json("Metric")
     assert out["ok"] is False
     assert "error" in out
@@ -130,8 +129,8 @@ def test_data_api_mutate_json_missing_credentials_envelope(monkeypatch: pytest.M
 
     monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "legacy")
     with patch("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", ""), patch(
-        "src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", ""
-    ), patch("src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", ""):
+        "src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", ""
+    ):
         out = data_api_mutate_json("POST", "LeanProject", json_body={"name": "x"})
     assert out["ok"] is False
     assert "error" in out
@@ -202,9 +201,6 @@ def test_env_mutate_json_blocked_for_production_bucket(monkeypatch: pytest.Monke
         bucket="production",
         base_url="https://app.leandna.com/api",
         bearer_token="tok",
-        cookie="",
-        origin="",
-        referer="",
         api_key="",
     )
     out = env_mutate_json(cfg, "POST", "Metric/1/MetricDataPoint", json_body={"value": 1})

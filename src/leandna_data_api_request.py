@@ -87,7 +87,7 @@ def format_data_api_error_envelope(
     if status == 401 and cred_prefix:
         line += (
             f" — check {cred_prefix}LEANDNA_DATA_API_API_KEY (Auth session) or "
-            f"{cred_prefix}LEANDNA_DATA_API_COOKIE"
+            f"{cred_prefix}LEANDNA_DATA_API_BEARER_TOKEN"
         )
     return line
 
@@ -172,7 +172,7 @@ def data_api_get_json(
             params=params or None,
         )
     except ValueError as e:
-        return {"ok": False, "error": str(e), "hint": "Set LEANDNA_DATA_API_API_KEY (or BEARER_TOKEN / COOKIE)"}
+        return {"ok": False, "error": str(e), "hint": "Set LEANDNA_DATA_API_API_KEY (or BEARER_TOKEN)"}
     except requests.RequestException as e:
         return {"ok": False, "error": f"request failed: {e}", "url": url}
 
@@ -236,7 +236,7 @@ def data_api_mutate_json(
             **extra_kw,
         )
     except ValueError as e:
-        return {"ok": False, "error": str(e), "hint": "Set LEANDNA_DATA_API_API_KEY (or BEARER_TOKEN / COOKIE)"}
+        return {"ok": False, "error": str(e), "hint": "Set LEANDNA_DATA_API_API_KEY (or BEARER_TOKEN)"}
     except requests.RequestException as e:
         return {"ok": False, "error": f"request failed: {e}", "url": url}
 

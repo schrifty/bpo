@@ -8,8 +8,8 @@ Uses ``PR_*`` and ``ST_*`` from ``.env`` only — **``EXECUTION_ENV`` is ignored
 Unrelated to ``get-help-ttr`` (Jira-only).
 
 Requires in ``.env``:
-  ``PR_LEANDNA_DATA_API_BASE_URL`` + ``PR_LEANDNA_DATA_API_BEARER_TOKEN`` and/or ``PR_LEANDNA_DATA_API_COOKIE``
-  ``ST_LEANDNA_DATA_API_BASE_URL`` + ``ST_LEANDNA_DATA_API_BEARER_TOKEN`` and/or ``ST_LEANDNA_DATA_API_COOKIE``
+  ``PR_LEANDNA_DATA_API_BASE_URL`` + ``PR_LEANDNA_DATA_API_API_KEY`` or ``PR_LEANDNA_DATA_API_BEARER_TOKEN``
+  ``ST_LEANDNA_DATA_API_BASE_URL`` + ``ST_LEANDNA_DATA_API_API_KEY`` or ``ST_LEANDNA_DATA_API_BEARER_TOKEN``
 
 Examples::
 
@@ -142,14 +142,14 @@ def main() -> int:
     if not leandna_env_credentials_configured("production"):
         print(
             "Missing production LeanDNA credentials — set PR_LEANDNA_DATA_API_BASE_URL and "
-            "PR_LEANDNA_DATA_API_BEARER_TOKEN and/or PR_LEANDNA_DATA_API_COOKIE.",
+            "PR_LEANDNA_DATA_API_API_KEY or PR_LEANDNA_DATA_API_BEARER_TOKEN.",
             file=sys.stderr,
         )
         return 1
     if not ns.dry_run and not leandna_env_credentials_configured("staging"):
         print(
             "Missing staging LeanDNA credentials — set ST_LEANDNA_DATA_API_BASE_URL and "
-            "ST_LEANDNA_DATA_API_BEARER_TOKEN and/or ST_LEANDNA_DATA_API_COOKIE.",
+            "ST_LEANDNA_DATA_API_API_KEY or ST_LEANDNA_DATA_API_BEARER_TOKEN.",
             file=sys.stderr,
         )
         return 1

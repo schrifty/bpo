@@ -14,7 +14,6 @@ You must configure **at least one** of:
 |------|-------------|
 | **API key** | Permanent secret from LeanDNA **My Account** (`LEANDNA_DATA_API_API_KEY` / `PR_` / `ST_`). Cortex calls Auth `POST /auth/data/session` with `{"secret": <key>}` and uses the returned `sessionId` as Bearer. Sessions last about an hour; Cortex refreshes automatically. |
 | **Bearer token** | Fallback only: a short-lived session id pasted as `LEANDNA_DATA_API_BEARER_TOKEN`. Prefer the API key. |
-| **Session cookie** | In-app calls work in the browser but API key is unavailable — copy the browser session cookies for the same host as `LEANDNA_DATA_API_BASE_URL`. |
 
 Implementation: shared headers in [`src/leandna_data_api_http.py`](../../src/leandna_data_api_http.py); Auth exchange in [`src/leandna_auth_session.py`](../../src/leandna_auth_session.py).
 
@@ -27,9 +26,6 @@ Implementation: shared headers in [`src/leandna_data_api_http.py`](../../src/lea
 | `LEANDNA_DATA_API_BASE_URL` | No | Default `https://app.leandna.com/api`. Must match the environment that issued the API key (wrong host → 401). |
 | `LEANDNA_DATA_API_API_KEY` | Preferred | Permanent Data API secret. Auth API on the same host (`…/auth/data/session`). |
 | `LEANDNA_DATA_API_BEARER_TOKEN` | Fallback | `Authorization: Bearer …` session id (expires ~1 hour). Unused when API key is set. |
-| `LEANDNA_DATA_API_COOKIE` | Optional | Full **`Cookie`** header from the browser. Unused when API key is set. |
-| `LEANDNA_DATA_API_ORIGIN` | No | e.g. `https://app.leandna.com`. With cookie auth, defaults from the API base URL if unset. |
-| `LEANDNA_DATA_API_REFERER` | No | Defaults to `{origin}/application/` if unset (browser-like request). |
 
 ### `EXECUTION_ENV` (optional): prefixed credentials
 
@@ -37,7 +33,7 @@ When **`EXECUTION_ENV`** is set, Cortex reads **only** the matching prefixed var
 
 | `EXECUTION_ENV` (case-insensitive) | Prefix | Example vars |
 |-----------------------------------|--------|----------------|
-| `Staging` | `ST_` | `ST_LEANDNA_DATA_API_BASE_URL`, `ST_LEANDNA_DATA_API_API_KEY`, `ST_LEANDNA_DATA_API_BEARER_TOKEN`, `ST_LEANDNA_DATA_API_COOKIE`, `ST_LEANDNA_DATA_API_ORIGIN`, `ST_LEANDNA_DATA_API_REFERER` |
+| `Staging` | `ST_` | `ST_LEANDNA_DATA_API_BASE_URL`, `ST_LEANDNA_DATA_API_API_KEY`, `ST_LEANDNA_DATA_API_BEARER_TOKEN` |
 | `Production` or `CI` (also `Production (CI)`, `production/ci`, etc.) | `PR_` | `PR_LEANDNA_DATA_API_BASE_URL`, … |
 
 Any **other** non-empty value (e.g. `dev`) clears LeanDNA Data API settings so connections fail until you fix `EXECUTION_ENV` or switch to prefixed + valid staging/production.
@@ -94,30 +90,11 @@ Auth OpenAPI UI: `https://app.leandna.com/application/apidocs/dist/index.html?ur
 
 ---
 
-## Session cookie path (mirror the logged-in app)
-
-Use this when the **web app** loads data successfully but standalone Bearer fails.
-
-1. Log into LeanDNA in Chrome (or similar) on the **same** host you use for `LEANDNA_DATA_API_BASE_URL`.
-2. Open **DevTools → Network**.
-3. Trigger any request whose URL contains **`/api/data/`** (or open a screen that loads Data API data).
-4. Select that request → **Headers** → **Request Headers**.
-5. Copy the entire **`Cookie`** value (long string; often multiple cookies separated by `; `).
-6. Set in `.env`:
-   - `LEANDNA_DATA_API_COOKIE=<paste>`
-   - Leave Bearer empty if you rely only on cookie, or keep Bearer if your tenant sends both.
-
-**Security:** Cookies are **session credentials**. Do **not** commit them; keep them in `.env` or a secret manager. Rotate by logging out / clearing session if leaked.
-
-**Expiry:** Browser sessions expire; when enrichments start failing with 401, refresh the cookie from DevTools.
-
----
-
 ## Troubleshooting
 
 | Symptom | Likely cause |
 |---------|----------------|
-| **401** | Wrong `LEANDNA_DATA_API_BASE_URL` for the API key; expired cookie; invalid API key. |
+| **401** | Wrong `LEANDNA_DATA_API_BASE_URL` for the API key; expired Bearer; invalid API key. |
 | **401 Session not found** | Stale pasted Bearer — set `*_LEANDNA_DATA_API_API_KEY` instead of a session token. |
 | Empty or partial data | Site scoping: optional `RequestedSites` header; customer→site mapping in enrich is still a known gap (see TODOs in `src/leandna_*_enrich.py` and schema doc). |
 

@@ -59,7 +59,7 @@ def _require_data_api_credentials() -> str | None:
     if not leandna_data_api_credentials_configured():
         return (
             "Missing LeanDNA Data API credentials — set PR_LEANDNA_DATA_API_API_KEY "
-            "(or BEARER_TOKEN / COOKIE) in .env."
+            "(or BEARER_TOKEN) in .env."
         )
     return None
 

@@ -6,8 +6,8 @@ Surfaces from the OpenAPI **Metrics** group (same host as Item Master / Lean Pro
 - ``GET /data/MetricReport`` — fiscal-year metric report (monthly aggregates), optionally filtered.
 - :func:`format_first_kpi_line_from_metric_report` — one-line summary of the first ``metricValues`` row (for logs / smoke tests).
 
-Auth: see :mod:`leandna_data_api_http` — **API key** (Auth session) and/or **browser session cookie**
-(``LEANDNA_DATA_API_COOKIE``). Optional ``RequestedSites`` header.
+Auth: see :mod:`leandna_data_api_http` — **API key** (Auth session) or **Bearer token**.
+Optional ``RequestedSites`` header.
 
 Exact query parameter names can vary by LeanDNA release — defaults use camelCase
 (``fiscalYear``, ``metrics``, ``valueStreams``). If the API returns **400**, confirm names in
@@ -50,8 +50,8 @@ def _raise_for_status(resp: requests.Response) -> None:
     snippet = (resp.text or "").strip().replace("\n", " ")[:500]
     if resp.status_code == 401:
         logger.error(
-            "LeanDNA Data API 401 — Auth session expired or invalid API key, wrong "
-            "LEANDNA_DATA_API_BASE_URL, or cookie session expired. URL=%s body_prefix=%r",
+            "LeanDNA Data API 401 — Auth session expired or invalid API key, or wrong "
+            "LEANDNA_DATA_API_BASE_URL. URL=%s body_prefix=%r",
             resp.url,
             snippet,
         )
@@ -446,7 +446,7 @@ def post_metric_datapoint(
     requested_sites: str | None = None,
     timeout_seconds: float = 120.0,
 ) -> dict[str, Any]:
-    """``POST /data/Metric/{id}/MetricDataPoint`` using Data API bearer/cookie auth."""
+    """``POST /data/Metric/{id}/MetricDataPoint`` using Data API bearer auth."""
     from .leandna_data_api_request import data_api_mutate_json
 
     return data_api_mutate_json(

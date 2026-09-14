@@ -47,17 +47,11 @@ def env_configs() -> tuple[LeanDNAEnvConfig, LeanDNAEnvConfig]:
         bucket="production",
         base_url="https://prod.example/api",
         bearer_token="p",
-        cookie="",
-        origin="",
-        referer="",
     )
     stg = LeanDNAEnvConfig(
         bucket="staging",
         base_url="https://stg.example/api",
         bearer_token="s",
-        cookie="",
-        origin="",
-        referer="",
     )
     return prod, stg
 

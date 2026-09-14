@@ -263,8 +263,8 @@ def test_leandna_displays_single_metric_datapoint_value(capsys) -> None:
 
     if not _ld_http.leandna_data_api_credentials_configured():
         pytest.skip(
-            "LeanDNA credentials missing — set LEANDNA_DATA_API_BEARER_TOKEN and/or "
-            "LEANDNA_DATA_API_COOKIE in .env"
+            "LeanDNA credentials missing — set LEANDNA_DATA_API_API_KEY or "
+            "LEANDNA_DATA_API_BEARER_TOKEN in .env"
         )
 
     try:

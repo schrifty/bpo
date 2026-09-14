@@ -294,8 +294,8 @@ def main() -> int:
 
     if not leandna_data_api_credentials_configured():
         print(
-            "Missing LeanDNA Data API credentials — set LEANDNA_DATA_API_BEARER_TOKEN and/or "
-            "LEANDNA_DATA_API_COOKIE in .env.",
+            "Missing LeanDNA Data API credentials — set LEANDNA_DATA_API_API_KEY or "
+            "LEANDNA_DATA_API_BEARER_TOKEN in .env.",
             file=sys.stderr,
         )
         return 1

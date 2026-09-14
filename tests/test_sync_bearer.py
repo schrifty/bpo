@@ -13,13 +13,12 @@ def test_merge_updates_changed_bearer_only() -> None:
     }
     dotenv = {
         "PR_LEANDNA_DATA_API_BEARER_TOKEN": "new-token",
-        "PR_LEANDNA_DATA_API_COOKIE": "should-not-apply",
+        "PENDO_INTEGRATION_KEY": "should-not-apply",
     }
     merged, updated = merge_bearer_token_from_dotenv(existing, dotenv)
     assert updated == ["PR_LEANDNA_DATA_API_BEARER_TOKEN"]
     assert merged["PR_LEANDNA_DATA_API_BEARER_TOKEN"] == "new-token"
     assert merged["PENDO_INTEGRATION_KEY"] == "pendo"
-    assert "PR_LEANDNA_DATA_API_COOKIE" not in merged
 
 
 def test_merge_no_op_when_unchanged() -> None:

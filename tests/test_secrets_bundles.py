@@ -29,6 +29,9 @@ def test_split_secret_payload_drops_task_env_and_groups_keys() -> None:
         {
             "CORTEX_SECRETS_ARN": "should-drop",
             "CORTEX_SECRETS_ARNS": "should-drop",
+            "PR_LEANDNA_DATA_API_COOKIE": "retired-cookie",
+            "ST_LEANDNA_DATA_API_ORIGIN": "https://app.staging.leandna.com",
+            "LEANDNA_DATA_API_REFERER": "https://app.leandna.com/application/",
             "GOOGLE_SERVICE_ACCOUNT_JSON": {"type": "service_account"},
             "OPENAI_API_KEY": "sk-test",
             "SLACK_BOT_TOKEN": "xoxb-test",
@@ -37,6 +40,9 @@ def test_split_secret_payload_drops_task_env_and_groups_keys() -> None:
         }
     )
     assert "CORTEX_SECRETS_ARN" not in bundles[BUNDLE_INTEGRATIONS]
+    assert "PR_LEANDNA_DATA_API_COOKIE" not in bundles[BUNDLE_INTEGRATIONS]
+    assert "ST_LEANDNA_DATA_API_ORIGIN" not in bundles[BUNDLE_INTEGRATIONS]
+    assert "LEANDNA_DATA_API_REFERER" not in bundles[BUNDLE_INTEGRATIONS]
     assert bundles[BUNDLE_GOOGLE] == {"GOOGLE_SERVICE_ACCOUNT_JSON": {"type": "service_account"}}
     assert bundles[BUNDLE_LLM] == {"OPENAI_API_KEY": "sk-test"}
     assert bundles[BUNDLE_SLACK] == {"SLACK_BOT_TOKEN": "xoxb-test"}

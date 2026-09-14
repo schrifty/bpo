@@ -6,8 +6,8 @@ If the argument is **all digits**, it selects the catalog row with that **id** (
 Otherwise the argument is a **case-insensitive substring** match on ``name`` and
 ``crossSiteName``; **all** matching metrics are returned (sorted by id).
 
-Uses the same auth as ``metrics-get``: ``LEANDNA_DATA_API_BEARER_TOKEN`` and/or
-``LEANDNA_DATA_API_COOKIE`` in the repo ``.env``.
+Uses the same auth as ``metrics-get``: ``LEANDNA_DATA_API_API_KEY`` or
+``LEANDNA_DATA_API_BEARER_TOKEN`` in the repo ``.env``.
 
 Examples::
 
@@ -170,8 +170,8 @@ def main() -> int:
 
     if not leandna_data_api_credentials_configured():
         print(
-            "Missing LeanDNA Data API credentials — set LEANDNA_DATA_API_BEARER_TOKEN and/or "
-            "LEANDNA_DATA_API_COOKIE in .env.",
+            "Missing LeanDNA Data API credentials — set LEANDNA_DATA_API_API_KEY or "
+            "LEANDNA_DATA_API_BEARER_TOKEN in .env.",
             file=sys.stderr,
         )
         return 1
@@ -207,7 +207,7 @@ def main() -> int:
         if code == 401:
             print(
                 "LeanDNA returned 401 — token/session does not match this API host. "
-                "Align LEANDNA_DATA_API_BASE_URL with your cookie environment, or refresh credentials.",
+                "Align LEANDNA_DATA_API_BASE_URL with this token/API key, or refresh credentials.",
                 file=sys.stderr,
             )
         return 1

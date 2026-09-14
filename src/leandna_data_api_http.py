@@ -9,27 +9,20 @@ Auth modes (first match wins for Bearer):
   a new one is fetched automatically.
 - **Bearer token** — ``LEANDNA_DATA_API_BEARER_TOKEN`` (legacy / fallback if no API key).
   Paste the **raw token** only; a leading ``Bearer `` prefix is stripped.
-- **Session cookie** — ``LEANDNA_DATA_API_COOKIE`` copied from the browser while logged in.
-  Optional ``Origin`` / ``Referer`` are sent with cookie auth.
 
 With ``EXECUTION_ENV=Staging`` / ``Production`` / ``CI``, values come from ``ST_*`` /
 ``PR_*`` prefixed vars in ``src.config`` (see ``resolve_leandna_data_api_base_url``).
 
-Do **not** commit API keys or cookies; keep them in local ``.env`` only.
+Do **not** commit API keys; keep them in local ``.env`` only.
 """
 
 from __future__ import annotations
-
-from urllib.parse import urlparse
 
 import requests
 
 from .config import (
     LEANDNA_DATA_API_API_KEY,
     LEANDNA_DATA_API_BEARER_TOKEN,
-    LEANDNA_DATA_API_COOKIE,
-    LEANDNA_DATA_API_ORIGIN,
-    LEANDNA_DATA_API_REFERER,
 )
 from .leandna_auth_session import (
     derive_auth_api_base_url,
@@ -39,29 +32,11 @@ from .leandna_auth_session import (
 
 
 def leandna_data_api_credentials_configured() -> bool:
-    """True when API key, Bearer, and/or session cookie is set."""
+    """True when API key and/or Bearer token is set."""
     return bool(
         (LEANDNA_DATA_API_API_KEY or "").strip()
         or (LEANDNA_DATA_API_BEARER_TOKEN or "").strip()
-        or (LEANDNA_DATA_API_COOKIE or "").strip()
     )
-
-
-def _default_origin_for_cookie() -> str:
-    """``https://host`` derived from the resolved Data API base URL (or empty)."""
-    from .config import resolve_leandna_data_api_base_url
-
-    try:
-        raw = resolve_leandna_data_api_base_url()
-    except ValueError:
-        return ""
-    raw = raw.strip()
-    if "://" not in raw:
-        raw = "https://" + raw.lstrip("/")
-    p = urlparse(raw)
-    if p.scheme and p.netloc:
-        return f"{p.scheme}://{p.netloc}"
-    return ""
 
 
 def _normalize_bearer_token(raw: str) -> str:
@@ -106,35 +81,24 @@ def build_leandna_data_api_headers(
     """Headers for ``GET`` / ``POST`` / ``PUT`` / ``DELETE`` to ``{base}/data/...``.
 
     Raises:
-        ValueError: if neither API key, bearer token, nor session cookie is configured,
+        ValueError: if neither API key nor bearer token is configured,
             or Auth API exchange fails.
     """
-    cookie = (LEANDNA_DATA_API_COOKIE or "").strip()
     bearer = resolve_leandna_data_api_bearer(force_refresh_session=force_refresh_session)
-    if not bearer and not cookie:
+    if not bearer:
         raise ValueError(
-            "LeanDNA Data API: set LEANDNA_DATA_API_API_KEY (preferred), "
-            "LEANDNA_DATA_API_BEARER_TOKEN, and/or LEANDNA_DATA_API_COOKIE in .env. "
+            "LeanDNA Data API: set LEANDNA_DATA_API_API_KEY (preferred) or "
+            "LEANDNA_DATA_API_BEARER_TOKEN in .env. "
             "See docs/SETUP/LEANDNA_SETUP.md."
         )
 
     h: dict[str, str] = {
         "Accept": "application/json",
         "User-Agent": f"cortex-{user_agent_suffix}",
+        "Authorization": f"Bearer {bearer}",
     }
     if content_type_json:
         h["Content-Type"] = "application/json"
-    if bearer:
-        h["Authorization"] = f"Bearer {bearer}"
-    if cookie and not (LEANDNA_DATA_API_API_KEY or "").strip():
-        h["Cookie"] = cookie
-        origin = (LEANDNA_DATA_API_ORIGIN or "").strip() or _default_origin_for_cookie()
-        if origin:
-            h["Origin"] = origin
-            referer = (LEANDNA_DATA_API_REFERER or "").strip()
-            if not referer:
-                referer = origin.rstrip("/") + "/application/"
-            h["Referer"] = referer
     if requested_sites:
         h["RequestedSites"] = requested_sites.strip()
     return h

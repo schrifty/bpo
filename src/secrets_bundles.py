@@ -22,7 +22,7 @@ SECRET_BUNDLES: tuple[str, ...] = (
     BUNDLE_SLACK,
 )
 
-# Dropped from SM payloads — ECS task definition sets these.
+# Dropped from SM payloads — ECS task definition sets these, or retired.
 DROP_FROM_SECRET: frozenset[str] = frozenset(
     {
         "CORTEX_SKIP_DOTENV",
@@ -30,6 +30,15 @@ DROP_FROM_SECRET: frozenset[str] = frozenset(
         "CORTEX_SECRETS_ARNS",
         "CORTEX_CACHE_DIR",
         "CORTEX_LOG_FORMAT",
+        "LEANDNA_DATA_API_COOKIE",
+        "ST_LEANDNA_DATA_API_COOKIE",
+        "PR_LEANDNA_DATA_API_COOKIE",
+        "LEANDNA_DATA_API_ORIGIN",
+        "ST_LEANDNA_DATA_API_ORIGIN",
+        "PR_LEANDNA_DATA_API_ORIGIN",
+        "LEANDNA_DATA_API_REFERER",
+        "ST_LEANDNA_DATA_API_REFERER",
+        "PR_LEANDNA_DATA_API_REFERER",
     }
 )
 

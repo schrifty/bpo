@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Any, Literal
-from urllib.parse import urlparse
 
 import requests
 
@@ -27,9 +26,6 @@ class LeanDNAEnvConfig:
     bucket: LeanDNAEnvBucket
     base_url: str
     bearer_token: str
-    cookie: str
-    origin: str
-    referer: str
     api_key: str = ""
 
 
@@ -44,25 +40,15 @@ def load_leandna_env_config(bucket: LeanDNAEnvBucket) -> LeanDNAEnvConfig:
         )
     api_key = (os.environ.get(f"{prefix}LEANDNA_DATA_API_API_KEY") or "").strip()
     bearer = (os.environ.get(f"{prefix}LEANDNA_DATA_API_BEARER_TOKEN") or "").strip()
-    cookie = (os.environ.get(f"{prefix}LEANDNA_DATA_API_COOKIE") or "").strip()
-    if not api_key and not bearer and not cookie:
+    if not api_key and not bearer:
         raise ValueError(
-            f"Set {prefix}LEANDNA_DATA_API_API_KEY (preferred), "
-            f"{prefix}LEANDNA_DATA_API_BEARER_TOKEN, and/or {prefix}LEANDNA_DATA_API_COOKIE."
+            f"Set {prefix}LEANDNA_DATA_API_API_KEY (preferred) or "
+            f"{prefix}LEANDNA_DATA_API_BEARER_TOKEN."
         )
-    origin = (os.environ.get(f"{prefix}LEANDNA_DATA_API_ORIGIN") or "").strip()
-    referer = (os.environ.get(f"{prefix}LEANDNA_DATA_API_REFERER") or "").strip()
-    if cookie and not origin:
-        origin = _default_origin_from_base(base)
-    if cookie and not referer and origin:
-        referer = f"{origin.rstrip('/')}/application/"
     return LeanDNAEnvConfig(
         bucket=bucket,
         base_url=base,
         bearer_token=bearer,
-        cookie=cookie,
-        origin=origin,
-        referer=referer,
         api_key=api_key,
     )
 
@@ -73,16 +59,6 @@ def leandna_env_credentials_configured(bucket: LeanDNAEnvBucket) -> bool:
         return True
     except ValueError:
         return False
-
-
-def _default_origin_from_base(base_url: str) -> str:
-    raw = base_url.strip()
-    if "://" not in raw:
-        raw = "https://" + raw.lstrip("/")
-    p = urlparse(raw)
-    if p.scheme and p.netloc:
-        return f"{p.scheme}://{p.netloc}"
-    return ""
 
 
 def _normalize_bearer_token(raw: str) -> str:
@@ -109,20 +85,13 @@ def build_leandna_env_headers(
         )
     else:
         bearer = _normalize_bearer_token(config.bearer_token)
-    if not bearer and not config.cookie:
-        raise ValueError(f"LeanDNA {config.bucket}: missing API key, bearer token, and cookie.")
+    if not bearer:
+        raise ValueError(f"LeanDNA {config.bucket}: missing API key or bearer token.")
     headers: dict[str, str] = {
         "Accept": "application/json",
         "User-Agent": f"Mozilla/5.0 (compatible; Cortex/{user_agent_suffix})",
+        "Authorization": f"Bearer {bearer}",
     }
-    if bearer:
-        headers["Authorization"] = f"Bearer {bearer}"
-    if config.cookie and not api_key:
-        headers["Cookie"] = config.cookie
-        if config.origin:
-            headers["Origin"] = config.origin
-        if config.referer:
-            headers["Referer"] = config.referer
     if content_type_json:
         headers["Content-Type"] = "application/json"
     if requested_sites is not None and str(requested_sites).strip():

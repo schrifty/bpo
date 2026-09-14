@@ -6,7 +6,7 @@
 
 OpenAPI UI (requires login): https://app.leandna.com/application/apidocs/dist/index.html?urls.primaryName=Data#/
 
-Auth: ``LEANDNA_DATA_API_API_KEY`` (Auth ``POST /auth/data/session``) or fallback Bearer/cookie — see
+Auth: ``LEANDNA_DATA_API_API_KEY`` (Auth ``POST /auth/data/session``) or fallback Bearer — see
 ``docs/SETUP/LEANDNA_SETUP.md``.
 
 Mutations change tenant data — use only with appropriate approvals and correct ``RequestedSites``.
