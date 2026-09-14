@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Build AWS Secrets Manager JSON from repo-root ``.env`` (local use only).
+"""Build AWS Secrets Manager JSON bundles from repo-root ``.env`` (local use only).
 
-Inlines ``GOOGLE_APPLICATION_CREDENTIALS`` → ``GOOGLE_SERVICE_ACCOUNT_JSON`` and
-``SF_PRIVATE_KEY_PATH`` → ``SF_PRIVATE_KEY``. Does not commit output — write to a
-gitignored path and paste into Secrets Manager console or ``aws secretsmanager create-secret``.
+Splits credentials into ``google``, ``integrations``, ``llm``, and ``slack`` JSON
+files so they can rotate independently. Inlines ``GOOGLE_APPLICATION_CREDENTIALS``
+→ ``GOOGLE_SERVICE_ACCOUNT_JSON`` and ``SF_PRIVATE_KEY_PATH`` → ``SF_PRIVATE_KEY``.
+
+Does not commit output — write to a gitignored path and upload with Terraform
+(``secrets_json_dir``) or ``aws secretsmanager put-secret-value``.
 
 Usage:
   python3 scripts/build_secrets_manager_json.py
-  python3 scripts/build_secrets_manager_json.py -o output/cortex-secrets-manager.json
+  python3 scripts/build_secrets_manager_json.py -o output/cortex-secrets
 """
 
 from __future__ import annotations
@@ -19,6 +22,12 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.secrets_bundles import SECRET_BUNDLES, split_secret_payload  # noqa: E402
+
+DEFAULT_OUT_DIR = ROOT / "output" / "cortex-secrets"
 
 
 def _parse_dotenv(path: Path) -> dict[str, str]:
@@ -40,6 +49,7 @@ def _parse_dotenv(path: Path) -> dict[str, str]:
 
 
 def build_secrets_payload(env_path: Path | None = None) -> dict[str, Any]:
+    """Combined payload (all keys) after inlining file-based credentials."""
     path = env_path or (ROOT / ".env")
     if not path.is_file():
         raise FileNotFoundError(f".env not found: {path}")
@@ -59,29 +69,43 @@ def build_secrets_payload(env_path: Path | None = None) -> dict[str, Any]:
             key_file = (ROOT / key_file).resolve()
         payload["SF_PRIVATE_KEY"] = key_file.read_text(encoding="utf-8")
 
-    # ECS sets these via task definition — omit from secret blob.
-    for drop in ("CORTEX_SKIP_DOTENV", "CORTEX_SECRETS_ARN", "CORTEX_CACHE_DIR", "CORTEX_LOG_FORMAT"):
-        payload.pop(drop, None)
-
     return payload
 
 
+def build_secret_bundles(env_path: Path | None = None) -> dict[str, dict[str, Any]]:
+    return split_secret_payload(build_secrets_payload(env_path))
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Build Secrets Manager JSON from .env")
+    ap = argparse.ArgumentParser(description="Build split Secrets Manager JSON from .env")
     ap.add_argument(
         "-o",
         "--output",
         type=Path,
-        default=ROOT / "output" / "cortex-secrets-manager.json",
-        help="Output path (default: output/cortex-secrets-manager.json)",
+        default=DEFAULT_OUT_DIR,
+        help="Output directory (default: output/cortex-secrets). Writes google.json, "
+        "integrations.json, llm.json, slack.json.",
     )
     ap.add_argument("--env", type=Path, default=ROOT / ".env", help="Source .env file")
     args = ap.parse_args()
-    payload = build_secrets_payload(args.env)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"Wrote {len(payload)} keys → {args.output}", file=sys.stderr)
-    print("Do not commit this file.", file=sys.stderr)
+    bundles = build_secret_bundles(args.env)
+    out_dir = args.output
+    if out_dir.suffix.lower() == ".json":
+        # Old single-file path: write the directory next to it, plus a combined copy.
+        combined_path = out_dir
+        out_dir = out_dir.with_suffix("")
+        combined: dict[str, Any] = {}
+        for name in SECRET_BUNDLES:
+            combined.update(bundles[name])
+        combined_path.parent.mkdir(parents=True, exist_ok=True)
+        combined_path.write_text(json.dumps(combined, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"Wrote combined {len(combined)} keys → {combined_path}", file=sys.stderr)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name in SECRET_BUNDLES:
+        dest = out_dir / f"{name}.json"
+        dest.write_text(json.dumps(bundles[name], indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"Wrote {len(bundles[name])} keys → {dest}", file=sys.stderr)
+    print("Do not commit these files.", file=sys.stderr)
 
 
 if __name__ == "__main__":

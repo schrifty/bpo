@@ -28,7 +28,10 @@ data "aws_iam_policy_document" "ecs_task" {
       "secretsmanager:GetSecretValue",
       "secretsmanager:DescribeSecret",
     ]
-    resources = [aws_secretsmanager_secret.cortex.arn]
+    resources = concat(
+      [for b in local.secret_bundles : aws_secretsmanager_secret.bundle[b].arn],
+      [aws_secretsmanager_secret.cortex.arn],
+    )
   }
 
   statement {
@@ -126,7 +129,7 @@ data "aws_iam_policy_document" "eventbridge_ecs" {
   }
 
   statement {
-    effect = "Allow"
+    effect  = "Allow"
     actions = ["iam:PassRole"]
     resources = [
       aws_iam_role.ecs_execution.arn,

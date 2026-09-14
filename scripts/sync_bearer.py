@@ -16,7 +16,7 @@ Secret target resolution (first match):
 
   1. ``--secret-id`` / ``CORTEX_SECRETS_ARN``
   2. ``terraform -chdir=infra/terraform output -raw secrets_manager_arn``
-  3. ``cortex/prod/env``
+  3. ``cortex/prod/integrations``
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def resolve_secret_id(explicit: str | None) -> str:
             return proc.stdout.strip()
     except OSError:
         pass
-    return "cortex/prod/env"
+    return "cortex/prod/integrations"
 
 
 def _secretsmanager_client(region: str):
@@ -137,7 +137,7 @@ def main() -> int:
     ap.add_argument(
         "--secret-id",
         default=None,
-        help="Secrets Manager id or ARN (default: CORTEX_SECRETS_ARN, terraform output, cortex/prod/env)",
+        help="Secrets Manager id or ARN (default: CORTEX_SECRETS_ARN, terraform output, cortex/prod/integrations)",
     )
     ap.add_argument("--region", default="us-east-1", help="AWS region (default: us-east-1)")
     ap.add_argument(

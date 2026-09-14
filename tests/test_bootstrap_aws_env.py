@@ -47,3 +47,36 @@ def test_build_secret_env_and_shell_exports() -> None:
     assert "export OPENAI_API_KEY=" in rendered
     assert "export PENDO_INTEGRATION_KEY=" in rendered
 
+
+def test_secret_arns_from_env_merges_list_and_single(monkeypatch) -> None:
+    mod = _bootstrap_module()
+    monkeypatch.setenv(
+        "CORTEX_SECRETS_ARNS",
+        "arn:aws:secretsmanager:us-east-1:1:secret:google, arn:aws:secretsmanager:us-east-1:1:secret:integrations",
+    )
+    monkeypatch.setenv("CORTEX_SECRETS_ARN", "arn:aws:secretsmanager:us-east-1:1:secret:integrations")
+    arns = mod.secret_arns_from_env()
+    assert arns == [
+        "arn:aws:secretsmanager:us-east-1:1:secret:google",
+        "arn:aws:secretsmanager:us-east-1:1:secret:integrations",
+    ]
+
+
+def test_load_secret_env_merges_multiple_arns(monkeypatch) -> None:
+    mod = _bootstrap_module()
+    payloads = {
+        "arn:google": {"GOOGLE_SERVICE_ACCOUNT_JSON": {"client_email": "sa@x"}},
+        "arn:int": {"PENDO_INTEGRATION_KEY": "pendo-key"},
+        "arn:llm": {"OPENAI_API_KEY": "sk-test"},
+    }
+
+    def _payload(arn: str):
+        return payloads[arn]
+
+    monkeypatch.setattr(mod, "_payload_from_arn", _payload)
+    env = mod.load_secret_env(secrets_arn="arn:google,arn:int,arn:llm")
+    assert env["PENDO_INTEGRATION_KEY"] == "pendo-key"
+    assert env["OPENAI_API_KEY"] == "sk-test"
+    assert env["GOOGLE_APPLICATION_CREDENTIALS"]
+
+

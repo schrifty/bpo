@@ -40,6 +40,13 @@ SECRET_ARN="$(aws secretsmanager describe-secret --region "$REGION" \
   --query 'ARN' --output text 2>/dev/null || true)"
 import_if_missing 'aws_secretsmanager_secret.cortex' "$SECRET_ARN"
 
+for bundle in google integrations llm slack; do
+  BUNDLE_ARN="$(aws secretsmanager describe-secret --region "$REGION" \
+    --secret-id "${PREFIX}/${ENV}/${bundle}" \
+    --query 'ARN' --output text 2>/dev/null || true)"
+  import_if_missing "aws_secretsmanager_secret.bundle[\"${bundle}\"]" "$BUNDLE_ARN"
+done
+
 if [[ -n "${VPC_ID}" && "${VPC_ID}" != "None" ]]; then
   ECS_SG="$(aws ec2 describe-security-groups --region "$REGION" \
     --filters "Name=group-name,Values=${PREFIX}-ecs-tasks" "Name=vpc-id,Values=${VPC_ID}" \

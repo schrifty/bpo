@@ -19,7 +19,8 @@
         {"name": "CORTEX_LOG_FORMAT", "value": "json"},
         {"name": "CORTEX_FAIL_ON_INTEGRATION_WARNINGS", "value": "0"},
         {"name": "CORTEX_JOB_TIMEOUT_SECONDS", "value": "14400"},
-        {"name": "CORTEX_SECRETS_ARN", "value": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:cortex/prod/env"}
+        {"name": "CORTEX_SECRETS_ARNS", "value": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:cortex/prod/env,arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:cortex/prod/google,arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:cortex/prod/integrations,arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:cortex/prod/llm,arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:cortex/prod/slack"},
+        {"name": "CORTEX_SECRETS_ARN", "value": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:cortex/prod/integrations"}
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

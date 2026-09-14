@@ -121,10 +121,16 @@ variable "log_retention_days" {
 # --- Secrets ---
 
 variable "secrets_json_file" {
-  description = "Optional path to Secrets Manager JSON (from scripts/build_secrets_manager_json.py). Creates/updates secret version when set."
+  description = "Optional combined Secrets Manager JSON. When secrets_json_dir is empty, uploaded to cortex/prod/env (legacy) and the integrations bundle."
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "secrets_json_dir" {
+  description = "Directory of split JSON files from scripts/build_secrets_manager_json.py (google.json, integrations.json, llm.json, slack.json)."
+  type        = string
+  default     = ""
 }
 
 variable "secret_recovery_window_days" {

@@ -27,7 +27,34 @@ output "docker_build_push_commands" {
 }
 
 output "secrets_manager_arn" {
-  value = aws_secretsmanager_secret.cortex.arn
+  description = "Integrations bundle ARN (Pendo/Jira/Salesforce/LeanDNA). Sync scripts default here."
+  value       = aws_secretsmanager_secret.bundle["integrations"].arn
+}
+
+output "secrets_manager_legacy_arn" {
+  description = "Legacy combined secret cortex/prod/env (still loaded first on ECS; later bundles override)."
+  value       = aws_secretsmanager_secret.cortex.arn
+}
+
+output "secrets_manager_google_arn" {
+  value = aws_secretsmanager_secret.bundle["google"].arn
+}
+
+output "secrets_manager_integrations_arn" {
+  value = aws_secretsmanager_secret.bundle["integrations"].arn
+}
+
+output "secrets_manager_llm_arn" {
+  value = aws_secretsmanager_secret.bundle["llm"].arn
+}
+
+output "secrets_manager_slack_arn" {
+  value = aws_secretsmanager_secret.bundle["slack"].arn
+}
+
+output "secrets_manager_arns" {
+  description = "Comma-separated ARNs matching CORTEX_SECRETS_ARNS (legacy env first, then split bundles)."
+  value       = local.secrets_arns_csv
 }
 
 output "ecs_cluster_name" {

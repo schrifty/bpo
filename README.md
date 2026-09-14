@@ -28,7 +28,7 @@ docker run --rm -v "$PWD/.env:/app/.env:ro" -v "$PWD/.cache:/var/cortex/cache" \
   -e CORTEX_SKIP_DOTENV=0 -e CORTEX_CACHE_DIR=/var/cortex/cache cortex-cortex engineering-portfolio
 ```
 
-Production uses `scripts/run_job.sh` → `bootstrap_aws_env.py` (when `CORTEX_SECRETS_ARN` is set) → `cortex run-job`.
+Production uses `scripts/run_job.sh` → `bootstrap_aws_env.py` (when `CORTEX_SECRETS_ARNS` or `CORTEX_SECRETS_ARN` is set) → `cortex run-job`.
 Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includes `CORTEX_RUN_SUMMARY={…}` and EMF metrics.
 
 | Job | Schedule (EventBridge, UTC) | YAML |

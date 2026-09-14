@@ -16,9 +16,10 @@ One-time global install (``~/.local/bin`` on PATH)::
 
 Secret target resolution (first match):
 
-  1. ``--secret-id`` / ``CORTEX_SECRETS_ARN``
-  2. ``terraform -chdir=infra/terraform output -raw secrets_manager_arn``
-  3. ``cortex/prod/env``
+  1. ``--secret-id``
+  2. Terraform output ``secrets_manager_<bundle>_arn`` (bundle from the key names)
+  3. ``CORTEX_SECRETS_ARN`` only for integrations keys
+  4. ``cortex/prod/<bundle>``
 """
 
 from __future__ import annotations
@@ -33,6 +34,10 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.secrets_bundles import BUNDLE_INTEGRATIONS, bundle_for_key, default_secret_name
 
 
 def parse_dotenv(path: Path) -> dict[str, str]:
@@ -79,16 +84,11 @@ def merge_keys_from_dotenv(
     return merged, updated, missing
 
 
-def resolve_secret_id(explicit: str | None) -> str:
-    if explicit and explicit.strip():
-        return explicit.strip()
-    arn = (os.environ.get("CORTEX_SECRETS_ARN") or "").strip()
-    if arn:
-        return arn
+def _terraform_output(name: str) -> str:
     tf_dir = ROOT / "infra" / "terraform"
     try:
         proc = subprocess.run(
-            ["terraform", f"-chdir={tf_dir}", "output", "-raw", "secrets_manager_arn"],
+            ["terraform", f"-chdir={tf_dir}", "output", "-raw", name],
             check=False,
             capture_output=True,
             text=True,
@@ -97,7 +97,30 @@ def resolve_secret_id(explicit: str | None) -> str:
             return proc.stdout.strip()
     except OSError:
         pass
-    return "cortex/prod/env"
+    return ""
+
+
+def resolve_secret_id(explicit: str | None, keys: list[str]) -> str:
+    if explicit and explicit.strip():
+        return explicit.strip()
+    bundles = {bundle_for_key(k) for k in keys}
+    if len(bundles) != 1:
+        raise ValueError(
+            f"keys span secret bundles {sorted(bundles)}; sync one bundle at a time or pass --secret-id"
+        )
+    bundle = next(iter(bundles))
+    if bundle == BUNDLE_INTEGRATIONS:
+        arn = (os.environ.get("CORTEX_SECRETS_ARN") or "").strip()
+        if arn:
+            return arn
+    tf = _terraform_output(f"secrets_manager_{bundle}_arn")
+    if tf:
+        return tf
+    if bundle == BUNDLE_INTEGRATIONS:
+        tf = _terraform_output("secrets_manager_arn")
+        if tf:
+            return tf
+    return default_secret_name(bundle)
 
 
 def _secretsmanager_client(region: str):
@@ -139,7 +162,7 @@ def main() -> int:
     ap.add_argument(
         "--secret-id",
         default=None,
-        help="Secrets Manager id or ARN (default: CORTEX_SECRETS_ARN, terraform output, cortex/prod/env)",
+        help="Secrets Manager id or ARN (default: bundle for these keys via terraform / cortex/prod/<bundle>)",
     )
     ap.add_argument("--region", default="us-east-1", help="AWS region (default: us-east-1)")
     ap.add_argument(
@@ -154,7 +177,11 @@ def main() -> int:
         return 1
 
     dotenv = parse_dotenv(args.env)
-    secret_id = resolve_secret_id(args.secret_id)
+    try:
+        secret_id = resolve_secret_id(args.secret_id, list(args.keys))
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     try:
         existing = fetch_secret_json(secret_id=secret_id, region=args.region)
     except Exception as exc:

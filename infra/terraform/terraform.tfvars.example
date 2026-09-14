@@ -8,9 +8,10 @@ environment  = "prod"
 use_default_vpc  = true
 assign_public_ip = true
 
-# Upload secrets from local builder (repo root):
+# Upload split secrets from local builder (repo root):
 #   python3 scripts/build_secrets_manager_json.py
-# secrets_json_file = "../../output/cortex-secrets-manager.json"
+# secrets_json_dir  = "../../output/cortex-secrets"
+# secrets_json_file = "../../output/cortex-secrets-manager.json"  # optional combined → integrations
 
 image_tag           = "latest"
 default_job_command = ["engineering-portfolio"]

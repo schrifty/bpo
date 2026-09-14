@@ -21,8 +21,24 @@ locals {
   ecr_repository_name = "${var.name_prefix}-decks"
   log_group_name      = "/${var.name_prefix}/decks"
   secret_name         = "${var.name_prefix}/${var.environment}/env"
-  cluster_name        = var.name_prefix
-  task_family         = "${var.name_prefix}-decks"
+  secret_bundles      = ["google", "integrations", "llm", "slack"]
+  bundle_secret_files = {
+    for b in local.secret_bundles :
+    b => (
+      var.secrets_json_dir != "" && fileexists("${var.secrets_json_dir}/${b}.json") ? "${var.secrets_json_dir}/${b}.json" :
+      (b == "integrations" && var.secrets_json_file != "" ? var.secrets_json_file : null)
+    )
+    if(
+      (var.secrets_json_dir != "" && fileexists("${var.secrets_json_dir}/${b}.json")) ||
+      (b == "integrations" && var.secrets_json_file != "")
+    )
+  }
+  secrets_arns_csv = join(",", concat(
+    [aws_secretsmanager_secret.cortex.arn],
+    [for b in local.secret_bundles : aws_secretsmanager_secret.bundle[b].arn],
+  ))
+  cluster_name     = var.name_prefix
+  task_family      = "${var.name_prefix}-decks"
 
   execution_role_name = "${var.name_prefix}-ecs-execution"
   task_role_name      = "${var.name_prefix}-ecs-task"
@@ -37,7 +53,8 @@ locals {
       { name = "CORTEX_LOG_FORMAT", value = "json" },
       { name = "CORTEX_FAIL_ON_INTEGRATION_WARNINGS", value = var.fail_on_integration_warnings ? "1" : "0" },
       { name = "CORTEX_JOB_TIMEOUT_SECONDS", value = tostring(var.job_timeout_seconds) },
-      { name = "CORTEX_SECRETS_ARN", value = aws_secretsmanager_secret.cortex.arn },
+      { name = "CORTEX_SECRETS_ARNS", value = local.secrets_arns_csv },
+      { name = "CORTEX_SECRETS_ARN", value = aws_secretsmanager_secret.bundle["integrations"].arn },
       # Finance constant (not a secret); SM blob should match so local/.env and ECS agree.
       { name = "CORTEX_MONTHLY_SPEND_USD_ENGINEERING", value = "436000" },
     ],

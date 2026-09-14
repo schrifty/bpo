@@ -7,7 +7,7 @@ Idempotent replacement for manual IAM / EFS / ECS / EventBridge setup.
 | Resource | Name (default) |
 |----------|----------------|
 | ECR repository | `cortex-decks` |
-| Secrets Manager secret | `cortex/prod/env` |
+| Secrets Manager secrets | `cortex/prod/google`, `…/integrations`, `…/llm`, `…/slack`; legacy `cortex/prod/env` still loaded first |
 | CloudWatch log group | `/cortex/decks` |
 | EFS + access point | `cortex-cache` (uid/gid 1000) |
 | IAM roles | `cortex-ecs-execution`, `cortex-ecs-task`, `cortex-eventbridge-ecs` (if schedules on) |
@@ -27,16 +27,23 @@ Idempotent replacement for manual IAM / EFS / ECS / EventBridge setup.
 cd infra/terraform
 
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars — set secrets_json_file when ready
+# Edit terraform.tfvars — set secrets_json_dir when ready
 
-# Build secrets JSON from laptop .env (gitignored output)
+# Build split secrets JSON from laptop .env (gitignored output)
 cd ../..
 python3 scripts/build_secrets_manager_json.py
+# → output/cortex-secrets/{google,integrations,llm,slack}.json
 
 cd infra/terraform
 terraform init
 terraform plan
 terraform apply
+```
+
+ECS loads the legacy `cortex/prod/env` secret **first**, then the four bundles. Later keys win, so you can upload split JSON over time without breaking jobs. After the split files contain everything, stop updating `cortex/prod/env`.
+
+```hcl
+secrets_json_dir = "../../output/cortex-secrets"
 ```
 
 ### Push container image
@@ -102,7 +109,7 @@ When `enable_schedules` and `enable_job_retries` (default **true**) are on, a fa
 `morning-report` live-generates every `config/my-metrics.yaml` row with a `metric-generator`, compares to `target` / `direction`, and emails a plain-text digest via SES.
 
 1. Verify the SES **From** identity in `us-east-1` (sandbox: verify recipient too).
-2. Put these keys in Secrets Manager (`cortex/prod/env` JSON, same as `.env.example`):
+2. Put these keys in the **integrations** secret (`cortex/prod/integrations`, same names as `.env.example`):
    - `CORTEX_METRICS_DIGEST_TO` — comma-separated recipients (e.g. `marc.schriftman@leandna.com`)
    - `CORTEX_METRICS_DIGEST_FROM` — verified SES identity
 3. `terraform apply` so rule `cortex-morning-report` and task-role `ses:SendEmail` land.
@@ -115,7 +122,8 @@ When `enable_schedules` and `enable_job_retries` (default **true**) are on, a fa
 | `use_default_vpc` | `true` | Easiest first deploy |
 | `vpc_id` / `subnet_ids` | empty | Override for custom VPC |
 | `assign_public_ip` | `true` | Set `false` with private subnets + NAT |
-| `secrets_json_file` | empty | Path to `output/cortex-secrets-manager.json` |
+| `secrets_json_dir` | empty | Dir of `google.json` / `integrations.json` / `llm.json` / `slack.json` |
+| `secrets_json_file` | empty | Combined JSON → integrations (+ legacy `env` if dir unset) |
 | `enable_schedules` | `false` | EventBridge → ECS |
 | `enable_schedule_alarms` | `true` | FailedInvocations + run-summary-failed + ECS task-failure SNS |
 | `alarm_sns_topic_arn` | empty | Uses `${name_prefix}-cortex-schedule-alarms` when alarms enabled |
@@ -154,12 +162,22 @@ If you already created `cortex-ecs-execution` by hand, either:
 
 ## Secrets without Terraform
 
-Create the secret shell with Terraform, upload JSON once:
+Create the secret shells with Terraform, upload JSON:
 
 ```bash
+python3 scripts/build_secrets_manager_json.py
 aws secretsmanager put-secret-value \
-  --secret-id cortex/prod/env \
-  --secret-string file://../../output/cortex-secrets-manager.json
+  --secret-id cortex/prod/google \
+  --secret-string file://../../output/cortex-secrets/google.json
+aws secretsmanager put-secret-value \
+  --secret-id cortex/prod/integrations \
+  --secret-string file://../../output/cortex-secrets/integrations.json
+aws secretsmanager put-secret-value \
+  --secret-id cortex/prod/llm \
+  --secret-string file://../../output/cortex-secrets/llm.json
+aws secretsmanager put-secret-value \
+  --secret-id cortex/prod/slack \
+  --secret-string file://../../output/cortex-secrets/slack.json
 ```
 
 ## Destroy

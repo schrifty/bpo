@@ -2,7 +2,11 @@
 """Load Cortex secrets from AWS Secrets Manager into the process environment.
 
 Run before ``cortex.py`` on ECS/Fargate (see ``scripts/run_job.sh``). When
-``CORTEX_SECRETS_ARN`` is unset, exits 0 without changes so local runs keep using ``.env``.
+``CORTEX_SECRETS_ARNS`` and ``CORTEX_SECRETS_ARN`` are unset, exits 0 without
+changes so local runs keep using ``.env``.
+
+``CORTEX_SECRETS_ARNS`` is a comma-separated list (google, integrations, llm, slack).
+``CORTEX_SECRETS_ARN`` remains as a single-secret fallback.
 
 Expected secret JSON keys mirror ``.env.example`` variable names. Optional
 ``GOOGLE_SERVICE_ACCOUNT_JSON`` (object or string) is written to a temp file and
@@ -28,7 +32,7 @@ def _load_secret_string(arn: str) -> str:
         import boto3
     except ImportError as exc:
         raise RuntimeError(
-            "boto3 is required to load CORTEX_SECRETS_ARN; pip install boto3 or unset CORTEX_SECRETS_ARN"
+            "boto3 is required to load CORTEX_SECRETS_ARNS; pip install boto3 or unset CORTEX_SECRETS_ARNS"
         ) from exc
     client = boto3.client("secretsmanager")
     resp = client.get_secret_value(SecretId=arn)
@@ -83,10 +87,24 @@ def render_shell_exports(env: dict[str, str]) -> str:
     return "\n".join(f"export {key}={shlex.quote(val)}" for key, val in sorted(env.items()))
 
 
-def load_secret_env(*, secrets_arn: str | None = None, sa_dir: str | None = None) -> dict[str, str]:
-    arn = (secrets_arn or os.environ.get("CORTEX_SECRETS_ARN", "")).strip()
-    if not arn:
-        return {}
+def secret_arns_from_env(*, secrets_arn: str | None = None) -> list[str]:
+    """ARNs to load: ``CORTEX_SECRETS_ARNS`` (comma-separated) then ``CORTEX_SECRETS_ARN``."""
+    if secrets_arn and secrets_arn.strip():
+        return [a.strip() for a in secrets_arn.split(",") if a.strip()]
+    multi = (os.environ.get("CORTEX_SECRETS_ARNS") or "").strip()
+    single = (os.environ.get("CORTEX_SECRETS_ARN") or "").strip()
+    arns: list[str] = []
+    seen: set[str] = set()
+    for raw in (multi, single):
+        for part in raw.split(","):
+            arn = part.strip()
+            if arn and arn not in seen:
+                seen.add(arn)
+                arns.append(arn)
+    return arns
+
+
+def _payload_from_arn(arn: str) -> dict[str, Any]:
     raw = _load_secret_string(arn)
     try:
         payload = json.loads(raw)
@@ -94,7 +112,17 @@ def load_secret_env(*, secrets_arn: str | None = None, sa_dir: str | None = None
         raise RuntimeError(f"Secret {arn!r} is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise RuntimeError(f"Secret {arn!r} JSON must be an object")
-    return build_secret_env(payload, sa_dir=sa_dir)
+    return payload
+
+
+def load_secret_env(*, secrets_arn: str | None = None, sa_dir: str | None = None) -> dict[str, str]:
+    arns = secret_arns_from_env(secrets_arn=secrets_arn)
+    if not arns:
+        return {}
+    merged: dict[str, Any] = {}
+    for arn in arns:
+        merged.update(_payload_from_arn(arn))
+    return build_secret_env(merged, sa_dir=sa_dir)
 
 
 def bootstrap(*, secrets_arn: str | None = None) -> bool:
@@ -120,7 +148,7 @@ def main() -> None:
         print(f"bootstrap_aws_env: {exc}", file=sys.stderr)
         sys.exit(1)
     if applied:
-        print("bootstrap_aws_env: loaded secrets from CORTEX_SECRETS_ARN", file=sys.stderr)
+        print("bootstrap_aws_env: loaded secrets from CORTEX_SECRETS_ARNS", file=sys.stderr)
     sys.exit(0)
 
 
