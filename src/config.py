@@ -143,15 +143,7 @@ GOOGLE_APPLICATION_CREDENTIALS = _resolve_path_from_project_root(
     os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 )
 # QBR Generator folder id (Prompts, decks/, slides/, chart-data/, individual deck outputs, Output/, etc.).
-# Required for hydrate/QBR and Drive-backed YAML.
 GOOGLE_QBR_GENERATOR_FOLDER_ID = os.environ.get("GOOGLE_QBR_GENERATOR_FOLDER_ID", "").strip() or None
-# Optional: Drive folder id where the QBR Slides template lives. If unset, the template is resolved under GOOGLE_QBR_GENERATOR_FOLDER_ID.
-GOOGLE_QBR_TEMPLATE_FOLDER_ID = os.environ.get("GOOGLE_QBR_TEMPLATE_FOLDER_ID", "").strip() or None
-# Exact Google Slides file name (title) for the QBR template on Drive (must match).
-QBR_TEMPLATE_FILE_NAME = (
-    os.environ.get("QBR_TEMPLATE_FILE_NAME", "").strip()
-    or "BPO [Template] Executive Business Review [QBR]"
-)
 # Optional override: parent folder for `{ISO-date} - Output`; default is `<QBR Generator>/Output/`.
 GOOGLE_QBR_OUTPUT_PARENT_ID = os.environ.get("GOOGLE_QBR_OUTPUT_PARENT_ID", "").strip() or None
 # Portfolio / cohort: optional override for JSON snapshot folder. If unset, snapshots live under
@@ -165,18 +157,6 @@ _pcs = (os.environ.get("CORTEX_PORTFOLIO_CUSTOMER_SOURCE") or "auto").strip().lo
 CORTEX_PORTFOLIO_CUSTOMER_SOURCE = _pcs if _pcs else "auto"
 # Optional: your email (folder owner) - transfer ownership so files count against your quota, not service account's
 GOOGLE_DRIVE_OWNER_EMAIL = os.environ.get("GOOGLE_DRIVE_OWNER_EMAIL")
-# Hydrate/evaluate: Google Group email (e.g. hydrate-deck@yourdomain.com). Must match Share exactly.
-# Lists Slides where the group is Viewer or Editor (Drive query uses in readers OR in writers).
-GOOGLE_HYDRATE_INTAKE_GROUP = os.environ.get("GOOGLE_HYDRATE_INTAKE_GROUP", "").strip() or None
-# Hydrate: max slides to classify and include in the output copy. 0 = no limit. Default 10.
-try:
-    _hms = os.environ.get("HYDRATE_MAX_SLIDES", "10").strip()
-    HYDRATE_MAX_SLIDES = max(0, int(_hms))
-except ValueError:
-    HYDRATE_MAX_SLIDES = 10
-# After hydrate: remove GOOGLE_HYDRATE_INTAKE_GROUP from the **source** deck's sharing (Drive permission).
-_rm = os.environ.get("HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION", "true").strip().lower()
-HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION = _rm in ("1", "true", "yes", "on")
 # JIRA Cloud — default site REST (JIRA_URL); optional gateway via JIRA_AUTH_MODE=gateway
 JIRA_URL = os.environ.get("JIRA_URL")
 JIRA_EMAIL = os.environ.get("JIRA_EMAIL")
@@ -554,9 +534,6 @@ try:
 except ValueError:
     LEANDNA_LEAN_PROJECTS_CACHE_TTL_HOURS = 24
 
-# Optional limits for tool output (0 = no limit, full dataset returned)
-PENDO_MAX_RESULTS = int(os.environ.get("PENDO_MAX_RESULTS", "0"))
-PENDO_MAX_OUTPUT_CHARS = int(os.environ.get("PENDO_MAX_OUTPUT_CHARS", "0"))
 # Pendo in-process preload slice cache (short TTL within a single Python process).
 try:
     _pendo_cache_seconds = int(os.environ.get("CORTEX_PENDO_CACHE_TTL_SECONDS", "120").strip())
@@ -614,10 +591,6 @@ CORTEX_PENDO_MAX_BURST = max(1, _pendo_burst)
 _pendo_global_rl = os.environ.get("CORTEX_PENDO_GLOBAL_RATE_LIMIT", "true").strip().lower()
 CORTEX_PENDO_GLOBAL_RATE_LIMIT = _pendo_global_rl not in ("0", "false", "no", "off")
 
-# Feature Adoption slide: half-over-half usage narrative (extra Pendo aggregations). Off by default — disable by unsetting or false.
-_fai = os.environ.get("CORTEX_FEATURE_ADOPTION_INSIGHTS", "").strip().lower()
-FEATURE_ADOPTION_INSIGHTS = _fai in ("1", "true", "yes", "on")
-
 # Notable Signals: optional LLM pass to prioritize / merge heuristic + cross-source lines (after Phase 1 rules).
 _sslm = os.environ.get("CORTEX_SIGNALS_LLM", "").strip().lower()
 CORTEX_SIGNALS_LLM = _sslm in ("1", "true", "yes", "on")
@@ -644,8 +617,6 @@ except ValueError:
     CORTEX_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS = 2500
 _sed = os.environ.get("CORTEX_SIGNALS_LLM_EDITORIAL", "true").strip().lower()
 CORTEX_SIGNALS_LLM_EDITORIAL = _sed not in ("0", "false", "no", "off")
-_sdp = os.environ.get("CORTEX_SIGNALS_LLM_DECK_PROMPT", "true").strip().lower()
-CORTEX_SIGNALS_LLM_DECK_PROMPT = _sdp not in ("0", "false", "no", "off")
 
 # Notable Signals: Pendo visitor-window comparisons for trend banner + LLM (extra aggregate calls when on).
 _std = os.environ.get("CORTEX_SIGNALS_TRENDS", "true").strip().lower()
