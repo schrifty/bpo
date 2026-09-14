@@ -16,6 +16,7 @@ import yaml
 
 from .config import CORTEX_FAIL_ON_INTEGRATION_WARNINGS, CORTEX_JOB_TIMEOUT_SECONDS, logger
 from .data_source_health import check_all_required, check_jira_backed_deck_required, integration_freshness_metadata
+from .log_redact import redact_secrets
 from .run_context import init_run_context, set_run_phase
 from .run_diagnostics import run_diagnostics_scope, run_phase
 
@@ -377,14 +378,14 @@ def _step_result_to_dict(result: StepResult) -> dict[str, Any]:
         "exit_code": result.exit_code,
         "duration_s": round(result.duration_s, 1),
         "success": result.success,
-        "error": result.error,
+        "error": redact_secrets(result.error) if result.error else result.error,
     }
     if result.detail_messages:
-        row["detail_messages"] = list(result.detail_messages)
+        row["detail_messages"] = [redact_secrets(m) for m in result.detail_messages]
     if result.stdout_tail:
-        row["stdout_tail"] = result.stdout_tail
+        row["stdout_tail"] = redact_secrets(result.stdout_tail)
     if result.stderr_tail:
-        row["stderr_tail"] = result.stderr_tail
+        row["stderr_tail"] = redact_secrets(result.stderr_tail)
     return row
 
 
@@ -399,10 +400,10 @@ def _build_failures_payload(
     payload: dict[str, Any] = {
         "job": job_name,
         "run_id": run_id,
-        "failures": failures,
+        "failures": [redact_secrets(f) for f in failures],
     }
     if preflight_errors:
-        payload["preflight_errors"] = list(preflight_errors)
+        payload["preflight_errors"] = [redact_secrets(m) for m in preflight_errors]
     if step_results:
         failed_steps = [r for r in step_results if not r.success]
         if failed_steps:
@@ -497,8 +498,8 @@ def run_step_subprocess(
                 collected.append(line)
                 stripped = line.rstrip("\n")
                 if stripped:
-                    # Child already emits JSON/text logs; forward as-is at INFO.
-                    logger.info("%s", stripped)
+                    # Child already emits JSON/text logs; forward redacted at INFO.
+                    logger.info("%s", redact_secrets(stripped))
             proc.wait()
         finally:
             watcher.join(timeout=2.0)
@@ -514,6 +515,7 @@ def run_step_subprocess(
                 error=f"timeout after {timeout_seconds}s",
             )
         combined = "".join(collected)
+        combined_safe = redact_secrets(combined)
         ok = (proc.returncode or 0) == 0
         child_summary = _extract_child_run_summary(combined) if ok else None
         skipped = bool(child_summary and child_summary.get("skipped"))
@@ -521,16 +523,16 @@ def run_step_subprocess(
         if skipped:
             raw_reason = child_summary.get("skip_reason") if child_summary else None
             skip_reason = str(raw_reason).strip() if raw_reason else "source unchanged"
-        detail_messages = [] if ok else _extract_step_failure_messages(combined, "")
+        detail_messages = [] if ok else _extract_step_failure_messages(combined_safe, "")
         err = None
         if not ok:
             err = _summarize_step_error(
                 exit_code=int(proc.returncode or 1),
                 detail_messages=detail_messages,
-                stderr_tail=_tail_text(combined),
-                stdout_tail=_tail_text(combined),
+                stderr_tail=_tail_text(combined_safe),
+                stdout_tail=_tail_text(combined_safe),
             )
-            logger.error("job step output (%s):\n%s", name, _tail_text(combined, max_chars=2000))
+            logger.error("job step output (%s):\n%s", name, _tail_text(combined_safe, max_chars=2000))
         logger.info("job step end: %s success=%s duration_s=%.1f", name, ok, elapsed)
         return StepResult(
             name=name,
@@ -540,8 +542,8 @@ def run_step_subprocess(
             duration_s=elapsed,
             error=err,
             detail_messages=detail_messages,
-            stdout_tail=None if ok else _tail_text(combined),
-            stderr_tail=None if ok else _tail_text(combined),
+            stdout_tail=None if ok else _tail_text(combined_safe),
+            stderr_tail=None if ok else _tail_text(combined_safe),
             skipped=skipped,
             skip_reason=skip_reason,
         )

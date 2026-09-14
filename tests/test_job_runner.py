@@ -200,6 +200,75 @@ def test_build_failures_payload_includes_failed_step_details() -> None:
     assert payload["steps"][0]["name"] == "engineering-portfolio"
     assert payload["steps"][0]["detail_messages"] == ["Jira: timeout"]
     assert "stdout_tail" in payload["steps"][0]
+    assert payload["steps"][0]["stdout_tail"] == "  FAIL: deck error\n"
+
+
+def test_build_failures_payload_redacts_secrets_in_tails() -> None:
+    from src.job_runner import StepResult
+
+    step = StepResult(
+        name="export",
+        command="export-all",
+        success=False,
+        exit_code=1,
+        duration_s=1.0,
+        error="Bearer super-secret-session expired",
+        stdout_tail="Authorization: Bearer super-secret-session\nFAIL: boom\n",
+        stderr_tail="OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz\n",
+    )
+    payload = _build_failures_payload(
+        "llm-context-portfolio-daily",
+        "runid",
+        failures=["export: Bearer super-secret-session expired"],
+        step_results=[step],
+    )
+    dumped = str(payload)
+    assert "super-secret-session" not in dumped
+    assert "sk-abcdefghijklmnopqrstuvwxyz" not in dumped
+    assert "<redacted>" in dumped
+
+
+def test_run_step_subprocess_redacts_child_failure_tail(monkeypatch, caplog) -> None:
+    import logging
+    import os
+    import subprocess
+    import sys
+
+    import src.job_runner as jr
+    from src.job_runner import run_step_subprocess
+
+    real_popen = subprocess.Popen
+
+    def _secret_child(args, **kwargs):
+        return real_popen(
+            [
+                sys.executable,
+                "-c",
+                "print('Authorization: Bearer super-secret-session'); raise SystemExit(1)",
+            ],
+            stdout=kwargs.get("stdout"),
+            stderr=kwargs.get("stderr"),
+            text=kwargs.get("text"),
+            bufsize=kwargs.get("bufsize", 1),
+        )
+
+    monkeypatch.setattr(jr.subprocess, "Popen", _secret_child)
+    monkeypatch.setattr(jr, "build_step_argv", lambda step: ["noop"])
+    monkeypatch.setattr(jr, "set_run_phase", lambda *a, **k: None)
+    monkeypatch.setattr(jr, "_step_env", lambda *a, **k: os.environ.copy())
+
+    with caplog.at_level(logging.INFO, logger="cortex"):
+        result = run_step_subprocess(
+            {"name": "leak", "command": "deck"},
+            run_id="test-run",
+            job_name="test-job",
+            timeout_seconds=0,
+        )
+    assert result.success is False
+    assert result.stdout_tail is not None
+    assert "super-secret-session" not in result.stdout_tail
+    assert "<redacted>" in result.stdout_tail
+    assert "super-secret-session" not in caplog.text
 
 
 def test_summarize_step_error_prefers_detail_messages() -> None:
