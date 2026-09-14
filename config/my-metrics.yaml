@@ -449,16 +449,6 @@ metrics:
     target: 90
     direction: higher
 
-  # 2085
-  "Team Performance (Onshore vs. Offshore)":
-    description: null
-    mgmt_guidance: >-
-      Use this only once it is defined and wired; do not infer it from sprint delivery alone.
-      Until then this row is a placeholder.
-    metric-id: null
-    metric-generator: null
-    tags: [engineering, legacy]
-
   "Sprint Story Points Delivered":
     description: Story points completed in the latest sprint across boards.
     mgmt_guidance: >-
