@@ -128,6 +128,9 @@ def _is_historical_sla_gap(error: str | None) -> bool:
         or "no completed Time to resolution SLA cycles" in text
         or "no completed TTFR/TTR SLA cycles" in text
     )
+
+
+def _s3_client() -> Any:
     import boto3
 
     return boto3.client("s3")
