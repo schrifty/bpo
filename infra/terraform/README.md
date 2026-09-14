@@ -10,7 +10,7 @@ Idempotent replacement for manual IAM / EFS / ECS / EventBridge setup.
 | Secrets Manager secrets | `cortex/prod/google`, `…/integrations`, `…/llm`, `…/slack`; legacy `cortex/prod/env` still loaded first |
 | CloudWatch log group | `/cortex/decks` |
 | EFS + access point | `cortex-cache` (uid/gid 1000) |
-| IAM roles | `cortex-ecs-execution`, `cortex-ecs-task`, `cortex-eventbridge-ecs` (if schedules on) |
+| IAM roles | `cortex-ecs-execution`, `cortex-ecs-task` (full secrets), `cortex-ecs-task-llm` / `-decks` / `-metrics`, `cortex-eventbridge-ecs` (if schedules on) |
 | ECS cluster | `cortex` |
 | ECS task definition | `cortex-decks` |
 | EventBridge rules | optional (`enable_schedules`) |
@@ -96,7 +96,7 @@ enable_schedules = true
 terraform apply
 ```
 
-Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Shared Pendo ingest (`pendo-snapshot-refresh`) runs at **03:00 UTC**. Snapshot consumers start at **07:00 UTC** (after EventBridge’s 2h RunTask retry window plus snapshot runtime): `llm-context-portfolio-daily`, engineering portfolio at 07:30, engineering KPIs at 07:45, `pendo-ford-7d` / `pendo-ford-30d`, then `pendo-top-arr-detailed` at 09:00. CSR dumps run four times a day at **05:00 / 11:00 / 17:00 / 23:00 UTC** (locked to current CDT midnight / 6am / noon / 6pm). A full Drive dump rewrites ~97 customer workbooks; later slots **skip** when `Output/CSR-Dump-source.json` still matches the CS Report workbook name and Drive `modifiedTime` (`cortex --export-csr --force` to rewrite). Daily: `morning-report` **12:00 UTC** (≈07:00 Central; **disabled** until SES `leandna.com` DKIM DNS is in place — set `enabled = true` then). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
+Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Each job uses a **secret profile** (`llm`, `decks`, or `metrics`) so the Fargate task role can `GetSecretValue` only the bundles it needs — not the legacy combined `cortex/prod/env` blob. `llm` = Google + integrations + LLM + Slack (export-all, engineering portfolio). `decks` = Google + integrations (Pendo, CSR, engineering KPIs). `metrics` = integrations only, plus SES (morning-report). Ad-hoc `run-task` without overrides still uses `cortex-ecs-task` (full secrets) for smoke tests. Split JSON files must be populated; restricted jobs do not fall back to `cortex/prod/env`. Shared Pendo ingest (`pendo-snapshot-refresh`) runs at **03:00 UTC**. Snapshot consumers start at **07:00 UTC** (after EventBridge’s 2h RunTask retry window plus snapshot runtime): `llm-context-portfolio-daily`, engineering portfolio at 07:30, engineering KPIs at 07:45, `pendo-ford-7d` / `pendo-ford-30d`, then `pendo-top-arr-detailed` at 09:00. CSR dumps run four times a day at **05:00 / 11:00 / 17:00 / 23:00 UTC** (locked to current CDT midnight / 6am / noon / 6pm). A full Drive dump rewrites ~97 customer workbooks; later slots **skip** when `Output/CSR-Dump-source.json` still matches the CS Report workbook name and Drive `modifiedTime` (`cortex --export-csr --force` to rewrite). Daily: `morning-report` **12:00 UTC** (≈07:00 Central; **disabled** until SES `leandna.com` DKIM DNS is in place — set `enabled = true` then). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
 
 Renaming job keys recreates EventBridge rules on `terraform apply` (old `cortex-export-nightly` / `cortex-ford-pendo-*` / `cortex-csr-customer-dump-*` rules are replaced).
 

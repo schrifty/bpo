@@ -37,12 +37,15 @@ data "aws_iam_policy_document" "scheduler_ecs" {
   }
 
   statement {
-    effect = "Allow"
+    effect  = "Allow"
     actions = ["iam:PassRole"]
-    resources = [
-      aws_iam_role.ecs_execution.arn,
-      aws_iam_role.ecs_task.arn,
-    ]
+    resources = concat(
+      [
+        aws_iam_role.ecs_execution.arn,
+        aws_iam_role.ecs_task.arn,
+      ],
+      [for role in aws_iam_role.ecs_task_profile : role.arn],
+    )
   }
 }
 

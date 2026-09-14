@@ -116,6 +116,11 @@ def test_schedule_job_retry_creates_scheduler_at_expression(monkeypatch) -> None
     monkeypatch.setenv("CORTEX_ECS_SECURITY_GROUPS", "sg-1")
     monkeypatch.setenv("CORTEX_SCHEDULER_ROLE_ARN", "arn:aws:iam::1:role/cortex-scheduler-ecs")
     monkeypatch.setenv("CORTEX_JOB_RETRY_SCHEDULE_GROUP", "cortex-job-retries")
+    monkeypatch.setenv(
+        "CORTEX_SECRETS_ARNS",
+        "arn:aws:secretsmanager:us-east-1:1:secret:google,arn:aws:secretsmanager:us-east-1:1:secret:integrations",
+    )
+    monkeypatch.setenv("CORTEX_ECS_TASK_ROLE_ARN", "arn:aws:iam::1:role/cortex-ecs-task-decks")
     monkeypatch.delenv("CORTEX_RETRY_ATTEMPT", raising=False)
 
     client = MagicMock()
@@ -145,7 +150,10 @@ def test_schedule_job_retry_creates_scheduler_at_expression(monkeypatch) -> None
     env = {e["name"]: e["value"] for e in payload["containerOverrides"][0]["environment"]}
     assert env["CORTEX_RETRY_OF"] == "17f85f8455b94209be1239c10ae9dc97"
     assert env["CORTEX_RETRY_ATTEMPT"] == "1"
+    assert env["CORTEX_SECRETS_ARNS"].endswith("integrations")
+    assert env["CORTEX_ECS_TASK_ROLE_ARN"] == "arn:aws:iam::1:role/cortex-ecs-task-decks"
     assert payload["containerOverrides"][0]["command"] == ["pendo-ford-7d"]
+    assert kwargs["Target"]["EcsParameters"]["TaskRoleArn"] == "arn:aws:iam::1:role/cortex-ecs-task-decks"
 
 
 def test_maybe_schedule_wrapper_logs_skip(monkeypatch) -> None:

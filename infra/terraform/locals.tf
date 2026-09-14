@@ -37,8 +37,40 @@ locals {
     [aws_secretsmanager_secret.cortex.arn],
     [for b in local.secret_bundles : aws_secretsmanager_secret.bundle[b].arn],
   ))
-  cluster_name     = var.name_prefix
-  task_family      = "${var.name_prefix}-decks"
+
+  # Job-family secret profiles. Keep in sync with src/secrets_bundles.py JOB_SECRET_PROFILE.
+  secret_profile_bundles = {
+    llm     = ["google", "integrations", "llm", "slack"]
+    decks   = ["google", "integrations"]
+    metrics = ["integrations"]
+  }
+  job_secret_profile = {
+    "llm-context-portfolio-daily" = "llm"
+    "engineering-portfolio"       = "llm"
+    "engineering-kpis"            = "decks"
+    "pendo-snapshot-refresh"      = "decks"
+    "pendo-ford-7d"               = "decks"
+    "pendo-ford-30d"              = "decks"
+    "pendo-top-arr-detailed"      = "decks"
+    "csr-dump-0000"               = "decks"
+    "csr-dump-0600"               = "decks"
+    "csr-dump-1200"               = "decks"
+    "csr-dump-1800"               = "decks"
+    "morning-report"              = "metrics"
+  }
+  secret_profile_arns = {
+    for profile, bundles in local.secret_profile_bundles :
+    profile => [for b in bundles : aws_secretsmanager_secret.bundle[b].arn]
+  }
+  secret_profile_arns_csv = {
+    for profile, arns in local.secret_profile_arns : profile => join(",", arns)
+  }
+  task_role_arn_by_profile = merge(
+    { full = aws_iam_role.ecs_task.arn },
+    { for profile, role in aws_iam_role.ecs_task_profile : profile => role.arn },
+  )
+  cluster_name = var.name_prefix
+  task_family  = "${var.name_prefix}-decks"
 
   execution_role_name = "${var.name_prefix}-ecs-execution"
   task_role_name      = "${var.name_prefix}-ecs-task"
@@ -55,6 +87,7 @@ locals {
       { name = "CORTEX_JOB_TIMEOUT_SECONDS", value = tostring(var.job_timeout_seconds) },
       { name = "CORTEX_SECRETS_ARNS", value = local.secrets_arns_csv },
       { name = "CORTEX_SECRETS_ARN", value = aws_secretsmanager_secret.bundle["integrations"].arn },
+      { name = "CORTEX_ECS_TASK_ROLE_ARN", value = aws_iam_role.ecs_task.arn },
       # Finance constant (not a secret); SM blob should match so local/.env and ECS agree.
       { name = "CORTEX_MONTHLY_SPEND_USD_ENGINEERING", value = "436000" },
     ],

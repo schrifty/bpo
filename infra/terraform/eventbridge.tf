@@ -20,6 +20,7 @@ resource "aws_cloudwatch_event_target" "job" {
     task_definition_arn = aws_ecs_task_definition.decks.arn
     launch_type         = "FARGATE"
     platform_version    = "LATEST"
+    task_role_arn       = local.task_role_arn_by_profile[lookup(local.job_secret_profile, each.key, "full")]
 
     network_configuration {
       subnets          = local.subnet_ids
@@ -32,6 +33,16 @@ resource "aws_cloudwatch_event_target" "job" {
     containerOverrides = [{
       name    = "cortex-decks"
       command = each.value.command
+      environment = [
+        {
+          name  = "CORTEX_SECRETS_ARNS"
+          value = lookup(local.secret_profile_arns_csv, lookup(local.job_secret_profile, each.key, "full"), local.secrets_arns_csv)
+        },
+        {
+          name  = "CORTEX_ECS_TASK_ROLE_ARN"
+          value = local.task_role_arn_by_profile[lookup(local.job_secret_profile, each.key, "full")]
+        },
+      ]
     }]
   })
 

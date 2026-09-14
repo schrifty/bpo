@@ -296,6 +296,7 @@ def schedule_job_retry(
     container = (os.environ.get("CORTEX_ECS_CONTAINER_NAME") or "cortex-decks").strip() or "cortex-decks"
     group = (os.environ.get("CORTEX_JOB_RETRY_SCHEDULE_GROUP") or "default").strip() or "default"
     region = (os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1").strip()
+    task_role_arn = (os.environ.get("CORTEX_ECS_TASK_ROLE_ARN") or "").strip()
 
     delay = retry_delay_minutes()
     when = (now or datetime.now(timezone.utc)) + timedelta(minutes=delay)
@@ -309,19 +310,40 @@ def schedule_job_retry(
     name = _schedule_name(job_name, run_id, next_attempt)
     new_run_id = uuid.uuid4().hex
 
+    retry_env = [
+        {"name": "CORTEX_RETRY_OF", "value": run_id},
+        {"name": "CORTEX_RETRY_ATTEMPT", "value": str(next_attempt)},
+        {"name": "CORTEX_RUN_ID", "value": new_run_id},
+    ]
+    for env_name in ("CORTEX_SECRETS_ARNS", "CORTEX_SECRETS_ARN", "CORTEX_ECS_TASK_ROLE_ARN"):
+        env_val = (os.environ.get(env_name) or "").strip()
+        if env_val:
+            retry_env.append({"name": env_name, "value": env_val})
+
     target_input = {
         "containerOverrides": [
             {
                 "name": container,
                 "command": [job_name],
-                "environment": [
-                    {"name": "CORTEX_RETRY_OF", "value": run_id},
-                    {"name": "CORTEX_RETRY_ATTEMPT", "value": str(next_attempt)},
-                    {"name": "CORTEX_RUN_ID", "value": new_run_id},
-                ],
+                "environment": retry_env,
             }
         ]
     }
+
+    ecs_parameters: dict[str, Any] = {
+        "TaskDefinitionArn": task_def,
+        "LaunchType": "FARGATE",
+        "TaskCount": 1,
+        "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+                "Subnets": subnets,
+                "SecurityGroups": security_groups,
+                "AssignPublicIp": assign_public,
+            }
+        },
+    }
+    if task_role_arn:
+        ecs_parameters["TaskRoleArn"] = task_role_arn
 
     client = scheduler_client
     if client is None:
@@ -339,18 +361,7 @@ def schedule_job_retry(
             Target={
                 "Arn": cluster_arn,
                 "RoleArn": role_arn,
-                "EcsParameters": {
-                    "TaskDefinitionArn": task_def,
-                    "LaunchType": "FARGATE",
-                    "TaskCount": 1,
-                    "NetworkConfiguration": {
-                        "awsvpcConfiguration": {
-                            "Subnets": subnets,
-                            "SecurityGroups": security_groups,
-                            "AssignPublicIp": assign_public,
-                        }
-                    },
-                },
+                "EcsParameters": ecs_parameters,
                 "Input": json.dumps(target_input, separators=(",", ":")),
             },
         )

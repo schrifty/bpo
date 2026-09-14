@@ -47,3 +47,16 @@ def test_split_secret_payload_drops_task_env_and_groups_keys() -> None:
 def test_default_secret_name() -> None:
     assert default_secret_name("integrations") == "cortex/prod/integrations"
     assert default_secret_name("llm", prefix="cortex-tf", environment="staging") == "cortex-tf/staging/llm"
+
+
+def test_job_secret_profiles_cover_scheduled_catalog() -> None:
+    from src.ecs_schedule_report import SCHEDULED_JOBS_CATALOG
+    from src.secrets_bundles import JOB_SECRET_PROFILE, PROFILE_BUNDLES, secret_profile_for_job
+
+    assert set(JOB_SECRET_PROFILE) == set(SCHEDULED_JOBS_CATALOG)
+    assert secret_profile_for_job("morning-report") == "metrics"
+    assert secret_profile_for_job("llm-context-portfolio-daily") == "llm"
+    assert secret_profile_for_job("pendo-ford-7d") == "decks"
+    assert "llm" not in PROFILE_BUNDLES["decks"]
+    assert "google" not in PROFILE_BUNDLES["metrics"]
+    assert secret_profile_for_job("unknown-job") == "full"

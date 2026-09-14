@@ -77,6 +77,11 @@ output "task_role_arn" {
   value = aws_iam_role.ecs_task.arn
 }
 
+output "task_role_arns" {
+  description = "ECS task role ARN by secret profile (full, llm, decks, metrics)."
+  value       = local.task_role_arn_by_profile
+}
+
 output "ecs_tasks_security_group_id" {
   value = aws_security_group.ecs_tasks.id
 }
