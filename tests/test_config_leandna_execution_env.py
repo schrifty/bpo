@@ -50,3 +50,49 @@ def test_data_api_get_json_returns_envelope_when_base_unresolved(monkeypatch: py
     out = data_api_get_json("Metric")
     assert out["ok"] is False
     assert "no base" in out["error"]
+
+
+def test_execution_env_production_blocks_mutations(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as cfg
+
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.delenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", raising=False)
+    assert cfg.execution_env_disallows_http_mutations() is True
+    assert cfg.leandna_http_mutations_allowed() is False
+    blocked = cfg.leandna_http_mutation_blocked_envelope(method="POST", path="Metric/1/MetricDataPoint")
+    assert blocked is not None
+    assert blocked["ok"] is False
+    assert "POST" in blocked["error"]
+
+
+def test_execution_env_staging_allows_mutations(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as cfg
+
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "staging")
+    monkeypatch.delenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", raising=False)
+    assert cfg.execution_env_disallows_http_mutations() is False
+    assert cfg.leandna_http_mutations_allowed() is True
+    assert cfg.leandna_http_mutation_blocked_envelope(method="DELETE") is None
+
+
+def test_production_mutations_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as cfg
+
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.setenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", "true")
+    assert cfg.leandna_http_mutations_allowed() is True
+    assert cfg.leandna_http_mutation_blocked_envelope(method="POST") is None
+
+
+def test_production_target_blocked_even_when_process_is_staging(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as cfg
+
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "staging")
+    monkeypatch.delenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", raising=False)
+    assert cfg.leandna_http_mutations_allowed() is True
+    blocked = cfg.leandna_http_mutation_blocked_envelope(
+        method="PUT", path="LeanProject/1", production_target=True
+    )
+    assert blocked is not None
+    assert blocked["ok"] is False
+    assert blocked["method"] == "PUT"

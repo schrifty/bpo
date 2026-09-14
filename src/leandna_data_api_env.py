@@ -217,6 +217,14 @@ def env_mutate_json(
     m = (method or "").strip().upper()
     if m not in ("POST", "PUT", "DELETE"):
         return {"ok": False, "error": f"method must be POST, PUT, or DELETE, not {method!r}"}
+    if config.bucket == "production":
+        from .config import leandna_http_mutation_blocked_envelope
+
+        blocked = leandna_http_mutation_blocked_envelope(
+            method=m, path=path, production_target=True
+        )
+        if blocked is not None:
+            return blocked
     try:
         rel = normalize_data_api_relative_path(path)
     except ValueError as e:

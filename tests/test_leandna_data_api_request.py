@@ -124,9 +124,11 @@ def test_data_api_mutate_json_invalid_method() -> None:
     assert "POST" in out.get("error", "")
 
 
-def test_data_api_mutate_json_missing_credentials_envelope() -> None:
+def test_data_api_mutate_json_missing_credentials_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as cfg
     from src.leandna_data_api_request import data_api_mutate_json
 
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "legacy")
     with patch("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", ""), patch(
         "src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", ""
     ), patch("src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", ""):
@@ -135,11 +137,13 @@ def test_data_api_mutate_json_missing_credentials_envelope() -> None:
     assert "error" in out
 
 
-def test_data_api_mutate_json_post_success_envelope() -> None:
+def test_data_api_mutate_json_post_success_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
     from unittest.mock import MagicMock, patch
 
+    import src.config as cfg
     from src.leandna_data_api_request import data_api_mutate_json
 
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "legacy")
     resp = MagicMock()
     resp.ok = True
     resp.status_code = 200
@@ -154,13 +158,26 @@ def test_data_api_mutate_json_post_success_envelope() -> None:
     assert out["body"] == {"created": True}
 
 
-def test_data_api_mutate_json_not_blocked_when_production_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_data_api_mutate_json_blocked_when_production_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as cfg
+    from src.leandna_data_api_request import data_api_mutate_json
+
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.delenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", raising=False)
+    out = data_api_mutate_json("DELETE", "Metric/1/MetricDataPoint")
+    assert out["ok"] is False
+    assert "disabled" in out["error"].lower()
+    assert out["method"] == "DELETE"
+
+
+def test_data_api_mutate_json_allowed_when_production_override(monkeypatch: pytest.MonkeyPatch) -> None:
     from unittest.mock import MagicMock, patch
 
     import src.config as cfg
     from src.leandna_data_api_request import data_api_mutate_json
 
     monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.setenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", "true")
     resp = MagicMock()
     resp.ok = True
     resp.status_code = 200
@@ -175,6 +192,24 @@ def test_data_api_mutate_json_not_blocked_when_production_bucket(monkeypatch: py
     assert out["ok"] is True
     mock_req.assert_called_once()
     assert mock_req.call_args.args[0] == "DELETE"
+
+
+def test_env_mutate_json_blocked_for_production_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.leandna_data_api_env import LeanDNAEnvConfig, env_mutate_json
+
+    monkeypatch.delenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", raising=False)
+    cfg = LeanDNAEnvConfig(
+        bucket="production",
+        base_url="https://app.leandna.com/api",
+        bearer_token="tok",
+        cookie="",
+        origin="",
+        referer="",
+        api_key="",
+    )
+    out = env_mutate_json(cfg, "POST", "Metric/1/MetricDataPoint", json_body={"value": 1})
+    assert out["ok"] is False
+    assert "disabled" in out["error"].lower()
 
 
 def test_leandna_data_api_mutate_tool_rejects_non_object_body() -> None:

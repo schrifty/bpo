@@ -449,6 +449,64 @@ def resolve_leandna_data_api_base_url() -> str:
     )
 
 
+def execution_env_disallows_http_mutations() -> bool:
+    """True when ``EXECUTION_ENV`` is Production or CI (``PR_*`` credential bucket)."""
+    return CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET == "production"
+
+
+def _production_http_mutations_explicitly_allowed() -> bool:
+    return _truthy_env("CORTEX_ALLOW_PRODUCTION_MUTATIONS")
+
+
+def leandna_http_mutations_allowed(*, production_target: bool | None = None) -> bool:
+    """Whether LeanDNA Data API POST/PUT/DELETE are permitted.
+
+    Production targets (process ``EXECUTION_ENV`` Production/CI, or an explicit
+    ``PR_*`` env config) require ``CORTEX_ALLOW_PRODUCTION_MUTATIONS=true``.
+    Staging and legacy (unset ``EXECUTION_ENV``) writes are allowed without the flag.
+    """
+    targeting_prod = (
+        execution_env_disallows_http_mutations() if production_target is None else production_target
+    )
+    if not targeting_prod:
+        return True
+    return _production_http_mutations_explicitly_allowed()
+
+
+def leandna_http_mutation_blocked_envelope(
+    *,
+    method: str,
+    path: str = "",
+    production_target: bool | None = None,
+) -> dict[str, Any] | None:
+    """Return a tool/client error envelope when production mode blocks mutations; else ``None``."""
+    targeting_prod = (
+        execution_env_disallows_http_mutations() if production_target is None else production_target
+    )
+    if leandna_http_mutations_allowed(production_target=targeting_prod):
+        if targeting_prod and _production_http_mutations_explicitly_allowed():
+            logger.warning(
+                "CORTEX_ALLOW_PRODUCTION_MUTATIONS is set; allowing LeanDNA %s %s despite production target",
+                method,
+                path or "(no path yet)",
+            )
+        return None
+    env_label = (os.environ.get("EXECUTION_ENV") or "").strip() or "Production/CI"
+    return {
+        "ok": False,
+        "error": (
+            "LeanDNA Data API mutations (POST, PUT, DELETE) are disabled when "
+            f"targeting production (EXECUTION_ENV is {env_label!r} / PR_* credentials)."
+        ),
+        "hint": (
+            "Use EXECUTION_ENV=Staging for writes, unset EXECUTION_ENV for legacy dev, "
+            "or set CORTEX_ALLOW_PRODUCTION_MUTATIONS=true to opt in explicitly."
+        ),
+        "method": method,
+        "path": path,
+    }
+
+
 try:
     _ldna_cache_hours = int(os.environ.get("LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS", "24").strip())
     LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS = max(1, min(168, _ldna_cache_hours))  # 1h-7d range

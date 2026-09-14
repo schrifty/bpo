@@ -8,6 +8,7 @@ import logging
 import sys
 from typing import Any
 
+from src.config import CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET
 from src.leandna_metrics_write import (
     READ_TIMEOUT_S,
     MetricDeleteArgs,
@@ -122,7 +123,12 @@ def print_result_env(env: dict[str, Any]) -> None:
         if hint:
             print(hint, file=sys.stderr)
     err = str((insert or env).get("error") or "")
-    if (insert or env).get("status") == 401 or "session not found" in err.lower():
+    if "mutations" in err.lower() and CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET == "production":
+        print(
+            "Production writes blocked — prefix command with CORTEX_ALLOW_PRODUCTION_MUTATIONS=true",
+            file=sys.stderr,
+        )
+    elif (insert or env).get("status") == 401 or "session not found" in err.lower():
         print(
             "Auth session expired — Cortex will refresh from PR_LEANDNA_DATA_API_API_KEY; "
             "if this persists, check that API key is valid for this Data API host.",
