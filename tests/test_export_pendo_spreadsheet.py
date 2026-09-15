@@ -6,6 +6,7 @@ from pathlib import Path
 
 from src.export_pendo_spreadsheet import (
     build_pendo_export_workbook_tables,
+    upload_pendo_export_spreadsheet,
     write_pendo_export_xlsx,
 )
 
@@ -246,6 +247,68 @@ def test_rows_to_grid_json_encodes_nested_cell_values() -> None:
     )
     assert grid[1][0] == "Ford"
     assert '"feature_id"' in str(grid[1][-1])
+
+
+def test_upload_pendo_export_spreadsheet_updates_existing_in_place(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    creates: list[object] = []
+    deletes: list[str] = []
+    updates: list[str] = []
+
+    monkeypatch.setattr("src.drive_config.dedupe_duplicate_names_in_folder", lambda *_a, **_k: "ss-existing")
+    monkeypatch.setattr("src.drive_config.find_file_in_folder", lambda *_a, **_k: "ss-existing")
+    monkeypatch.setattr("src.charts._build_sheets_service", lambda: MagicMock())
+    drive = MagicMock()
+    drive.files.return_value.delete.return_value.execute.side_effect = lambda: deletes.append("deleted")
+    monkeypatch.setattr("src.slides_api._get_service", lambda **_k: (None, drive, None))
+    monkeypatch.setattr(
+        "src.slides_api.sheets_spreadsheet_create",
+        lambda *_a, **_k: creates.append("created") or {"spreadsheetId": "new"},
+    )
+    monkeypatch.setattr("src.slides_api.sheets_spreadsheet_batch_update", lambda *_a, **_k: None)
+    monkeypatch.setattr("src.slides_api.sheets_spreadsheet_values_clear", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "src.slides_api.sheets_spreadsheet_get",
+        lambda *_a, **_k: {"sheets": [{"properties": {"title": "meta"}}]},
+    )
+    monkeypatch.setattr(
+        "src.slides_api.sheets_spreadsheet_values_update",
+        lambda *_a, **kwargs: updates.append(str(kwargs.get("spreadsheet_id") or "")),
+    )
+
+    assert (
+        upload_pendo_export_spreadsheet(_SAMPLE_REPORT, "Pendo Detailed Export  (GE, 7d)-persistent", "folder")
+        == "ss-existing"
+    )
+    assert creates == []
+    assert deletes == []
+    assert "ss-existing" in updates
+    drive.files.return_value.update.assert_not_called()
+
+
+def test_upload_pendo_export_spreadsheet_creates_when_missing(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr("src.drive_config.dedupe_duplicate_names_in_folder", lambda *_a, **_k: None)
+    monkeypatch.setattr("src.drive_config.find_file_in_folder", lambda *_a, **_k: None)
+    monkeypatch.setattr("src.charts._build_sheets_service", lambda: MagicMock())
+    drive = MagicMock()
+    monkeypatch.setattr("src.slides_api._get_service", lambda **_k: (None, drive, None))
+    monkeypatch.setattr(
+        "src.slides_api.sheets_spreadsheet_create",
+        lambda *_a, **_k: {"spreadsheetId": "ss-new"},
+    )
+    updates: list[str] = []
+    monkeypatch.setattr(
+        "src.slides_api.sheets_spreadsheet_values_update",
+        lambda *_a, **kwargs: updates.append(str(kwargs.get("spreadsheet_id") or "")),
+    )
+
+    assert upload_pendo_export_spreadsheet(_SAMPLE_REPORT, "Title", "folder") == "ss-new"
+    drive.files.return_value.update.assert_called()
+    assert updates
+    assert all(u == "ss-new" for u in updates)
 
 
 def test_rows_to_grid_serializes_datetime_csr_dates() -> None:
