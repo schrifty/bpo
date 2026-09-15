@@ -78,7 +78,7 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     snap = next(r for r in rows if r.job_key == "kpi-snapshot")
     assert snap.rule_name == "cortex-kpi-snapshot"
     assert snap.schedule_expression == "cron(15 7 * * ? *)"
-    assert snap.state == "ENABLED"
+    assert snap.source == "catalog"
     export = next(r for r in rows if r.job_key == "llm-context-portfolio-daily")
     assert export.rule_name == "cortex-llm-context-portfolio-daily"
     assert export.schedule_expression == "cron(0 7 * * ? *)"

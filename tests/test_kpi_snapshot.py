@@ -286,3 +286,43 @@ def test_kpi_snapshot_job_persists_not_dry_run() -> None:
     assert argv[0] == "kpi-snapshot"
     assert "--dry-run" not in argv
 
+
+def test_stored_mode_reads_rows_after_snapshot(tmp_path: Path) -> None:
+    """Acceptance: after kpi-snapshot persist, stored resolve returns those rows."""
+    from src.kpi_service import resolve_kpi
+
+    db = tmp_path / "kpi.sqlite"
+
+    def invoke(name, **kwargs):
+        if name == "get_prs_merged":
+            return {"value": 42, "numerator": 42, "denominator": 1}
+        return {"value": 9, "numerator": 9, "denominator": 1}
+
+    summary = run_kpi_snapshot(
+        _ctx(dry_run=False),
+        dry_run=False,
+        registry=_registry(),
+        db_path=db,
+        skip_s3=True,
+        invoke=invoke,
+        tag="engineering",
+    )
+    assert summary["ok"] is True
+    assert summary["written"] >= 1
+
+    conn = connect(db)
+    try:
+        row = resolve_kpi(
+            "PRs Merged",
+            _registry()["metrics"]["PRs Merged"],
+            mode="stored",
+            registry=_registry(),
+            ctx=_ctx(),
+            store_conn=conn,
+        )
+    finally:
+        conn.close()
+    assert row.observation is not None
+    assert row.observation.ok is True
+    assert row.observation.value == 42
+
