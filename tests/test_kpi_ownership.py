@@ -14,6 +14,7 @@ from src.kpi_observation import KPIObservation
 from src.kpi_owners import (
     KPIOwnershipError,
     assert_actor_may_mutate_metric,
+    assert_actor_may_view_catalog,
     load_kpi_owners_config,
     reset_for_tests,
     resolve_owner_cli_value,
@@ -244,6 +245,14 @@ def test_assert_actor_unknown_fails_loud(tmp_path: Path) -> None:
             action="edit",
             owners=cfg,
         )
+
+
+def test_assert_actor_may_view_catalog_read_all(tmp_path: Path) -> None:
+    cfg = load_kpi_owners_config(path=_write_owners(tmp_path))
+    assert_actor_may_view_catalog("marc.schriftman@leandna.com", owners=cfg)
+    assert_actor_may_view_catalog("lead.eng@leandna.com", owners=cfg)
+    with pytest.raises(KPIOwnershipError, match="unauthorized KPI viewer"):
+        assert_actor_may_view_catalog("stranger@leandna.com", owners=cfg)
 
 
 def test_repo_owners_config_loads() -> None:

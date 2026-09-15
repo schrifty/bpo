@@ -186,6 +186,10 @@ Ownership (config/kpi_owners.yaml)
   kpi list default to the actor. Invalid owner / unauthorized edit fails loud
   (no silent skip). Salesforce is not used for KPI ownership.
 
+Web view (read-only browser UI)
+  bin/kpi-web --dev-user YOU@leandna.com --skip-s3
+  Docs: docs/SETUP/KPI_WEB.md (Google Workspace SSO + API)
+
 LeanDNA owned metrics (Data API)
   cortex kpi mine [--values] [--requested-sites ID]
 

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cortex KPIs</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <a href="/" class="brand-link">Cortex KPIs</a>
+      <span class="sub">read-only view</span>
+    </div>
+    <div id="session" class="session"></div>
+  </header>
+
+  <main>
+    <section id="login-panel" class="panel hidden">
+      <h1>Sign in</h1>
+      <p class="muted">Google Workspace SSO. Only catalog admin and configured leads can view KPIs.</p>
+      <div id="login-actions" class="row"></div>
+      <p id="login-error" class="error" hidden></p>
+    </section>
+
+    <section id="app-panel" class="hidden">
+      <div class="toolbar">
+        <label>
+          Owner
+          <select id="filter-owner">
+            <option value="">All owners</option>
+          </select>
+        </label>
+        <label>
+          Tag
+          <select id="filter-tag">
+            <option value="">All tags</option>
+          </select>
+        </label>
+        <label>
+          Mode
+          <select id="filter-mode">
+            <option value="stored">stored</option>
+            <option value="live">live</option>
+            <option value="leandna">leandna</option>
+          </select>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="filter-values" />
+          Resolve values
+        </label>
+        <button type="button" id="btn-refresh">Refresh</button>
+      </div>
+
+      <p id="list-status" class="muted"></p>
+      <p id="list-error" class="error" hidden></p>
+
+      <div class="layout">
+        <div class="list-pane">
+          <table id="kpi-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Owner</th>
+                <th>Tags</th>
+                <th>Target</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <p id="empty-state" class="muted hidden">No KPIs match these filters.</p>
+        </div>
+        <aside id="detail" class="detail-pane">
+          <p class="muted">Select a KPI to see description, guidance, target, value, and history.</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

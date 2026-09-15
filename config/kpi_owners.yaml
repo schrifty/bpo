@@ -3,8 +3,8 @@
 # Cortex registry ownership is independent of Salesforce (customer SoR) and of
 # LeanDNA Metric.ownerId (optional enrichment via `cortex kpi mine`).
 #
-# Identities are Google Workspace emails (lowercase). Web SSO is out of scope
-# for the ownership data model; CLI/library use --as-user / CORTEX_KPI_ACTOR.
+# Identities are Google Workspace emails (lowercase). Web SSO authenticates the
+# same emails; CLI/library use --as-user / CORTEX_KPI_ACTOR.
 #
 # Permissions:
 #   catalog_admin — full catalog (add/edit/delete any KPI; any owner; any tags)

@@ -127,6 +127,17 @@ cortex --sync-config --sync-overwrite
 
 After syncing, the app reads from Drive first and falls back to local files if a Drive file has errors. Parse failures are surfaced on the Data Quality slide.
 
+## KPI web view
+
+Read-only browser UI over the same KPI registry / store as the CLI (Google Workspace SSO).
+
+```bash
+bin/kpi-web --dev-user marc.schriftman@leandna.com --skip-s3
+# open http://127.0.0.1:8080
+```
+
+See **[docs/SETUP/KPI_WEB.md](docs/SETUP/KPI_WEB.md)** for Google OAuth setup and API routes. Catalog CRUD in the browser is not included yet (workstream D).
+
 ## Interactive Agent Mode
 
 ```bash
