@@ -153,6 +153,25 @@ variable "secret_recovery_window_days" {
 
 # --- Schedules ---
 
+variable "kpi_store_s3_uri" {
+  description = <<-EOT
+    Optional s3://bucket/key for the KPI SQLite store (CORTEX_KPI_STORE_S3_URI).
+    When set, Terraform injects the env var on the task definition and grants
+    s3:GetObject/PutObject on that object to ECS task roles (full + metrics + decks).
+    Leave empty to persist on EFS only (config/jobs/kpi-snapshot.yaml uses skip_s3).
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition = (
+      trimspace(var.kpi_store_s3_uri) == "" ||
+      can(regex("^s3://[^/]+/.+$", trimspace(var.kpi_store_s3_uri)))
+    )
+    error_message = "kpi_store_s3_uri must be empty or s3://bucket/key."
+  }
+}
+
 variable "enable_schedules" {
   description = "Create EventBridge rules that run ECS Fargate tasks on a cron."
   type        = bool
@@ -195,6 +214,14 @@ variable "scheduled_jobs" {
       command             = ["engineering-kpis"]
       enabled             = true
       rule_name           = "cortex-engineering-kpis"
+    }
+    # Persist registry KPIs to SQLite (EFS; optional S3 when CORTEX_KPI_STORE_S3_URI set).
+    # Runs before engineering-kpis so history charts can read today's rows.
+    kpi-snapshot = {
+      schedule_expression = "cron(15 7 * * ? *)"
+      command             = ["kpi-snapshot"]
+      enabled             = true
+      rule_name           = "cortex-kpi-snapshot"
     }
     pendo-ford-7d = {
       schedule_expression = "cron(0 8 * * ? *)"
@@ -241,6 +268,8 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-csr-dump-1800"
     }
+    # DISABLED until SES domain DKIM/DNS + CORTEX_METRICS_DIGEST_* secrets.
+    # Enable path: docs/SETUP/KPI_OPS.md (set enabled = true after Marc AWS SES action).
     morning-report = {
       schedule_expression = "cron(0 12 * * ? *)"
       command             = ["morning-report"]

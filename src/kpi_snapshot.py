@@ -26,7 +26,6 @@ from src.kpi_store import (
     upsert_kpi,
 )
 from src.kpi_store_s3 import (
-    KPIStoreS3Error,
     download_kpi_store,
     kpi_store_s3_uri,
     upload_kpi_store,
@@ -152,7 +151,11 @@ def run_kpi_snapshot(
 ) -> dict[str, Any]:
     """Generate registry KPIs and optionally persist them.
 
-    ``dry_run`` or ``skip_s3`` skips S3. Persist to *db_path* when not ``dry_run``.
+    ``dry_run`` skips all writes. Persist to *db_path* when not ``dry_run``.
+    S3 download/upload runs when not ``dry_run``, not ``skip_s3``, and
+    ``CORTEX_KPI_STORE_S3_URI`` (or *s3_uri*) is set. If S3 is requested
+    (``skip_s3`` false) but the URI is unset, the run persists locally and
+    records ``s3=skipped_no_uri`` (EFS on ECS) — it does not invent a bucket.
     ``history_months`` rebuilds month-end trailing windows plus month-close
     scorecard rows (requires ``--tag`` or ``--metric``).
     """
@@ -174,14 +177,19 @@ def run_kpi_snapshot(
     reg = registry if registry is not None else load_metrics_registry()
     persist = not dry_run
     uri = (s3_uri if s3_uri is not None else kpi_store_s3_uri()) or ""
-    use_s3 = persist and not skip_s3
+    use_s3 = persist and not skip_s3 and bool(uri)
+    s3_status = "used" if use_s3 else ("skipped_flag" if skip_s3 or dry_run else "skipped_no_uri")
     path = db_path or _default_db_path()
 
+    if persist and not skip_s3 and not uri:
+        logger.warning(
+            "kpi-snapshot: CORTEX_KPI_STORE_S3_URI unset — persisting to local "
+            "path only (%s). Set the URI (and Terraform kpi_store_s3_uri) for "
+            "S3 round-trip; see docs/SETUP/KPI_OPS.md.",
+            path,
+        )
+
     if use_s3:
-        if not uri:
-            raise KPIStoreS3Error(
-                "CORTEX_KPI_STORE_S3_URI is unset (expected s3://bucket/kpi/observations.sqlite)"
-            )
         client = s3_client if s3_client is not None else _s3_client()
         download_kpi_store(path, s3_client=client, uri=uri)
 
@@ -279,6 +287,7 @@ def run_kpi_snapshot(
         "date": ctx.entry_date,
         "dry_run": dry_run,
         "history_months": history_months,
+        "s3": s3_status,
         "considered": considered,
         "written": written,
         "failed": failed,
@@ -292,6 +301,7 @@ def print_kpi_snapshot_summary(summary: dict[str, Any], *, as_json: bool = False
     payload = {
         "date": summary.get("date"),
         "dry_run": summary.get("dry_run"),
+        "s3": summary.get("s3"),
         "considered": summary.get("considered"),
         "written": summary.get("written"),
         "ok": summary.get("ok"),
@@ -302,8 +312,8 @@ def print_kpi_snapshot_summary(summary: dict[str, Any], *, as_json: bool = False
         return
     print(
         f"kpi-snapshot date={payload['date']} dry_run={payload['dry_run']} "
-        f"considered={payload['considered']} written={payload['written']} "
-        f"ok={payload['ok']}",
+        f"s3={payload['s3']} considered={payload['considered']} "
+        f"written={payload['written']} ok={payload['ok']}",
         flush=True,
     )
     for rec in summary.get("rows") or []:

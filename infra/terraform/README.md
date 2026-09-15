@@ -98,7 +98,7 @@ enable_schedules = true
 terraform apply
 ```
 
-Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Each job uses a **secret profile** (`llm`, `decks`, or `metrics`) so the Fargate task role can `GetSecretValue` only the bundles it needs — not the legacy combined `cortex/prod/env` blob. `llm` = Google + integrations + LLM + Slack (export-all, engineering portfolio). `decks` = Google + integrations (Pendo, CSR, engineering KPIs). `metrics` = integrations only, plus SES (morning-report). Ad-hoc `run-task` without overrides still uses `cortex-ecs-task` (full secrets) for smoke tests. Split JSON files must be populated; restricted jobs do not fall back to `cortex/prod/env`. Daily `export-all` still builds the Drive markdown snapshot; Slack transcripts and §7 risk-insight LLM calls stay off on ECS until `CORTEX_ALLOW_PRODUCTION_LLM_EXPORT=true` is set on that job only (after DPA/retention review)—do not put the flag on the shared task definition. Shared Pendo ingest (`pendo-snapshot-refresh`) runs at **03:00 UTC**. Snapshot consumers start at **07:00 UTC** (after EventBridge’s 2h RunTask retry window plus snapshot runtime): `llm-context-portfolio-daily`, engineering portfolio at 07:30, engineering KPIs at 07:45, `pendo-ford-7d` / `pendo-ford-30d`, then `pendo-top-arr-detailed` at 09:00. CSR dumps run four times a day at **05:00 / 11:00 / 17:00 / 23:00 UTC** (locked to current CDT midnight / 6am / noon / 6pm). A full Drive dump rewrites ~97 customer workbooks; later slots **skip** when `Output/CSR-Dump-source.json` still matches the CS Report workbook name and Drive `modifiedTime` (`cortex --export-csr --force` to rewrite). Daily: `morning-report` **12:00 UTC** (≈07:00 Central; **disabled** until SES `leandna.com` DKIM DNS is in place — set `enabled = true` then). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
+Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Each job uses a **secret profile** (`llm`, `decks`, or `metrics`) so the Fargate task role can `GetSecretValue` only the bundles it needs — not the legacy combined `cortex/prod/env` blob. `llm` = Google + integrations + LLM + Slack (export-all, engineering portfolio). `decks` = Google + integrations (Pendo, CSR, engineering KPIs). `metrics` = integrations only, plus SES (morning-report) and optional KPI S3 (`kpi-snapshot`). Ad-hoc `run-task` without overrides still uses `cortex-ecs-task` (full secrets) for smoke tests. Split JSON files must be populated; restricted jobs do not fall back to `cortex/prod/env`. Daily `export-all` still builds the Drive markdown snapshot; Slack transcripts and §7 risk-insight LLM calls stay off on ECS until `CORTEX_ALLOW_PRODUCTION_LLM_EXPORT=true` is set on that job only (after DPA/retention review)—do not put the flag on the shared task definition. Shared Pendo ingest (`pendo-snapshot-refresh`) runs at **03:00 UTC**. Snapshot consumers start at **07:00 UTC** (after EventBridge’s 2h RunTask retry window plus snapshot runtime): `llm-context-portfolio-daily`, **KPI snapshot at 07:15**, engineering portfolio at 07:30, engineering KPIs at 07:45, `pendo-ford-7d` / `pendo-ford-30d`, then `pendo-top-arr-detailed` at 09:00. CSR dumps run four times a day at **05:00 / 11:00 / 17:00 / 23:00 UTC** (locked to current CDT midnight / 6am / noon / 6pm). A full Drive dump rewrites ~97 customer workbooks; later slots **skip** when `Output/CSR-Dump-source.json` still matches the CS Report workbook name and Drive `modifiedTime` (`cortex --export-csr --force` to rewrite). Daily: `morning-report` **12:00 UTC** (≈07:00 Central; **DISABLED** until SES `leandna.com` DKIM DNS is in place — set `enabled = true` then; full checklist in `docs/SETUP/KPI_OPS.md`). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
 
 Renaming job keys recreates EventBridge rules on `terraform apply` (old `cortex-export-nightly` / `cortex-ford-pendo-*` / `cortex-csr-customer-dump-*` rules are replaced).
 
@@ -106,16 +106,30 @@ Renaming job keys recreates EventBridge rules on `terraform apply` (old `cortex-
 
 When `enable_schedules` and `enable_job_retries` (default **true**) are on, a failed job whose errors look transient (Sheets/Drive **503/429**, timeouts, connection resets) schedules a single EventBridge Scheduler `at()` re-run after `job_retry_delay_minutes` (default **15**). The retry sets `CORTEX_RETRY_OF` / `CORTEX_RETRY_ATTEMPT` on the container; max attempts default to **1**. Non-retryable failures (preflight, missing Pendo snapshot, auth) are not rescheduled.
 
+### KPI SQLite store (EFS + optional S3)
+
+`kpi-snapshot` (07:15 UTC) live-generates registry rows with a `metric-generator` and upserts into `$CORTEX_CACHE_DIR/kpi/observations.sqlite` (EFS). Optional durable sync:
+
+1. Set Terraform `kpi_store_s3_uri = "s3://bucket/kpi/observations.sqlite"` (injects `CORTEX_KPI_STORE_S3_URI` + IAM `GetObject`/`PutObject` on that object).
+2. Or set the same key in the integrations secret for laptop use.
+3. Smoke: `./bin/kpi-snapshot --tag engineering` then `./bin/metrics-by-tag --all --mode stored`.
+
+Unset URI → local/EFS only with a warning (`s3=skipped_no_uri`). See `docs/SETUP/KPI_OPS.md`.
+
 ### Morning KPI digest (SES)
 
 `morning-report` live-generates every `config/my-metrics.yaml` row with a `metric-generator`, compares to `target` / `direction`, and emails a plain-text digest via SES.
 
-1. Verify the SES **From** identity in `us-east-1` (sandbox: verify recipient too). Terraform defaults `ses_identity = "leandna.com"` so IAM `ses:SendEmail` is limited to `arn:aws:ses:…:identity/leandna.com` — not `*`. Set `ses_from_address` to pin `ses:FromAddress` to the same mailbox as `CORTEX_METRICS_DIGEST_FROM`. `SendRawEmail` is not granted.
+**Current state:** EventBridge rule is **disabled** (`enabled = false`) until SES DKIM/DNS and recipients are ready. This is an explicit hold — not an accidental dry-run. Send without From/To fails loud before generators run.
+
+1. Verify the SES **From** identity in `us-east-1` (sandbox: verify recipient too). Complete domain **DKIM** for `leandna.com` (Marc AWS). Terraform defaults `ses_identity = "leandna.com"` so IAM `ses:SendEmail` is limited to `arn:aws:ses:…:identity/leandna.com` — not `*`. Set `ses_from_address` to pin `ses:FromAddress` to the same mailbox as `CORTEX_METRICS_DIGEST_FROM`. `SendRawEmail` is not granted.
 2. Put these keys in the **integrations** secret (`cortex/prod/integrations`, same names as `.env.example`):
    - `CORTEX_METRICS_DIGEST_TO` — comma-separated recipients (e.g. `marc.schriftman@leandna.com`)
    - `CORTEX_METRICS_DIGEST_FROM` — verified SES identity
-3. `terraform apply` so rule `cortex-morning-report` and the scoped SES policy on `cortex-ecs-task` / `cortex-ecs-task-metrics` land.
-4. Smoke locally: `./bin/metrics-digest --dry-run`
+3. `terraform apply` so rule `cortex-morning-report` and the scoped SES policy on `cortex-ecs-task` / `cortex-ecs-task-metrics` land; set `scheduled_jobs.morning-report.enabled = true`.
+4. Smoke locally: `./bin/metrics-digest --dry-run` then a one-shot send without `--dry-run`.
+
+Full checklist: `docs/SETUP/KPI_OPS.md`.
 
 ## Variables (common)
 
@@ -132,6 +146,7 @@ When `enable_schedules` and `enable_job_retries` (default **true**) are on, a fa
 | `name_prefix` | `cortex` | Change if importing existing manual roles |
 | `ses_identity` | `leandna.com` | SES identity ARN for morning-report `SendEmail` |
 | `ses_from_address` | empty | Optional `ses:FromAddress` condition (match `CORTEX_METRICS_DIGEST_FROM`) |
+| `kpi_store_s3_uri` | empty | Optional `s3://bucket/key` → env + IAM for KPI SQLite |
 
 ## Importing existing manual resources
 

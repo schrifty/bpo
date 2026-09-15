@@ -75,6 +75,19 @@ data "aws_iam_policy_document" "ecs_task" {
       ]
     }
   }
+
+  dynamic "statement" {
+    for_each = local.kpi_store_s3_enabled ? [1] : []
+    content {
+      sid    = "KpiStoreS3Object"
+      effect = "Allow"
+      actions = [
+        "s3:GetObject",
+        "s3:PutObject",
+      ]
+      resources = [local.kpi_store_s3_object_arn]
+    }
+  }
 }
 
 resource "aws_iam_role" "ecs_task" {

@@ -4,6 +4,15 @@ locals {
   ses_from_address = trimspace(var.ses_from_address)
   ses_identity_arn = "arn:aws:ses:${var.aws_region}:${local.account_id}:identity/${local.ses_identity}"
 
+  kpi_store_s3_uri = trimspace(var.kpi_store_s3_uri)
+  kpi_store_s3_enabled = local.kpi_store_s3_uri != ""
+  kpi_store_s3_parts = local.kpi_store_s3_enabled ? regex("^s3://([^/]+)/(.+)$", local.kpi_store_s3_uri) : ["", ""]
+  kpi_store_s3_bucket = local.kpi_store_s3_parts[0]
+  kpi_store_s3_key    = local.kpi_store_s3_parts[1]
+  kpi_store_s3_object_arn = local.kpi_store_s3_enabled ? (
+    "arn:aws:s3:::${local.kpi_store_s3_bucket}/${local.kpi_store_s3_key}"
+  ) : ""
+
   vpc_id = var.vpc_id != "" ? var.vpc_id : (
     var.use_default_vpc ? data.aws_vpc.default[0].id : ""
   )
@@ -53,6 +62,7 @@ locals {
     "llm-context-portfolio-daily" = "llm"
     "engineering-portfolio"       = "llm"
     "engineering-kpis"            = "decks"
+    "kpi-snapshot"                = "metrics"
     "pendo-snapshot-refresh"      = "decks"
     "pendo-ford-7d"               = "decks"
     "pendo-ford-30d"              = "decks"
@@ -96,6 +106,9 @@ locals {
       # Finance constant (not a secret); SM blob should match so local/.env and ECS agree.
       { name = "CORTEX_MONTHLY_SPEND_USD_ENGINEERING", value = "436000" },
     ],
+    local.kpi_store_s3_enabled ? [
+      { name = "CORTEX_KPI_STORE_S3_URI", value = local.kpi_store_s3_uri },
+    ] : [],
     var.enable_schedules && var.enable_job_retries ? [
       { name = "CORTEX_JOB_RETRY_ENABLED", value = "1" },
       { name = "CORTEX_JOB_RETRY_DELAY_MINUTES", value = tostring(var.job_retry_delay_minutes) },
