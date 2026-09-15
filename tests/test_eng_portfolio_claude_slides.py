@@ -24,9 +24,12 @@ from src.eng_portfolio_claude_slides import (
     EngPortfolioClaudeError,
     _extract_json_object,
     _llm_slide_completion,
+    _slide_brief,
     _warn_slides_without_takeaways,
+    annotate_eng_portfolio_plan,
     build_eng_portfolio_digest,
     digest_for_slide,
+    generate_eng_portfolio_narrative,
     generate_slide_ir_via_claude,
 )
 from src.slide_metadata import SLIDE_DATA_REQUIREMENTS
@@ -256,6 +259,119 @@ def test_generate_slide_ir_via_claude_parses_json(monkeypatch: pytest.MonkeyPatc
         model="claude-opus-5",
     )
     assert ir["elements"][0]["text"] == "Hello"
+
+
+def test_annotate_plan_tracks_section_and_role() -> None:
+    plan = annotate_eng_portfolio_plan(
+        [
+            {"id": "eng_portfolio_title", "slide_type": "eng_portfolio_title", "title": "Cover"},
+            {"id": "eng_takeaways", "slide_type": "eng_takeaways", "title": "Takeaways"},
+            {"id": "d1", "slide_type": "eng_divider", "title": "Quality"},
+            {"id": "eng_bug_health", "slide_type": "eng_bug_health", "title": "Bugs"},
+        ]
+    )
+    assert plan[0]["_role"] == "cover"
+    assert plan[0]["_archetype"] == "cover"
+    assert plan[2]["_role"] == "divider"
+    assert plan[3]["_section"] == "Quality"
+    assert plan[3]["_role"] == "data"
+    assert plan[3]["_index"] == 4
+    assert plan[3]["_of"] == 4
+
+
+def test_slide_brief_includes_role_and_section() -> None:
+    entry = annotate_eng_portfolio_plan(
+        [
+            {"id": "d1", "slide_type": "eng_divider", "title": "Outcomes"},
+            {"id": "eng_velocity", "slide_type": "eng_velocity", "title": "Velocity"},
+        ]
+    )[1]
+    brief = _slide_brief(entry, "Arc: shipping vs bugs.")
+    assert brief["role"] == "data"
+    assert brief["section"] == "Outcomes"
+    assert brief["archetype"] == "analytical_insight"
+    assert "2 of 2" in str(brief["position"])
+
+
+def test_slide_ir_prompt_includes_theme_and_narrative(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[list[dict[str, str]]] = []
+    payload = {
+        "background": "#FFFFFF",
+        "elements": [
+            {"type": "text", "x": 40, "y": 40, "w": 400, "h": 30, "text": "Hello", "size": 18},
+        ],
+    }
+
+    class _Msg:
+        content = json.dumps(payload)
+
+    class _Choice:
+        message = _Msg()
+
+    class _Resp:
+        choices = [_Choice()]
+
+    def _fake(_c, **kwargs):
+        captured.append(list(kwargs.get("messages") or []))
+        return _Resp()
+
+    monkeypatch.setattr("src.eng_portfolio_claude_slides._llm_create_with_retry", _fake)
+    generate_slide_ir_via_claude(
+        entry={"id": "eng_bug_health", "slide_type": "eng_bug_health", "title": "Bugs"},
+        digest={"days": 30, "eng_portfolio": {"closed_count": 3}},
+        deck_purpose="Here's what the team is working on.",
+        narrative={
+            "decision": "Cut reactive load or slip roadmap.",
+            "takeaways": ["Reactive work is 31% of capacity, so Q3 needs cuts."],
+            "sections": {"Quality": "Bug backlog grew while fix rate held."},
+        },
+        client=MagicMock(),
+        model="claude-opus-5",
+    )
+    assert captured
+    system = captured[0][0]["content"]
+    user = captured[0][1]["content"]
+    assert "navy #0B1F33 header" in system
+    assert "Honor DECK NARRATIVE" in system or "DECK NARRATIVE" in system
+    assert "DECK NARRATIVE" in user
+    assert "Cut reactive load" in user
+    assert "THEME" in system
+
+
+def test_generate_narrative_requires_takeaways(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Msg:
+        content = json.dumps(
+            {
+                "cover_line": "VP Eng · last 30 days",
+                "decision": "Staff a bug rotation or cut scope.",
+                "takeaways": [
+                    "Closed 12 vs 9 last period, so delivery is ahead.",
+                    "Open P1s are 4, so quality is the constraint.",
+                    "Reactive share is 31%, so the roadmap needs a cut.",
+                ],
+                "sections": {"Quality": "P1s rose to 4 while throughput held."},
+            }
+        )
+
+    class _Choice:
+        message = _Msg()
+
+    class _Resp:
+        choices = [_Choice()]
+
+    monkeypatch.setattr(
+        "src.eng_portfolio_claude_slides._llm_create_with_retry",
+        lambda *_a, **_k: _Resp(),
+    )
+    out = generate_eng_portfolio_narrative(
+        {"days": 30, "eng_portfolio": {"closed_count": 12}},
+        [{"id": "d1", "slide_type": "eng_divider", "title": "Quality"}],
+        deck_purpose="Review shipping vs bugs.",
+        client=MagicMock(),
+        model="claude-opus-5",
+    )
+    assert len(out["takeaways"]) == 3
+    assert out["sections"]["Quality"].startswith("P1s")
 
 
 def test_extract_json_object_from_noise() -> None:

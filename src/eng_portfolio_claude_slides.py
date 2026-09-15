@@ -2,9 +2,9 @@
 
 Deck YAML still defines slide order / ids. Hand-built Python slide builders are
 bypassed when ``CORTEX_ENG_PORTFOLIO_LLM_SLIDES`` / ``CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES``
-is on. Design-standards docs are intentionally NOT injected — the model invents
-structure from the data. Provider is Anthropic Claude via ``eng_portfolio_llm_client``
-(default model: ``claude-opus-5``).
+is on. A deck-level narrative pass runs first; every slide prompt then includes that
+spine plus explicit LeanDNA chrome (see ``docs/PRESENTATION/CLAUDE_DECK_STYLE_GUIDE.md``).
+Provider is Anthropic Claude via ``eng_portfolio_llm_client`` (default: ``claude-opus-5``).
 """
 
 from __future__ import annotations
@@ -319,38 +319,231 @@ def digest_for_slide(full: dict[str, Any], slide_type: str) -> dict[str, Any]:
     )
 
 
+_THEME = """
+THEME (required chrome — do not invent a different brand):
+- Canvas 720×405, white page (#FFFFFF). Content column x=48, w=624.
+- Content slides: navy #0B1F33 header bar at y=0, h=48; title 20–24pt bold white
+  inside it. Title states the insight with a number (not a topic label).
+- Cover: full navy field, deck name as hero, one supporting line (audience + as-of).
+  No KPI row on the cover.
+- Dividers: full navy background, large white section title, plus a takeaway that
+  previews the section message with a number. No "SECTION" eyebrow.
+- Data slides: optional one-line context under the header → kpi_row (4–6 tiles,
+  h≥72, shared #009AFF on #E8F4FC unless a tile is off-target / no-data / the
+  single mint callout) and/or a short table → 2–4 bullets of interpretation →
+  takeaway band at y=360, h=32, fill #EEF0F3.
+- Color is status or series only. Never rainbow tiles. Palette only:
+  #0B1F33 navy, #009AFF/#E8F4FC ordinary, #C0392B/#FDECEA attention,
+  #6B7280/#EEF0F3 no data, #AEFFF6 one callout, #38C0CE rules/series 2.
+""".strip()
+
+_NARRATIVE_RULES = """
+NARRATIVE:
+- Audience: VP of Engineering. Operational review, not product marketing.
+- Deck arc: cover → Takeaways → agenda → exec summary → sections (Team, Outcomes,
+  Operational Health, Quality, Engineering Output, AI Tooling, Productivity) → appendix.
+- Honor DECK NARRATIVE in the user message. This slide must support that spine;
+  do not introduce a competing thesis or wander into another section's topic.
+- Takeaways slide: 3–5 numbered bullets from DECK NARRATIVE.takeaways (implication
+  + number). A reader of only that page should know what is going well, what is
+  at risk, and what decision is asked.
+- Dividers use DECK NARRATIVE.sections for this section. Data slides pick evidence
+  that proves the section message.
+- 'Portfolio' here means the customer book of business, never tickets or bugs —
+  call work items the backlog, bug backlog, or queue.
+- Banned filler: monitor closely, requires further review, strategic review,
+  leverage synergies, demands attention, investigate further.
+- Only digest facts. If a number is missing, say so — do not invent it.
+- Every data slide and divider needs a takeaway with a supporting number.
+  Exempt: cover, agenda, the Takeaways page itself, appendix data-quality.
+""".strip()
+
 _SYSTEM = (
     "You design one Engineering Portfolio Review slide for a VP of Engineering. "
-    "Invent both visual structure and copy within the IR vocabulary. "
-    "Follow LeanDNA Claude deck style: one primary takeaway in the title, navy "
-    "header with white title text, 4-6 KPI tiles max per row with short labels, "
-    "only numbers present in the data digest. "
-    "EVERY slide needs a takeaway element saying what the data means and what it "
-    "implies, with the number that supports it — omit it only when the digest gives "
-    "you no basis for one (cover, agenda). Never emit filler such as 'monitor "
-    "closely' or 'requires further review'. "
-    "'Portfolio' in this deck's name means the customer book of business, never "
-    "tickets or bugs — call work items the backlog, bug backlog, or queue. "
-    "On a section divider (slide_type eng_divider), put the section title plus a "
-    "one-sentence takeaway previewing that section's message. Never label a divider "
-    "with a generic eyebrow such as 'SECTION' or 'SECTION 3' — the section name and "
-    "its takeaway are the content. "
-    "For every table, calculate its bottom from y + 26pt per total row, reserve "
-    "12pt before the next element, and paginate or omit rows instead of overflowing. "
+    "Stay inside the IR vocabulary. Follow THEME and NARRATIVE exactly. "
+    "For every table, calculate bottom = y + 26pt × total rows, reserve 12pt "
+    "before the next element, and paginate or omit rows instead of overflowing. "
     "Output MUST be valid compact JSON only — no markdown fences, no commentary. "
     "Prefer fewer, shorter strings over long prose. "
+    + _THEME
+    + "\n"
+    + _NARRATIVE_RULES
+    + "\n"
     + IR_SCHEMA_FOR_PROMPT
 )
 
+_NARRATIVE_SYSTEM = (
+    "You write the narrative spine of an Engineering Portfolio Review for a VP "
+    "of Engineering. Return compact JSON only, no markdown. "
+    "Use only facts and numbers in the data digest. Each takeaway and section "
+    "line is one sentence that includes a supporting number and an implication. "
+    "No filler ('monitor closely', 'investigate further'). "
+    "'Portfolio' means the customer book of business, never tickets. "
+    "Shape:\n"
+    "{"
+    '"cover_line":"audience + as-of ≤80 chars",'
+    '"decision":"the one decision this review asks ≤120 chars",'
+    '"takeaways":["implication + number","... 3 to 5 items"],'
+    '"sections":{"Team & Org":"one sentence with a number"}'
+    "}\n"
+    "sections keys MUST match the provided section titles exactly."
+)
+
+
+def _slide_role(slide_type: str) -> str:
+    st = (slide_type or "").strip().lower()
+    if st == "eng_portfolio_title":
+        return "cover"
+    if st == "eng_takeaways":
+        return "takeaways"
+    if st == "eng_toc":
+        return "agenda"
+    if st == "eng_divider":
+        return "divider"
+    if st == "eng_exec_summary":
+        return "exec_summary"
+    if st == "data_quality":
+        return "appendix"
+    return "data"
+
+
+def _slide_archetype(role: str) -> str:
+    return {
+        "cover": "cover",
+        "takeaways": "takeaways",
+        "agenda": "agenda",
+        "divider": "section_divider",
+        "exec_summary": "standing_snapshot",
+        "appendix": "detail_scorecard",
+        "data": "analytical_insight",
+    }.get(role, "analytical_insight")
+
+
+def annotate_eng_portfolio_plan(slide_plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach section, role, and position so each slide prompt knows the deck arc."""
+    n = len(slide_plan)
+    section = ""
+    out: list[dict[str, Any]] = []
+    for i, entry in enumerate(slide_plan):
+        st = str(entry.get("slide_type") or entry.get("id") or "")
+        role = _slide_role(st)
+        if role == "divider":
+            section = str(entry.get("title") or "").strip()
+        row = dict(entry)
+        row["_role"] = role
+        row["_archetype"] = _slide_archetype(role)
+        row["_section"] = section
+        row["_index"] = i + 1
+        row["_of"] = n
+        out.append(row)
+    return out
+
+
+def _section_titles(slide_plan: list[dict[str, Any]]) -> list[str]:
+    titles: list[str] = []
+    for entry in slide_plan:
+        st = str(entry.get("slide_type") or entry.get("id") or "")
+        if _slide_role(st) == "divider":
+            title = str(entry.get("title") or "").strip()
+            if title:
+                titles.append(title)
+    return titles
+
+
+def generate_eng_portfolio_narrative(
+    digest: dict[str, Any],
+    slide_plan: list[dict[str, Any]],
+    *,
+    deck_purpose: str = "",
+    client: Any | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """One Claude call that writes the deck spine every slide must honor."""
+    cl = client or eng_portfolio_llm_client()
+    model_name = model or CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL
+    overview = digest_for_slide(digest, "eng_takeaways")
+    user = (
+        "Write the narrative spine for this Engineering Portfolio Review.\n\n"
+        f"DECK PURPOSE:\n{(deck_purpose or '')[:800]}\n\n"
+        f"SECTION TITLES:\n{json.dumps(_section_titles(slide_plan), ensure_ascii=False)}\n\n"
+        f"DATA DIGEST:\n{json.dumps(overview, default=str, ensure_ascii=False)}\n"
+    )
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": _NARRATIVE_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+    last_err: Exception | None = None
+    text = ""
+    for attempt in range(1, _SLIDE_MAX_ATTEMPTS + 1):
+        try:
+            text = _llm_slide_completion(cl, model=model_name, messages=messages)
+        except Exception as e:
+            raise EngPortfolioClaudeError(f"Claude API failed for deck narrative: {e}") from e
+        try:
+            parsed = _parse_slide_ir_json(text)
+            if not isinstance(parsed, dict):
+                raise EngPortfolioClaudeError("narrative JSON must be an object")
+            takeaways = parsed.get("takeaways")
+            if not isinstance(takeaways, list) or len(takeaways) < 3:
+                raise EngPortfolioClaudeError("narrative needs at least 3 takeaways")
+            sections = parsed.get("sections")
+            if sections is not None and not isinstance(sections, dict):
+                raise EngPortfolioClaudeError("narrative sections must be an object")
+            return {
+                "cover_line": str(parsed.get("cover_line") or "").strip()[:80],
+                "decision": str(parsed.get("decision") or "").strip()[:120],
+                "takeaways": [str(t).strip()[:160] for t in takeaways[:5] if str(t).strip()],
+                "sections": {
+                    str(k).strip(): str(v).strip()[:180]
+                    for k, v in (sections or {}).items()
+                    if str(k).strip() and str(v).strip()
+                },
+            }
+        except (json.JSONDecodeError, ValueError, EngPortfolioClaudeError) as e:
+            last_err = e
+            logger.warning(
+                "eng portfolio narrative JSON failed (attempt %d/%d): %s",
+                attempt,
+                _SLIDE_MAX_ATTEMPTS,
+                e,
+            )
+            if attempt >= _SLIDE_MAX_ATTEMPTS:
+                break
+            messages = [
+                {"role": "system", "content": _NARRATIVE_SYSTEM},
+                {
+                    "role": "user",
+                    "content": (
+                        "Your previous answer was invalid JSON or missing takeaways. "
+                        "Rewrite as one compact valid JSON object with cover_line, "
+                        "decision, takeaways (3-5), and sections.\n\n"
+                        f"BROKEN OUTPUT:\n{(text or '')[:2500]}\n"
+                    ),
+                },
+            ]
+    raise EngPortfolioClaudeError(
+        f"Claude returned unusable deck narrative: {last_err}; "
+        f"head={((text or '')[:240])!r}"
+    )
+
 
 def _slide_brief(entry: dict[str, Any], deck_purpose: str) -> dict[str, Any]:
+    st = str(entry.get("slide_type") or entry.get("id") or "")
+    role = str(entry.get("_role") or _slide_role(st))
+    section = str(entry.get("_section") or "")
+    if role == "divider":
+        section = str(entry.get("title") or section)
     return {
         "slide_id": entry.get("id"),
-        "slide_type": entry.get("slide_type") or entry.get("id"),
+        "slide_type": st,
+        "role": role,
+        "archetype": str(entry.get("_archetype") or _slide_archetype(role)),
+        "section": section or None,
+        "position": f"{entry.get('_index') or '?'} of {entry.get('_of') or '?'}",
         "title": entry.get("title") or entry.get("name") or entry.get("id"),
-        "section_title": entry.get("title") if (entry.get("slide_type") == "eng_divider") else None,
-        "prompt": (entry.get("prompt") or "").strip()[:600],
-        "deck_purpose": (deck_purpose or "")[:400],
+        "section_title": entry.get("title") if role == "divider" else None,
+        "prompt": (entry.get("prompt") or "").strip()[:800],
+        "deck_purpose": (deck_purpose or "")[:600],
     }
 
 
@@ -383,6 +576,7 @@ def generate_slide_ir_via_claude(
     entry: dict[str, Any],
     digest: dict[str, Any],
     deck_purpose: str = "",
+    narrative: dict[str, Any] | None = None,
     client: Any | None = None,
     model: str | None = None,
 ) -> dict[str, Any]:
@@ -393,8 +587,9 @@ def generate_slide_ir_via_claude(
     slide_type = str(brief.get("slide_type") or "")
     scoped = digest_for_slide(digest, slide_type)
     user = (
-        "Design this slide end-to-end (structure + content). "
-        "Return compact valid JSON only.\n\n"
+        "Design this one slide (structure + content) using THEME chrome and the "
+        "assigned archetype. Honor DECK NARRATIVE. Return compact valid JSON only.\n\n"
+        f"DECK NARRATIVE:\n{json.dumps(narrative or {}, ensure_ascii=False)}\n\n"
         f"SLIDE BRIEF:\n{json.dumps(brief, ensure_ascii=False)}\n\n"
         f"DATA DIGEST:\n{json.dumps(scoped, default=str, ensure_ascii=False)}\n"
     )
@@ -456,7 +651,22 @@ def generate_eng_portfolio_slide_irs(
     digest = build_eng_portfolio_digest(report)
     client = eng_portfolio_llm_client()
     model = CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL
-    results: list[dict[str, Any] | None] = [None] * len(slide_plan)
+    plan = annotate_eng_portfolio_plan(slide_plan)
+    narrative = generate_eng_portfolio_narrative(
+        digest,
+        plan,
+        deck_purpose=deck_purpose,
+        client=client,
+        model=model,
+    )
+    report["_claude_deck_narrative"] = narrative
+    logger.info(
+        "eng portfolio Claude narrative: takeaways=%d sections=%d decision=%s",
+        len(narrative.get("takeaways") or []),
+        len(narrative.get("sections") or {}),
+        (narrative.get("decision") or "")[:80],
+    )
+    results: list[dict[str, Any] | None] = [None] * len(plan)
     errors: list[str] = []
 
     def _one(i: int, entry: dict[str, Any]) -> tuple[int, dict[str, Any] | None, str | None]:
@@ -465,6 +675,7 @@ def generate_eng_portfolio_slide_irs(
                 entry=entry,
                 digest=digest,
                 deck_purpose=deck_purpose,
+                narrative=narrative,
                 client=client,
                 model=model,
             )
@@ -473,7 +684,7 @@ def generate_eng_portfolio_slide_irs(
             return i, None, str(e)
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futs = [pool.submit(_one, i, e) for i, e in enumerate(slide_plan)]
+        futs = [pool.submit(_one, i, e) for i, e in enumerate(plan)]
         for fut in as_completed(futs):
             i, ir, err = fut.result()
             if err:

@@ -1,6 +1,6 @@
 # Claude-Generated Deck Style Guide
 
-Version 1.1 (Internal Use)
+Version 1.2 (Internal Use)
 
 ## Purpose
 
@@ -48,10 +48,11 @@ Where this document and [`SLIDE_DESIGN_STANDARDS.md`](./SLIDE_DESIGN_STANDARDS.m
 
 1. Deck / slide YAML still defines **which** slides and **order**.
 2. Cortex builds a **data digest** (scoped per slide for eng portfolio).
-3. Claude returns one JSON **IR object** per slide.
-4. `src/claude_slide_ir.py` maps IR → Slides API requests on a **720×405 pt** canvas.
+3. Engineering portfolio: one **narrative** Claude call writes the deck spine (3–5 takeaways, per-section messages, the decision asked). That JSON is injected into every slide prompt so parallel slides share one story.
+4. Claude returns one JSON **IR object** per slide (theme chrome + assigned archetype).
+5. `src/claude_slide_ir.py` maps IR → Slides API requests on a **720×405 pt** canvas.
 
-Claude invents structure and copy within the IR vocabulary. Python does not apply LeanDNA builder layouts on this path.
+Claude invents copy and layout **inside** the IR vocabulary and the required navy/white chrome. Python does not apply LeanDNA builder layouts on this path.
 
 Canonical schema text: `IR_SCHEMA_FOR_PROMPT` in `src/claude_slide_ir.py` (keep this guide and that string aligned when either changes).
 
@@ -287,7 +288,7 @@ Avoid:
 
 - Audience: VP of Engineering.
 - Deck shape: cover → **Takeaways** (`eng_takeaways`) → agenda → exec summary → sections, each opening with a divider that states the section takeaway.
-- Slide YAML `prompt` + scoped digest are the brief—honor the slide’s job; do not wander into another chapter’s topic.
+- Slide YAML `prompt` + scoped digest + **DECK NARRATIVE** are the brief—honor the slide’s job and the shared spine; do not wander into another chapter’s topic.
 - Cursor / GitHub / AI correlation slides: only cite numbers in the digest; if Cursor is missing from the plan, Claude never sees that slide.
 - Prefer operational insight over product marketing language.
 
