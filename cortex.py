@@ -88,11 +88,12 @@ Exports & data
 ────────────────────────────────────────────────────────────────
 Metrics & KPIs
 ────────────────────────────────────────────────────────────────
-  kpi                     Registry KPI values: all, one tag, or AND tag-set
-                          [--all] [TAG ...] [--mode live|stored|leandna]
+  kpi                     Registry KPI values: all, tag-set, and/or owner
+                          [--all] [TAG ...] [--owner EMAIL|me] [--me]
+                          [--mode live|stored|leandna]
                           mine [--values]     LeanDNA metrics you own
-  kpi add|edit|delete|show
-                          Catalog edits to config/my-metrics.yaml
+  kpi add|edit|delete|show|list|owners
+                          Catalog edits / owner-scoped list (my-metrics.yaml)
   kpi-snapshot            Run registry generators into the SQLite KPI store
                           [--date YYYY-MM-DD] [--dry-run] [--tag TAG]
                           [--metric NAME] [--history-months N]
@@ -159,26 +160,31 @@ cortex KPI commands
 Values (config/my-metrics.yaml)
   cortex kpi --all [--mode live|stored|leandna] [--json] [--skip-s3]
   cortex kpi TAG [TAG ...]              AND tag-set (every listed tag)
-  cortex kpi --owner EMAIL              KPIs owned by EMAIL
+  cortex kpi --owner [EMAIL|me]         KPIs owned by EMAIL (bare/--me = actor)
+  cortex kpi --me                       Same as --owner me
+  cortex kpi TAG --me                   Tag-set AND my ownership
   cortex kpi --list-owners              Owner → KPI counts
   cortex kpi                            List defined tags
+  Advanced: --as-user EMAIL  --registry PATH  --owners-config PATH
 
 Catalog (writes config/my-metrics.yaml)
-  cortex kpi add NAME [--owner EMAIL] [--tags a,b] [--generator FN]
+  cortex kpi add NAME [--owner EMAIL|me] [--tags a,b] [--generator FN]
                       [--description TEXT] [--mgmt-guidance TEXT] [--metric-id N]
                       [--unit currency|percent]
                       [--target N --direction higher|lower]
-                      [--as-user EMAIL] [--dry-run]
-  cortex kpi edit NAME [--owner EMAIL] [--new-name NAME] [--add-tag T] …
+                      [--as-user EMAIL] [--registry PATH] [--dry-run]
+  cortex kpi edit NAME [--owner EMAIL|me] [--new-name NAME] [--add-tag T] …
                        [--as-user EMAIL] [--clear-target] [--clear-generator] …
   cortex kpi delete NAME [--yes] [--as-user EMAIL] [--dry-run]
-  cortex kpi show NAME [--json]
-  cortex kpi owners [--list-metrics --owner EMAIL] [--json]
+  cortex kpi show NAME [--json] [--registry PATH]
+  cortex kpi list [--owner EMAIL|me] [--as-user EMAIL] [--json]
+  cortex kpi owners [--list-metrics [--owner EMAIL|me]] [--json]
 
 Ownership (config/kpi_owners.yaml)
   catalog_admin — full catalog. Leads — edit-own, read-all; topic-pack bounded.
-  Actor defaults to CORTEX_KPI_ACTOR or catalog_admin. Invalid owner / unauthorized
-  edit fails loud (no silent skip). Salesforce is not used for KPI ownership.
+  Actor defaults to CORTEX_KPI_ACTOR or catalog_admin. --owner me / bare --owner /
+  kpi list default to the actor. Invalid owner / unauthorized edit fails loud
+  (no silent skip). Salesforce is not used for KPI ownership.
 
 LeanDNA owned metrics (Data API)
   cortex kpi mine [--values] [--requested-sites ID]
@@ -199,7 +205,9 @@ Notes
   kpi --all --mode stored --skip-s3 is one store read for the full catalog.
   kpi add|edit|delete writes config/my-metrics.yaml (--dry-run to preview).
   delete requires --yes when stdin is not a TTY.
+  kpi mine is LeanDNA enrichment — not Cortex registry ownership.
 """.strip()
+
 
 # Same split as ``cortex --list`` and batch commands (customer-scoped vs portfolio / cross-customer).
 _PORTFOLIO_SCOPE_DECK_IDS: frozenset[str] = frozenset(
