@@ -4,6 +4,10 @@ Cortex KPI **source of truth** for v1 is the registry YAML (`config/my-metrics.y
 plus the SQLite observation store. LeanDNA upsert / `kpi mine` remain optional.
 Salesforce is **not** involved in KPI inventory or ownership.
 
+Ship gate / owner onboarding / env + smoke matrix: **[`KPI_RELEASE.md`](./KPI_RELEASE.md)**.
+**SES DKIM** for morning digest remains a Marc AWS ops item until verified — see
+digest section below (do not treat digest as “done” until that gate clears).
+
 ## Daily snapshot (`kpi-snapshot`)
 
 | Piece | Location |
@@ -88,6 +92,17 @@ Existing schedule alarms (when `enable_schedule_alarms = true`) cover:
 
 Morning digest also opens with last night’s job outcomes (CloudWatch), so a failed
 `kpi-snapshot` shows up in the email once digest is enabled.
+
+## Registry rollback
+
+Catalog CRUD (CLI or web) edits `config/my-metrics.yaml`. To undo a bad change:
+
+1. Prefer `git revert` / restore that file from a known-good commit
+2. Redeploy or sync config so running jobs and KPI web see the restored file
+3. SQLite observations are independent — re-run `kpi-snapshot` if history should
+   reflect the restored definitions
+
+Dry-run (`cortex kpi … --dry-run`, web `?dry_run=1`) avoids writing until ready.
 
 ## Related commands
 

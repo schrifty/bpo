@@ -122,13 +122,18 @@ creation UI.
 | `CORTEX_KPI_WEB_GOOGLE_CLIENT_ID` / `SECRET` | Google OAuth web client |
 | `CORTEX_KPI_WEB_SESSION_SECRET` | HS256 cookie signing key |
 | `CORTEX_KPI_WEB_ALLOWED_DOMAINS` | Comma-separated Workspace domains |
+| `CORTEX_KPI_WEB_COOKIE_SECURE` | Force Secure cookie (auto when base URL is https) |
+| `CORTEX_KPI_WEB_SESSION_TTL_SECONDS` | Session TTL (default 86400) |
 | `CORTEX_KPI_WEB_ALLOW_DEV_AUTH` | Explicit local/dev login (logged; not for prod) |
 | `CORTEX_KPI_WEB_DEV_USER` | Default email for `/auth/dev-login` |
 | `CORTEX_KPI_WEB_REGISTRY` / `OWNERS` | Alternate YAML paths (tests/dev) |
 | `CORTEX_KPI_WEB_SKIP_S3` | Skip S3 pull for KPI store reads |
 
-## Notes for release checklist (workstream F)
+## Rollback & release
 
-- Document rollback of bad registry edits (git revert of `my-metrics.yaml`).
-- Confirm production SSO env vars; never enable `CORTEX_KPI_WEB_ALLOW_DEV_AUTH`.
-- Salesforce boundary unchanged: KPIs ≠ customer SoR.
+Bad catalog writes: **git revert** `config/my-metrics.yaml` (CLI/web both write
+that file). Prefer dry-run before persist. Full ship gate, owner onboarding,
+test matrix, and env checklist: **[`KPI_RELEASE.md`](./KPI_RELEASE.md)**.
+
+Production: SSO env vars set; never enable `CORTEX_KPI_WEB_ALLOW_DEV_AUTH`.
+Salesforce boundary: KPIs ≠ customer SoR.
