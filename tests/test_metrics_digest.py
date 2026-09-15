@@ -488,6 +488,44 @@ def test_send_email_fails_loud_without_from(monkeypatch) -> None:
         send_email(to="you@example.com", subject="x", body="y", from_addr="")
 
 
+def test_run_metrics_digest_send_fails_loud_before_generators(monkeypatch) -> None:
+    """Misconfigured SES must fail before invoking generators when send is requested."""
+    monkeypatch.delenv("CORTEX_METRICS_DIGEST_FROM", raising=False)
+    monkeypatch.delenv("CORTEX_METRICS_DIGEST_TO", raising=False)
+    called = {"n": 0}
+
+    def boom(*args, **kwargs):
+        called["n"] += 1
+        raise AssertionError("generator should not run")
+
+    monkeypatch.setattr("src.metrics_digest.invoke_metric_generator", boom)
+    result = run_metrics_digest(
+        dry_run=False,
+        as_of="2026-08-03",
+        registry={
+            "metrics": {
+                "X": {"metric-generator": "fake", "target": 1, "direction": "higher"},
+            }
+        },
+        skip_overnight=True,
+    )
+    assert result.sent is False
+    assert called["n"] == 0
+    assert result.error
+    assert "CORTEX_METRICS_DIGEST" in result.error
+    assert result.rows == []
+
+
+def test_require_digest_send_config_ok(monkeypatch) -> None:
+    from src.ses_email import require_digest_send_config
+
+    monkeypatch.setenv("CORTEX_METRICS_DIGEST_TO", "a@example.com, b@example.com")
+    monkeypatch.setenv("CORTEX_METRICS_DIGEST_FROM", "from@example.com")
+    to, frm = require_digest_send_config()
+    assert to == ["a@example.com", "b@example.com"]
+    assert frm == "from@example.com"
+
+
 def test_metrics_digest_job_argv() -> None:
     from src.job_runner import build_step_argv, load_job_spec
 

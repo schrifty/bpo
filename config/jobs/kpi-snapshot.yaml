@@ -2,8 +2,10 @@ name: kpi-snapshot
 stop_on_failure: true
 fail_on_warnings: false
 steps:
+  # Persist registry KPIs to SQLite under CORTEX_CACHE_DIR (EFS on ECS).
+  # When CORTEX_KPI_STORE_S3_URI is set, downloads before write and uploads after
+  # (see docs/SETUP/KPI_OPS.md). Unset URI → local/EFS only (loud warning in logs).
   - name: snapshot-kpis
     command: kpi-snapshot
-    dry_run: true
     days: 30
-    timeout: 120
+    timeout: 180

@@ -44,6 +44,16 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-engineering-kpis",
         "summary": "Active engineering KPIs with history charts and notable period-to-period moves",
     },
+    "kpi-snapshot": {
+        "schedule_expression": "cron(15 7 * * ? *)",
+        "command": ["kpi-snapshot"],
+        "enabled": True,
+        "rule_name": "cortex-kpi-snapshot",
+        "summary": (
+            "Persist registry KPIs to SQLite (EFS; optional S3 when "
+            "CORTEX_KPI_STORE_S3_URI is set)"
+        ),
+    },
     "pendo-ford-7d": {
         "schedule_expression": "cron(0 8 * * ? *)",
         "command": ["pendo-ford-7d"],
@@ -101,7 +111,11 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "command": ["morning-report"],
         "enabled": False,
         "rule_name": "cortex-morning-report",
-        "summary": "Morning report email (overnight jobs + KPI generators vs target/direction via SES) — disabled until SES domain DNS/DKIM",
+        "summary": (
+            "Morning report email (overnight jobs + KPI generators vs target/direction "
+            "via SES) — DISABLED until SES DKIM/DNS + CORTEX_METRICS_DIGEST_* "
+            "(enable: docs/SETUP/KPI_OPS.md)"
+        ),
     },
 }
 

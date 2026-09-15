@@ -39,11 +39,12 @@ Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includ
 | Portfolio LLM context | Daily 07:00 UTC (`cortex-llm-context-portfolio-daily`) | `llm-context-portfolio-daily` (`cortex export-all`, 90-day window; requires shared snapshot; Slack/§7 LLM calls need `CORTEX_ALLOW_PRODUCTION_LLM_EXPORT` on ECS) |
 | Engineering portfolio | Daily 07:30 UTC (`cortex-engineering-portfolio`) | `engineering-portfolio` (Claude Opus designs each slide when `ANTHROPIC_API_KEY` is set; else legacy Python builders) |
 | Engineering KPIs | Daily 07:45 UTC (`cortex-engineering-kpis`) | `engineering-kpis` (active engineering KPIs with history charts and notable period-to-period moves; no overall narrative) |
+| KPI snapshot | Daily 07:15 UTC (`cortex-kpi-snapshot`) | `kpi-snapshot` (persist registry KPIs to SQLite on EFS; optional S3 — see `docs/SETUP/KPI_OPS.md`) |
 | Ford Pendo export (7d) | Daily 08:00 UTC (`cortex-pendo-ford-7d`) | `pendo-ford-7d` (`cortex --export-pendo --customer Ford --days 7 --compare-days 7`) |
 | Ford Pendo export (30d) | Daily 08:30 UTC (`cortex-pendo-ford-30d`) | `pendo-ford-30d` (`cortex --export-pendo --customer Ford --days 30 --compare-days 30`) |
 | Top-ARR Pendo detailed | Daily 09:00 UTC (`cortex-pendo-top-arr-detailed`) | `pendo-top-arr-detailed` (top 10 · 30d + 7d detailed in one pass) |
 | CSR dump | Daily 05:00 / 11:00 / 17:00 / 23:00 UTC (`cortex-csr-dump-*`) | `csr-dump-0000` … `1800` (CDT midnight / 6am / noon / 6pm) |
-| Morning KPI digest | Daily 12:00 UTC (`cortex-morning-report`, disabled until SES DKIM) | `morning-report` (`metrics-digest`) |
+| Morning KPI digest | Daily 12:00 UTC (`cortex-morning-report`, **DISABLED** until SES DKIM — enable path in `docs/SETUP/KPI_OPS.md`) | `morning-report` (`metrics-digest`) |
 | Portfolio batch | Manual / `run-task` | `portfolio-batch` |
 | Full nightly chain | Manual | `nightly-core` |
 

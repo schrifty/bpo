@@ -26,6 +26,36 @@ def digest_email_from() -> str:
     return (os.environ.get("CORTEX_METRICS_DIGEST_FROM") or "").strip()
 
 
+def require_digest_send_config(
+    *,
+    to: list[str] | None = None,
+    from_addr: str | None = None,
+) -> tuple[list[str], str]:
+    """Validate SES digest From/To before sending.
+
+    Raises :class:`SesEmailError` when either is missing so callers fail loud
+    before generating the report body when send was requested.
+    """
+    recipients = list(to) if to is not None else digest_email_recipients()
+    recipients = [r.strip() for r in recipients if r and str(r).strip()]
+    source = (from_addr if from_addr is not None else digest_email_from()).strip()
+    if not source:
+        raise SesEmailError(
+            "Missing SES From address — set CORTEX_METRICS_DIGEST_FROM "
+            "(verified identity in SES). Morning-report stays disabled in "
+            "EventBridge until SES DKIM/DNS and recipients are configured "
+            "(see docs/SETUP/KPI_OPS.md)."
+        )
+    if not recipients:
+        raise SesEmailError(
+            "Missing SES To address — set CORTEX_METRICS_DIGEST_TO "
+            "(comma-separated recipients). Morning-report stays disabled in "
+            "EventBridge until SES DKIM/DNS and recipients are configured "
+            "(see docs/SETUP/KPI_OPS.md)."
+        )
+    return recipients, source
+
+
 def send_email(
     *,
     to: list[str] | str,
@@ -39,19 +69,10 @@ def send_email(
 
     Raises :class:`SesEmailError` when From/To are missing or SES rejects the send.
     """
-    recipients = [to] if isinstance(to, str) else list(to)
-    recipients = [r.strip() for r in recipients if r and str(r).strip()]
-    source = (from_addr if from_addr is not None else digest_email_from()).strip()
-    if not source:
-        raise SesEmailError(
-            "Missing SES From address — set CORTEX_METRICS_DIGEST_FROM "
-            "(verified identity in SES)."
-        )
-    if not recipients:
-        raise SesEmailError(
-            "Missing SES To address — set CORTEX_METRICS_DIGEST_TO "
-            "(comma-separated recipients)."
-        )
+    recipients, source = require_digest_send_config(
+        to=[to] if isinstance(to, str) else list(to),
+        from_addr=from_addr,
+    )
     subj = (subject or "").strip()
     if not subj:
         raise SesEmailError("Email subject must be non-empty")

@@ -101,6 +101,7 @@ JOB_SECRET_PROFILE: dict[str, str] = {
     "llm-context-portfolio-daily": PROFILE_LLM,
     "engineering-portfolio": PROFILE_LLM,
     "engineering-kpis": PROFILE_DECKS,
+    "kpi-snapshot": PROFILE_METRICS,
     "pendo-snapshot-refresh": PROFILE_DECKS,
     "pendo-ford-7d": PROFILE_DECKS,
     "pendo-ford-30d": PROFILE_DECKS,

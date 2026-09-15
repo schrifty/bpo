@@ -62,6 +62,7 @@ def test_job_secret_profiles_cover_scheduled_catalog() -> None:
 
     assert set(JOB_SECRET_PROFILE) == set(SCHEDULED_JOBS_CATALOG)
     assert secret_profile_for_job("morning-report") == "metrics"
+    assert secret_profile_for_job("kpi-snapshot") == "metrics"
     assert secret_profile_for_job("llm-context-portfolio-daily") == "llm"
     assert secret_profile_for_job("pendo-ford-7d") == "decks"
     assert "llm" not in PROFILE_BUNDLES["decks"]

@@ -17,7 +17,6 @@ from src.kpi_snapshot import (
     run_kpi_snapshot,
 )
 from src.kpi_store import GRAIN_DAILY, GRAIN_MONTH, connect, list_kpis
-from src.kpi_store_s3 import KPIStoreS3Error
 from src.metrics_upsert import MetricUpsertContext, MetricUpsertError
 
 
@@ -250,18 +249,40 @@ def test_generator_error_fails_run_and_still_writes_error_row(tmp_path: Path) ->
     assert prs.observation.error == "github down"
 
 
-def test_persist_without_s3_uri_fails_loud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_persist_without_s3_uri_writes_local_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("CORTEX_KPI_STORE_S3_URI", raising=False)
+    db = tmp_path / "kpi.sqlite"
 
     def invoke(name, **kwargs):
         return {"value": 1}
 
-    with pytest.raises(KPIStoreS3Error, match="CORTEX_KPI_STORE_S3_URI"):
-        run_kpi_snapshot(
-            _ctx(dry_run=False),
-            dry_run=False,
-            registry=_registry(),
-            db_path=tmp_path / "kpi.sqlite",
-            skip_s3=False,
-            invoke=invoke,
-        )
+    summary = run_kpi_snapshot(
+        _ctx(dry_run=False),
+        dry_run=False,
+        registry=_registry(),
+        db_path=db,
+        skip_s3=False,
+        invoke=invoke,
+    )
+    assert summary["ok"] is True
+    assert summary["s3"] == "skipped_no_uri"
+    assert summary["written"] == 3
+    assert db.is_file()
+    conn = connect(db)
+    assert len(list_kpis(conn)) == 3
+    conn.close()
+
+
+def test_kpi_snapshot_job_persists_not_dry_run() -> None:
+    from src.job_runner import build_step_argv, load_job_spec
+
+    spec = load_job_spec("kpi-snapshot")
+    assert spec.name == "kpi-snapshot"
+    step = spec.steps[0]
+    assert step.get("dry_run") in (None, False)
+    argv = build_step_argv(step)
+    assert argv[0] == "kpi-snapshot"
+    assert "--dry-run" not in argv
+

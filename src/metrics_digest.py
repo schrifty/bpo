@@ -41,7 +41,13 @@ from src.overnight_jobs_report import (
     format_overnight_jobs_section,
     overnight_failure_count,
 )
-from src.ses_email import SesEmailError, digest_email_from, digest_email_recipients, send_email
+from src.ses_email import (
+    SesEmailError,
+    digest_email_from,
+    digest_email_recipients,
+    require_digest_send_config,
+    send_email,
+)
 
 logger = logging.getLogger("cortex")
 
@@ -604,7 +610,23 @@ def run_metrics_digest(
     overnight: list[OvernightJobOutcome] | None = None,
     tag: str | None = None,
 ) -> DigestResult:
-    """Generate the morning report and optionally email via SES."""
+    """Generate the morning report and optionally email via SES.
+
+    When *dry_run* is false, SES From/To must be configured before generators
+    run — misconfiguration fails loud immediately (no silent skip).
+    """
+    if not dry_run:
+        try:
+            require_digest_send_config()
+        except SesEmailError as e:
+            return DigestResult(
+                rows=[],
+                subject="",
+                body="",
+                sent=False,
+                error=str(e),
+            )
+
     as_of_s = as_of or date.today().isoformat()
     as_of_date = date.fromisoformat(as_of_s)
     ctx = MetricUpsertContext(
