@@ -1,4 +1,4 @@
-"""CLI for internal users to add, edit, delete, and show registry KPIs."""
+"""CLI for internal users to add, edit, delete, show, and list registry KPIs."""
 
 from __future__ import annotations
 
@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from src.config_paths import KPI_OWNERS_FILE, METRICS_FILE
-from src.kpi_owners import load_kpi_owners_config, resolve_kpi_actor
+from src.kpi_owners import (
+    load_kpi_owners_config,
+    resolve_kpi_actor,
+    resolve_owner_cli_value,
+)
 from src.metrics_registry import (
     VALID_METRIC_DIRECTIONS,
     VALID_METRIC_UNITS,
@@ -32,7 +36,19 @@ from src.metrics_registry_write import (
 )
 
 _MANAGE_COMMANDS = frozenset(
-    {"add", "edit", "update", "delete", "rm", "remove", "show", "get", "owners"}
+    {
+        "add",
+        "edit",
+        "update",
+        "delete",
+        "rm",
+        "remove",
+        "show",
+        "get",
+        "list",
+        "ls",
+        "owners",
+    }
 )
 
 
@@ -91,6 +107,32 @@ def _add_shared_write_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--dry-run", action="store_true", help="Validate and print; do not write the file")
 
 
+def _add_shared_read_args(ap: argparse.ArgumentParser, *, with_actor: bool = True) -> None:
+    ap.add_argument(
+        "--registry",
+        dest="registry_path",
+        default=None,
+        metavar="PATH",
+        help=f"Registry YAML (default: {METRICS_FILE})",
+    )
+    ap.add_argument(
+        "--owners-config",
+        dest="owners_path",
+        default=None,
+        metavar="PATH",
+        help=f"KPI owners YAML (default: {KPI_OWNERS_FILE})",
+    )
+    if with_actor:
+        ap.add_argument(
+            "--as-user",
+            dest="actor",
+            default=None,
+            metavar="EMAIL",
+            help="Acting user for 'me' owner resolution (default: CORTEX_KPI_ACTOR or catalog_admin)",
+        )
+    ap.add_argument("--json", action="store_true", help="Print the result as JSON")
+
+
 def _add_field_args(ap: argparse.ArgumentParser, *, for_edit: bool) -> None:
     ap.add_argument("--description", default=UNSET, help="Human-readable summary")
     ap.add_argument(
@@ -102,7 +144,8 @@ def _add_field_args(ap: argparse.ArgumentParser, *, for_edit: bool) -> None:
     ap.add_argument(
         "--owner",
         default=UNSET,
-        help="Owner email (catalog_admin or a configured lead); default on add: acting user",
+        metavar="EMAIL|me",
+        help="Owner email or 'me' (acting user); default on add: acting user",
     )
     ap.add_argument("--metric-id", dest="metric_id", default=UNSET, help="LeanDNA catalog id (integer)")
     ap.add_argument("--generator", dest="generator", default=UNSET, help="metric-generator function name")
@@ -163,6 +206,28 @@ def _registry_path(ns: argparse.Namespace) -> Path:
 
 def _owners_path(ns: argparse.Namespace) -> Path | None:
     return Path(ns.owners_path) if getattr(ns, "owners_path", None) else None
+
+
+def _load_owners_cfg(ns: argparse.Namespace):
+    path = _owners_path(ns)
+    return load_kpi_owners_config(path=path) if path else load_kpi_owners_config()
+
+
+def _resolve_list_owner(ns: argparse.Namespace) -> str:
+    """Owner filter for list / owners --list-metrics: default and bare --owner → me."""
+    cfg = _load_owners_cfg(ns)
+    actor = getattr(ns, "actor", None)
+    raw = getattr(ns, "owner", None)
+    # argparse nargs='?' with const='me': omitted flag → None; bare --owner → 'me'
+    resolved = resolve_owner_cli_value(
+        raw,
+        actor=actor,
+        owners=cfg,
+        default_to_me=True,
+    )
+    if not resolved:
+        raise MetricsRegistryWriteError("owner filter resolved empty (use --owner EMAIL|me)")
+    return resolved
 
 
 def _confirm_delete(name: str, *, assume_yes: bool) -> bool:
@@ -259,12 +324,52 @@ def _cmd_show(ns: argparse.Namespace) -> int:
     return 0
 
 
+def _print_metrics_for_owner(
+    *,
+    owner: str,
+    registry: dict[str, Any],
+    dest: Path,
+    as_json: bool,
+) -> int:
+    metrics = [
+        {
+            "name": name,
+            "tags": registry_metric_tags(entry),
+            "owner": registry_metric_owner(entry),
+        }
+        for name, entry in iter_metrics_by_owner(owner, registry=registry)
+    ]
+    payload = {"owner": owner, "metrics": metrics, "path": str(dest)}
+    if as_json:
+        print(json.dumps(payload, indent=2, default=str, ensure_ascii=False))
+        return 0 if metrics else 1
+    if not metrics:
+        print(f"No KPIs owned by {owner!r} in {dest}", file=sys.stderr)
+        return 1
+    for row in metrics:
+        tags = ", ".join(row["tags"]) if row["tags"] else "—"
+        print(f"{row['name']}\t{tags}")
+    return 0
+
+
+def _cmd_list(ns: argparse.Namespace) -> int:
+    """List KPI definitions for one owner (default: acting user / me)."""
+    dest = _registry_path(ns)
+    registry = load_metrics_registry(path=dest)
+    owner = _resolve_list_owner(ns)
+    return _print_metrics_for_owner(
+        owner=owner,
+        registry=registry,
+        dest=dest,
+        as_json=bool(ns.json),
+    )
+
+
 def _cmd_owners(ns: argparse.Namespace) -> int:
     """List owners configured in kpi_owners.yaml and counts from the registry."""
     dest = _registry_path(ns)
-    owners_path = _owners_path(ns)
+    cfg = _load_owners_cfg(ns)
     registry = load_metrics_registry(path=dest)
-    cfg = load_kpi_owners_config(path=owners_path) if owners_path else load_kpi_owners_config()
     counts = dict(all_registry_owners(registry=registry))
     rows: list[dict[str, Any]] = []
     rows.append(
@@ -287,24 +392,13 @@ def _cmd_owners(ns: argparse.Namespace) -> int:
             }
         )
     if ns.list_metrics:
-        owner = ns.owner
-        if not owner:
-            raise MetricsRegistryWriteError("--list-metrics requires --owner EMAIL")
-        metrics = [
-            {"name": name, "tags": registry_metric_tags(entry), "owner": registry_metric_owner(entry)}
-            for name, entry in iter_metrics_by_owner(owner, registry=registry)
-        ]
-        payload = {"owner": owner, "metrics": metrics, "path": str(dest)}
-        if ns.json:
-            print(json.dumps(payload, indent=2, default=str, ensure_ascii=False))
-            return 0
-        if not metrics:
-            print(f"No KPIs owned by {owner!r} in {dest}", file=sys.stderr)
-            return 1
-        for row in metrics:
-            tags = ", ".join(row["tags"]) if row["tags"] else "—"
-            print(f"{row['name']}\t{tags}")
-        return 0
+        owner = _resolve_list_owner(ns)
+        return _print_metrics_for_owner(
+            owner=owner,
+            registry=registry,
+            dest=dest,
+            as_json=bool(ns.json),
+        )
     if ns.json:
         print(
             json.dumps(
@@ -318,7 +412,7 @@ def _cmd_owners(ns: argparse.Namespace) -> int:
                         }
                         for pid, pack in cfg.topic_packs.items()
                     },
-                    "actor_default": resolve_kpi_actor(None, owners=cfg),
+                    "actor_default": resolve_kpi_actor(getattr(ns, "actor", None), owners=cfg),
                     "path": str(cfg.path),
                     "registry": str(dest),
                 },
@@ -336,7 +430,8 @@ def _cmd_owners(ns: argparse.Namespace) -> int:
     for pid, pack in cfg.topic_packs.items():
         print(f"  {pid}: any of {list(pack.required_any_tags)}")
     print(
-        "\nList one owner's KPIs: cortex kpi owners --list-metrics --owner EMAIL",
+        "\nList one owner's KPIs: cortex kpi list [--owner me|EMAIL] "
+        "or cortex kpi owners --list-metrics [--owner me|EMAIL]",
         file=sys.stderr,
     )
     return 0
@@ -346,8 +441,8 @@ def build_parser(*, prog: str = "cortex kpi") -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog=prog,
         description=(
-            "Add, edit, delete, or show KPI definitions in config/my-metrics.yaml. "
-            "Value lookup: cortex kpi --all | cortex kpi TAG ... | cortex kpi --owner EMAIL. "
+            "Add, edit, delete, show, or list KPI definitions in config/my-metrics.yaml. "
+            "Value lookup: cortex kpi --all | cortex kpi TAG ... | cortex kpi --owner [EMAIL|me]. "
             "Help: cortex --kpi"
         ),
     )
@@ -368,39 +463,40 @@ def build_parser(*, prog: str = "cortex kpi") -> argparse.ArgumentParser:
     del_p.add_argument("-y", "--yes", action="store_true", help="Do not prompt for confirmation")
     _add_shared_write_args(del_p)
 
-    show_p = sub.add_parser("show", aliases=("get",), help="Print one KPI definition")
+    show_p = sub.add_parser("show", aliases=("get",), help="Print one KPI definition (read-all)")
     show_p.add_argument("name", help="Display name")
-    show_p.add_argument(
-        "--registry",
-        dest="registry_path",
-        default=None,
-        metavar="PATH",
-        help=f"Registry YAML (default: {METRICS_FILE})",
+    _add_shared_read_args(show_p, with_actor=False)
+
+    list_p = sub.add_parser(
+        "list",
+        aliases=("ls",),
+        help="List KPI definitions for one owner (default: me / acting user)",
     )
-    show_p.add_argument("--json", action="store_true", help="Print the result as JSON")
+    list_p.add_argument(
+        "--owner",
+        nargs="?",
+        const="me",
+        default=None,
+        metavar="EMAIL|me",
+        help="Owner filter (default and bare --owner: acting user / me)",
+    )
+    _add_shared_read_args(list_p, with_actor=True)
 
     owners_p = sub.add_parser("owners", help="List configured KPI owners / list KPIs by owner")
+    _add_shared_read_args(owners_p, with_actor=True)
     owners_p.add_argument(
-        "--registry",
-        dest="registry_path",
+        "--owner",
+        nargs="?",
+        const="me",
         default=None,
-        metavar="PATH",
-        help=f"Registry YAML (default: {METRICS_FILE})",
+        metavar="EMAIL|me",
+        help="With --list-metrics: owner filter (default and bare --owner: me)",
     )
-    owners_p.add_argument(
-        "--owners-config",
-        dest="owners_path",
-        default=None,
-        metavar="PATH",
-        help=f"KPI owners YAML (default: {KPI_OWNERS_FILE})",
-    )
-    owners_p.add_argument("--owner", default=None, metavar="EMAIL", help="With --list-metrics: owner filter")
     owners_p.add_argument(
         "--list-metrics",
         action="store_true",
-        help="List KPI names owned by --owner (definitions only, no values)",
+        help="List KPI names owned by --owner (default me; definitions only, no values)",
     )
-    owners_p.add_argument("--json", action="store_true", help="Print the result as JSON")
     return ap
 
 
@@ -417,6 +513,8 @@ def run_kpi_manage_cli(argv: Sequence[str] | None = None, *, prog: str = "cortex
             return _cmd_delete(ns)
         if command in ("show", "get"):
             return _cmd_show(ns)
+        if command in ("list", "ls"):
+            return _cmd_list(ns)
         if command == "owners":
             return _cmd_owners(ns)
     except (MetricsRegistryWriteError, FileNotFoundError, ValueError) as exc:

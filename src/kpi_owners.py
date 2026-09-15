@@ -211,6 +211,41 @@ def resolve_kpi_actor(
     return cfg.catalog_admin
 
 
+# CLI token for "acting user" on ``--owner`` / ``--me`` (case-insensitive).
+KPI_OWNER_ME_TOKEN = "me"
+
+
+def is_owner_me_token(raw: Any) -> bool:
+    """True when *raw* is the CLI ``me`` sentinel (acting user)."""
+    if raw is None:
+        return False
+    return str(raw).strip().lower() == KPI_OWNER_ME_TOKEN
+
+
+def resolve_owner_cli_value(
+    raw: Any,
+    *,
+    actor: str | None = None,
+    owners: KPIOwnersConfig | None = None,
+    environ: dict[str, str] | None = None,
+    default_to_me: bool = False,
+) -> str | None:
+    """Resolve a CLI ``--owner`` value to a canonical email (or ``None``).
+
+    - ``None`` / blank → ``None``, unless *default_to_me* (then acting user).
+    - ``me`` (any case) → acting user via :func:`resolve_kpi_actor`.
+    - otherwise → normalized email/id string (not validated against known owners;
+      callers that write the registry still run :func:`validate_owner_value`).
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        if default_to_me:
+            return resolve_kpi_actor(actor, owners=owners, environ=environ)
+        return None
+    if is_owner_me_token(raw):
+        return resolve_kpi_actor(actor, owners=owners, environ=environ)
+    return normalize_owner_email(raw)
+
+
 def metric_satisfies_topic_pack(entry: Any, pack: TopicPack) -> bool:
     """True when *entry* tags include any of the pack's ``required_any_tags``."""
     tags = set(registry_metric_tags(entry))

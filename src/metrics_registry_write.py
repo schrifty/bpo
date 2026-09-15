@@ -22,6 +22,7 @@ from .kpi_owners import (
     assert_actor_may_mutate_metric,
     load_kpi_owners_config,
     resolve_kpi_actor,
+    resolve_owner_cli_value,
     validate_entry_ownership,
 )
 from .metrics_registry import (
@@ -510,7 +511,13 @@ def add_registry_metric(
     except (KPIOwnershipError, FileNotFoundError) as exc:
         raise MetricsRegistryWriteError(str(exc)) from exc
     resolved_actor = resolve_kpi_actor(actor, owners=owners)
-    owner_value = owner if owner is not UNSET else resolved_actor
+    # ``me`` / omitted --owner → acting user (same token as value CLI).
+    if owner is UNSET:
+        owner_value: Any = resolved_actor
+    else:
+        owner_value = resolve_owner_cli_value(owner, actor=resolved_actor, owners=owners)
+        if not owner_value:
+            raise MetricsRegistryWriteError("owner is required (email or 'me')")
     entry = apply_metric_fields(
         default_metric_entry(),
         description=description,
@@ -588,11 +595,22 @@ def edit_registry_metric(
     if renamed != display and get_registry_metric(renamed, registry=registry) is not None:
         raise MetricsRegistryWriteError(f"KPI already exists: {renamed!r}")
     existing_owner = registry_metric_owner(current)
+    try:
+        owners = load_kpi_owners_config(path=owners_path) if owners_path is not None else load_kpi_owners_config()
+    except (KPIOwnershipError, FileNotFoundError) as exc:
+        raise MetricsRegistryWriteError(str(exc)) from exc
+    resolved_actor = resolve_kpi_actor(actor, owners=owners)
+    owner_value = owner
+    if owner is not UNSET and not clear_owner:
+        resolved_owner = resolve_owner_cli_value(owner, actor=resolved_actor, owners=owners)
+        if not resolved_owner:
+            raise MetricsRegistryWriteError("owner is required (email or 'me')")
+        owner_value = resolved_owner
     entry = apply_metric_fields(
         current,
         description=description,
         mgmt_guidance=mgmt_guidance,
-        owner=owner,
+        owner=owner_value,
         metric_id=metric_id,
         generator=generator,
         tags=tags,
@@ -613,7 +631,7 @@ def edit_registry_metric(
     )
     _assert_entry_ownership(entry, owners_path=owners_path)
     _resolve_actor_and_authorize(
-        actor=actor,
+        actor=resolved_actor,
         existing_owner=existing_owner,
         new_owner=registry_metric_owner(entry),
         action="edit",
