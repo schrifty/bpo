@@ -10,7 +10,7 @@
   <header class="top">
     <div class="brand">
       <a href="/" class="brand-link">Cortex KPIs</a>
-      <span class="sub">read-only view</span>
+      <span class="sub">view &amp; maintain</span>
     </div>
     <div id="session" class="session"></div>
   </header>
@@ -50,10 +50,12 @@
           Resolve values
         </label>
         <button type="button" id="btn-refresh">Refresh</button>
+        <button type="button" id="btn-add" class="secondary">Add KPI</button>
       </div>
 
       <p id="list-status" class="muted"></p>
       <p id="list-error" class="error" hidden></p>
+      <p id="mutate-status" class="ok-banner hidden"></p>
 
       <div class="layout">
         <div class="list-pane">
@@ -77,6 +79,76 @@
       </div>
     </section>
   </main>
+
+  <dialog id="kpi-form-dialog">
+    <form id="kpi-form" method="dialog">
+      <h2 id="form-title">Add KPI</h2>
+      <p id="form-error" class="error" hidden></p>
+      <div class="form-grid">
+        <label class="span-2">
+          Name
+          <input type="text" id="f-name" required autocomplete="off" />
+        </label>
+        <label class="span-2" id="f-new-name-wrap" hidden>
+          Rename to
+          <input type="text" id="f-new-name" autocomplete="off" />
+        </label>
+        <label class="span-2">
+          Description
+          <textarea id="f-description" rows="3"></textarea>
+        </label>
+        <label class="span-2">
+          Management guidance
+          <textarea id="f-mgmt" rows="3"></textarea>
+        </label>
+        <label>
+          Owner
+          <input type="text" id="f-owner" placeholder="email or me" autocomplete="off" />
+        </label>
+        <label>
+          Tags <span class="muted">(comma-separated)</span>
+          <input type="text" id="f-tags" placeholder="engineering, ai" autocomplete="off" />
+        </label>
+        <label>
+          Target
+          <input type="text" id="f-target" inputmode="decimal" autocomplete="off" />
+        </label>
+        <label>
+          Direction
+          <select id="f-direction">
+            <option value="">—</option>
+            <option value="higher">higher</option>
+            <option value="lower">lower</option>
+          </select>
+        </label>
+        <label>
+          Unit
+          <select id="f-unit">
+            <option value="">—</option>
+            <option value="percent">percent</option>
+            <option value="currency">currency</option>
+          </select>
+        </label>
+        <label>
+          Metric ID
+          <input type="text" id="f-metric-id" inputmode="numeric" autocomplete="off" />
+        </label>
+        <label class="span-2">
+          Metric generator
+          <input type="text" id="f-generator" placeholder="existing Python generator name" autocomplete="off" />
+        </label>
+        <label class="check span-2">
+          <input type="checkbox" id="f-dry-run" checked />
+          Dry-run (preview only; do not write YAML)
+        </label>
+      </div>
+      <pre id="form-preview" class="preview hidden"></pre>
+      <div class="form-actions">
+        <button type="button" id="btn-form-cancel" class="secondary" value="cancel">Cancel</button>
+        <button type="submit" id="btn-form-submit">Save</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="/static/app.js"></script>
 </body>

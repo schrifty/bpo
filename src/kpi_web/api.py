@@ -1,4 +1,4 @@
-"""HTTP handlers for the KPI web read API (workstream C)."""
+"""HTTP handlers for the KPI web read + maintain API (workstreams C/D)."""
 
 from __future__ import annotations
 
@@ -29,6 +29,14 @@ from src.kpi_web.auth import (
     user_from_dev_login,
     user_from_google_info,
 )
+from src.kpi_web.mutations import (
+    add_from_body,
+    audit_catalog_change,
+    change_to_dict,
+    delete_metric,
+    edit_from_body,
+    parse_dry_run,
+)
 from src.kpi_web.serialize import catalog_entry_to_dict, history_to_list, resolved_to_dict
 from src.kpi_web.settings import KPIWebSettings
 from src.metrics_latest import DatapointValue
@@ -43,6 +51,7 @@ from src.metrics_registry import (
     normalize_tag,
     registry_metric_tags,
 )
+from src.metrics_registry_write import MetricsRegistryWriteError
 
 logger = logging.getLogger(__name__)
 
@@ -348,6 +357,121 @@ async def api_kpi_detail(request: Request) -> Response:
     finally:
         if store_conn is not None:
             store_conn.close()
+
+
+def _write_error_response(exc: MetricsRegistryWriteError) -> JSONResponse:
+    """Map catalog write/authz failures to 400/403/404 (fail loud, no silent skip)."""
+    msg = str(exc)
+    lower = msg.lower()
+    status = 400
+    if "unauthorized" in lower or "may not" in lower or "only create" in lower:
+        status = 403
+    elif "not found" in lower:
+        status = 404
+    return JSONResponse({"ok": False, "error": msg}, status_code=status)
+
+
+async def _json_body(request: Request) -> dict[str, Any]:
+    try:
+        raw = await request.json()
+    except Exception as exc:  # noqa: BLE001
+        raise MetricsRegistryWriteError(f"request body must be JSON: {exc}") from exc
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise MetricsRegistryWriteError("request body must be a JSON object")
+    return raw
+
+
+async def api_kpi_add(request: Request) -> Response:
+    """POST /api/kpis — add a catalog row (same YAML shape as ``cortex kpi add``)."""
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    settings = _settings(request)
+    try:
+        body = await _json_body(request)
+        dry_run = parse_dry_run(body, request.query_params.get("dry_run"))
+        change = add_from_body(
+            body,
+            actor=user.email,
+            registry_path=settings.registry_path,
+            owners_path=settings.owners_path,
+            dry_run=dry_run,
+        )
+    except MetricsRegistryWriteError as exc:
+        return _write_error_response(exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("KPI add failed")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    audit_catalog_change(change, actor=user.email)
+    return JSONResponse(
+        {"ok": True, "change": change_to_dict(change, actor=user.email)},
+        status_code=200 if change.dry_run else 201,
+    )
+
+
+async def api_kpi_edit(request: Request) -> Response:
+    """PATCH /api/kpis/{name} — edit a catalog row (``cortex kpi edit`` parity)."""
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    settings = _settings(request)
+    name = unquote(request.path_params.get("name") or "").strip()
+    if not name:
+        return JSONResponse({"ok": False, "error": "metric name required"}, status_code=400)
+    try:
+        body = await _json_body(request)
+        dry_run = parse_dry_run(body, request.query_params.get("dry_run"))
+        change = edit_from_body(
+            name,
+            body,
+            actor=user.email,
+            registry_path=settings.registry_path,
+            owners_path=settings.owners_path,
+            dry_run=dry_run,
+        )
+    except MetricsRegistryWriteError as exc:
+        return _write_error_response(exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("KPI edit failed for %s", name)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    audit_catalog_change(change, actor=user.email)
+    return JSONResponse({"ok": True, "change": change_to_dict(change, actor=user.email)})
+
+
+async def api_kpi_delete(request: Request) -> Response:
+    """DELETE /api/kpis/{name} — remove a catalog row (``cortex kpi delete`` parity)."""
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    settings = _settings(request)
+    name = unquote(request.path_params.get("name") or "").strip()
+    if not name:
+        return JSONResponse({"ok": False, "error": "metric name required"}, status_code=400)
+    try:
+        # Optional empty JSON body; dry-run via query is preferred for DELETE.
+        body: dict[str, Any] = {}
+        if (request.headers.get("content-type") or "").lower().startswith("application/json"):
+            body = await _json_body(request)
+        dry_run = parse_dry_run(body, request.query_params.get("dry_run"))
+        change = delete_metric(
+            name,
+            actor=user.email,
+            registry_path=settings.registry_path,
+            owners_path=settings.owners_path,
+            dry_run=dry_run,
+        )
+    except MetricsRegistryWriteError as exc:
+        return _write_error_response(exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("KPI delete failed for %s", name)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    audit_catalog_change(change, actor=user.email)
+    return JSONResponse({"ok": True, "change": change_to_dict(change, actor=user.email)})
 
 
 async def auth_login(request: Request) -> Response:
