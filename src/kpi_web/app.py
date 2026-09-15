@@ -1,4 +1,4 @@
-"""Starlette application factory for the Cortex KPI web view."""
+"""Starlette application factory for the Cortex KPI web view + maintain UI."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def create_app(
     settings: KPIWebSettings | None = None,
     environ: dict[str, str] | None = None,
 ) -> Starlette:
-    """Build the KPI web Starlette app (read-only catalog + values)."""
+    """Build the KPI web Starlette app (catalog view + CRUD maintain)."""
     cfg = settings if settings is not None else load_kpi_web_settings(environ=environ)
     routes = [
         Route("/", api.index_page, methods=["GET"]),
@@ -28,7 +28,10 @@ def create_app(
         Route("/api/me", api.api_me, methods=["GET"]),
         Route("/api/meta", api.api_meta, methods=["GET"]),
         Route("/api/kpis", api.api_list_kpis, methods=["GET"]),
+        Route("/api/kpis", api.api_kpi_add, methods=["POST"]),
         Route("/api/kpis/{name:path}", api.api_kpi_detail, methods=["GET"]),
+        Route("/api/kpis/{name:path}", api.api_kpi_edit, methods=["PATCH"]),
+        Route("/api/kpis/{name:path}", api.api_kpi_delete, methods=["DELETE"]),
         Route("/auth/status", api.auth_status, methods=["GET"]),
         Route("/auth/login", api.auth_login, methods=["GET"]),
         Route("/auth/callback", api.auth_callback, methods=["GET"]),
@@ -41,7 +44,7 @@ def create_app(
             CORSMiddleware,
             allow_origins=[cfg.base_url],
             allow_credentials=True,
-            allow_methods=["GET"],
+            allow_methods=["GET", "POST", "PATCH", "DELETE"],
             allow_headers=["*"],
         ),
     ]

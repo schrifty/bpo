@@ -1,7 +1,7 @@
-"""KPI web view: thin HTTP API + browser UI over ``kpi_service`` / registry.
+"""KPI web view + maintain: thin HTTP API + browser UI over registry / ``kpi_service``.
 
-Catalog CRUD forms are workstream D (not implemented here). Source of truth
-remains ``config/my-metrics.yaml`` + SQLite KPI store — not a second store.
+Catalog CRUD reuses ``metrics_registry_write`` (same YAML shape as the CLI).
+Source of truth remains ``config/my-metrics.yaml`` + SQLite KPI store.
 """
 
 from __future__ import annotations

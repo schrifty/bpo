@@ -5,6 +5,9 @@
     selected: null,
     mode: "stored",
     meta: null,
+    me: null,
+    formMode: "add", // add | edit
+    editName: null,
   };
 
   function esc(s) {
@@ -23,8 +26,15 @@
     return String(v);
   }
 
-  async function api(path) {
-    const res = await fetch(path, { credentials: "same-origin" });
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      credentials: "same-origin",
+      ...options,
+      headers: {
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {}),
+      },
+    });
     let body = null;
     try {
       body = await res.json();
@@ -76,7 +86,9 @@
   function showApp(me) {
     $("login-panel").classList.add("hidden");
     $("app-panel").classList.remove("hidden");
-    const role = me.is_catalog_admin ? "catalog admin" : "lead (read-all)";
+    const role = me.is_catalog_admin
+      ? "catalog admin (edit all)"
+      : "lead (edit-own, read-all)";
     $("session").innerHTML =
       `${esc(me.name || me.email)} · ${esc(role)} · ` +
       `<a href="/auth/logout">Sign out</a>`;
@@ -85,6 +97,8 @@
   function fillFilters(meta) {
     const ownerSel = $("filter-owner");
     const tagSel = $("filter-tag");
+    const prevOwner = ownerSel.value;
+    const prevTag = tagSel.value;
     ownerSel.innerHTML = '<option value="">All owners</option>';
     for (const o of meta.owners || []) {
       if (o.email === "(missing)") continue;
@@ -93,6 +107,7 @@
       opt.textContent = `${o.email} (${o.count})`;
       ownerSel.appendChild(opt);
     }
+    if (prevOwner) ownerSel.value = prevOwner;
     tagSel.innerHTML = '<option value="">All tags</option>';
     for (const t of meta.tags || []) {
       const opt = document.createElement("option");
@@ -100,6 +115,7 @@
       opt.textContent = `${t.tag} (${t.count})`;
       tagSel.appendChild(opt);
     }
+    if (prevTag) tagSel.value = prevTag;
   }
 
   function valueCell(kpi) {
@@ -113,6 +129,13 @@
       return `<span class="value-empty" title="${esc(tip)}">empty</span>`;
     }
     return `<span class="value-ok">${esc(fmtValue(obs.value))}</span>`;
+  }
+
+  function canEdit(kpi) {
+    const me = state.me;
+    if (!me) return false;
+    if (me.is_catalog_admin) return true;
+    return (kpi.owner || "").toLowerCase() === (me.email || "").toLowerCase();
   }
 
   function renderList(payload) {
@@ -165,9 +188,17 @@
           .join("")
       : `<tr><td colspan="2" class="muted">No stored history</td></tr>`;
 
+    const actions = canEdit(kpi)
+      ? `<div class="detail-actions">
+           <button type="button" id="btn-edit" class="secondary">Edit</button>
+           <button type="button" id="btn-delete" class="danger">Delete</button>
+         </div>`
+      : `<p class="muted">You can view this KPI but only its owner (or the catalog admin) may edit it.</p>`;
+
     $("detail").innerHTML = `
       <h2>${esc(kpi.name)}</h2>
       <p class="muted">${esc(kpi.owner || "no owner")} · mode=${esc(payload.mode)} · status=${esc(kpi.value_status || "?")}</p>
+      ${actions}
       <dl>
         <dt>Description</dt>
         <dd>${esc(kpi.description || "—")}</dd>
@@ -194,6 +225,202 @@
           <tbody>${histRows}</tbody></table>
         </dd>
       </dl>`;
+
+    const editBtn = $("btn-edit");
+    const delBtn = $("btn-delete");
+    if (editBtn) editBtn.addEventListener("click", () => openEditForm(kpi));
+    if (delBtn) delBtn.addEventListener("click", () => deleteKpi(kpi));
+  }
+
+  function showMutateStatus(msg, isError) {
+    const el = $("mutate-status");
+    el.classList.remove("hidden", "error", "ok-banner");
+    el.classList.add(isError ? "error" : "ok-banner");
+    el.textContent = msg;
+  }
+
+  function parseTags(raw) {
+    return String(raw || "")
+      .split(/[,;]/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
+
+  function optionalNumber(raw) {
+    const text = String(raw ?? "").trim();
+    if (!text) return undefined;
+    const n = Number(text);
+    if (Number.isNaN(n)) throw new Error(`Invalid number: ${text}`);
+    return n;
+  }
+
+  function formPayload() {
+    const payload = {
+      description: $("f-description").value,
+      mgmt_guidance: $("f-mgmt").value,
+      tags: parseTags($("f-tags").value),
+      dry_run: $("f-dry-run").checked,
+    };
+    const owner = $("f-owner").value.trim();
+    if (owner) payload.owner = owner;
+    const unit = $("f-unit").value;
+    if (unit) payload.unit = unit;
+    const direction = $("f-direction").value;
+    if (direction) payload.direction = direction;
+    const target = optionalNumber($("f-target").value);
+    if (target !== undefined) payload.target = target;
+    const metricId = optionalNumber($("f-metric-id").value);
+    if (metricId !== undefined) payload.metric_id = metricId;
+    const gen = $("f-generator").value.trim();
+    if (gen) payload.metric_generator = gen;
+    if (state.formMode === "add") {
+      payload.name = $("f-name").value.trim();
+    } else {
+      const renamed = $("f-new-name").value.trim();
+      if (renamed && renamed !== state.editName) payload.new_name = renamed;
+      // Explicit clears when fields emptied on edit.
+      if (!$("f-description").value.trim()) payload.clear_description = true;
+      if (!$("f-mgmt").value.trim()) payload.clear_mgmt_guidance = true;
+      if (!$("f-tags").value.trim()) payload.clear_tags = true;
+      if (!$("f-target").value.trim()) payload.clear_target = true;
+      if (!$("f-direction").value) payload.clear_direction = true;
+      if (!$("f-unit").value) payload.clear_unit = true;
+      if (!$("f-metric-id").value.trim()) payload.clear_metric_id = true;
+      if (!$("f-generator").value.trim()) payload.clear_generator = true;
+    }
+    return payload;
+  }
+
+  function fillFormFromKpi(kpi) {
+    $("f-name").value = kpi.name || "";
+    $("f-new-name").value = kpi.name || "";
+    $("f-description").value = kpi.description || "";
+    $("f-mgmt").value = kpi.mgmt_guidance || "";
+    $("f-owner").value = kpi.owner || "";
+    $("f-tags").value = (kpi.tags || []).join(", ");
+    $("f-target").value = kpi.target == null ? "" : String(kpi.target);
+    $("f-direction").value = kpi.direction || "";
+    $("f-unit").value = kpi.unit || "";
+    $("f-metric-id").value = kpi.metric_id == null ? "" : String(kpi.metric_id);
+    $("f-generator").value = kpi.metric_generator || "";
+  }
+
+  function resetForm() {
+    $("kpi-form").reset();
+    $("f-dry-run").checked = true;
+    $("form-error").hidden = true;
+    $("form-preview").classList.add("hidden");
+    $("form-preview").textContent = "";
+  }
+
+  function openAddForm() {
+    state.formMode = "add";
+    state.editName = null;
+    resetForm();
+    $("form-title").textContent = "Add KPI";
+    $("f-name").disabled = false;
+    $("f-new-name-wrap").hidden = true;
+    $("f-owner").value = state.me && state.me.email ? state.me.email : "";
+    $("f-owner").disabled = !state.me?.is_catalog_admin;
+    $("btn-form-submit").textContent = "Add KPI";
+    $("kpi-form-dialog").showModal();
+  }
+
+  function openEditForm(kpi) {
+    state.formMode = "edit";
+    state.editName = kpi.name;
+    resetForm();
+    fillFormFromKpi(kpi);
+    $("form-title").textContent = `Edit: ${kpi.name}`;
+    $("f-name").disabled = true;
+    $("f-new-name-wrap").hidden = false;
+    $("f-owner").disabled = !state.me?.is_catalog_admin;
+    $("btn-form-submit").textContent = "Save changes";
+    $("kpi-form-dialog").showModal();
+  }
+
+  async function submitForm(ev) {
+    ev.preventDefault();
+    const errEl = $("form-error");
+    errEl.hidden = true;
+    $("form-preview").classList.add("hidden");
+    let payload;
+    try {
+      payload = formPayload();
+    } catch (err) {
+      errEl.hidden = false;
+      errEl.textContent = err.message || String(err);
+      return;
+    }
+    const dry = !!payload.dry_run;
+    try {
+      let data;
+      if (state.formMode === "add") {
+        data = await api("/api/kpis", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        data = await api(`/api/kpis/${encodeURIComponent(state.editName)}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+      }
+      const change = data.change;
+      $("form-preview").classList.remove("hidden");
+      $("form-preview").textContent = JSON.stringify(change, null, 2);
+      if (dry) {
+        showMutateStatus(
+          `Dry-run ${change.action}: ${change.name} (YAML not written)`,
+          false
+        );
+        return;
+      }
+      $("kpi-form-dialog").close();
+      showMutateStatus(
+        `${change.action} ${change.name} by ${change.actor}`,
+        false
+      );
+      const meta = await api("/api/meta");
+      state.meta = meta;
+      fillFilters(meta);
+      state.selected = change.name;
+      await refreshList();
+      await selectKpi(change.name);
+    } catch (err) {
+      errEl.hidden = false;
+      errEl.textContent = err.message || String(err);
+    }
+  }
+
+  async function deleteKpi(kpi) {
+    if (!window.confirm(`Dry-run delete preview for "${kpi.name}"?`)) return;
+    try {
+      const preview = await api(
+        `/api/kpis/${encodeURIComponent(kpi.name)}?dry_run=1`,
+        { method: "DELETE" }
+      );
+      const proceed = window.confirm(
+        `Dry-run delete OK for "${preview.change.name}" (owner ${preview.change.entry?.owner || "—"}).\n\nWrite the delete to YAML now?`
+      );
+      if (!proceed) {
+        showMutateStatus(`Dry-run delete: ${kpi.name} (not written)`, false);
+        return;
+      }
+      const data = await api(`/api/kpis/${encodeURIComponent(kpi.name)}`, {
+        method: "DELETE",
+      });
+      showMutateStatus(`Deleted ${data.change.name} by ${data.change.actor}`, false);
+      state.selected = null;
+      $("detail").innerHTML =
+        '<p class="muted">KPI deleted. Select another or add a new one.</p>';
+      const meta = await api("/api/meta");
+      state.meta = meta;
+      fillFilters(meta);
+      await refreshList();
+    } catch (err) {
+      showMutateStatus(err.message || String(err), true);
+    }
   }
 
   async function refreshList() {
@@ -214,7 +441,6 @@
       const data = await api(`/api/kpis?${qs.toString()}`);
       renderList(data);
       if (state.selected) {
-        // Keep selection highlight after refresh.
         for (const tr of $("kpi-table").querySelectorAll("tbody tr")) {
           if (tr.children[0] && tr.children[0].textContent === state.selected) {
             tr.classList.add("active");
@@ -257,6 +483,7 @@
     }
     try {
       const me = await api("/api/me");
+      state.me = me;
       showApp(me);
       const meta = await api("/api/meta");
       state.meta = meta;
@@ -268,6 +495,9 @@
   }
 
   $("btn-refresh").addEventListener("click", refreshList);
+  $("btn-add").addEventListener("click", openAddForm);
+  $("btn-form-cancel").addEventListener("click", () => $("kpi-form-dialog").close());
+  $("kpi-form").addEventListener("submit", submitForm);
   $("filter-owner").addEventListener("change", refreshList);
   $("filter-tag").addEventListener("change", refreshList);
   $("filter-mode").addEventListener("change", () => {

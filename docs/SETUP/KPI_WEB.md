@@ -1,8 +1,9 @@
-# Cortex KPI web view (browser UI + read API)
+# Cortex KPI web (browser UI + read/write API)
 
-Local read-only UI over the same registry (`config/my-metrics.yaml`) and
+Browser UI over the same registry (`config/my-metrics.yaml`) and
 `kpi_service` / SQLite store used by the CLI. **Not** a second source of truth.
-Catalog CRUD forms are workstream D (not in this app yet).
+Catalog CRUD reuses `src.metrics_registry_write` (same YAML shape as
+`cortex kpi add|edit|delete`).
 
 ## Run locally
 
@@ -24,6 +25,51 @@ Stored values need a local KPI SQLite DB (from `cortex kpi-snapshot`). With
 registry generators (same as `cortex kpi --mode live`) and needs integration
 credentials for those generators.
 
+## Maintain (add / edit / delete)
+
+Permissions match CLI ownership rules (enforced server-side via
+`assert_actor_may_mutate_metric`):
+
+| Role | Read | Write |
+|------|------|-------|
+| Catalog admin (Marc) | all | full catalog |
+| Lead | all | **edit-own** only; may set `metric-generator` / `metric-id`; topic packs apply |
+
+### In the UI
+
+1. Sign in (Google SSO or Dev login).
+2. **Add KPI** — toolbar button opens a form. Default owner is you. Leads cannot
+   assign another owner. Check **Dry-run** to preview the change JSON without
+   writing YAML; uncheck to persist.
+3. Select a KPI you may edit → **Edit** / **Delete** in the detail pane.
+4. Delete always dry-runs first, then asks before writing.
+
+Leads see Edit/Delete only on KPIs they own; other owners are view-only.
+
+### Via API (CLI parity)
+
+```bash
+# Dry-run add
+curl -s -X POST 'http://127.0.0.1:8080/api/kpis?dry_run=1' \
+  -H 'Content-Type: application/json' \
+  -b 'cortex_kpi_session=...' \
+  -d '{"name":"Example","tags":["engineering"],"owner":"me"}'
+
+# Persist edit
+curl -s -X PATCH 'http://127.0.0.1:8080/api/kpis/Example' \
+  -H 'Content-Type: application/json' \
+  -b 'cortex_kpi_session=...' \
+  -d '{"description":"Updated","metric_generator":"get_open_help"}'
+
+# Delete
+curl -s -X DELETE 'http://127.0.0.1:8080/api/kpis/Example?dry_run=1' \
+  -b 'cortex_kpi_session=...'
+```
+
+Unauthorized mutations return **403** with an explicit error (YAML unchanged).
+Successful writes log `kpi_catalog_change action=… actor=…` and return
+`change.actor` in the JSON body (minimal audit).
+
 ## Google Workspace SSO
 
 1. In Google Cloud Console, create an OAuth **Web** client for the LeanDNA Workspace project.
@@ -42,8 +88,7 @@ CORTEX_KPI_WEB_ALLOWED_DOMAINS=leandna.com
 
 4. Run `bin/kpi-web` (do **not** set `CORTEX_KPI_WEB_ALLOW_DEV_AUTH` in production).
 5. Users sign in at `/auth/login`. Only emails listed as `catalog_admin` or
-   `leads` in `config/kpi_owners.yaml` may access the catalog. Leads get
-   **read-all** (view); edit-own is enforced later in web maintain (D).
+   `leads` in `config/kpi_owners.yaml` may access the catalog.
 
 Outside-domain accounts and unknown Workspace users get **403** with an explicit
 error (no empty fake catalog).
@@ -58,9 +103,15 @@ error (no empty fake catalog).
 | GET | `/api/meta` | Owners, tags, topic packs |
 | GET | `/api/kpis?owner=&tag=&mode=stored\|live\|leandna&values=0\|1` | List/filter; `values=1` resolves |
 | GET | `/api/kpis/{name}?mode=&history=12` | Detail + observation + history |
+| POST | `/api/kpis` | Add KPI (`?dry_run=1` or body `dry_run`) |
+| PATCH | `/api/kpis/{name}` | Edit / rename (`new_name`, field clears, dry-run) |
+| DELETE | `/api/kpis/{name}` | Delete (`?dry_run=1`) |
 
 Errors and empty observations are returned as-is (`error` / `warnings` /
 `value_status`) — the UI does not invent KPI numbers.
+
+**Out of scope:** authoring new Python generators in-browser; LeanDNA metric
+creation UI.
 
 ## Env reference
 
@@ -76,11 +127,8 @@ Errors and empty observations are returned as-is (`error` / `warnings` /
 | `CORTEX_KPI_WEB_REGISTRY` / `OWNERS` | Alternate YAML paths (tests/dev) |
 | `CORTEX_KPI_WEB_SKIP_S3` | Skip S3 pull for KPI store reads |
 
-## Notes for web maintain (workstream D)
+## Notes for release checklist (workstream F)
 
-- Reuse `src.metrics_registry_write` and `assert_actor_may_mutate_metric` — do not
-  fork write rules in the browser layer.
-- Leads: edit-own only; Marc: full catalog. Topic-pack validation already lives
-  in `validate_entry_ownership`.
-- Prefer `POST/PATCH/DELETE /api/kpis…` with dry-run query flag mirroring CLI
-  `--dry-run`; keep this view app’s read routes unchanged.
+- Document rollback of bad registry edits (git revert of `my-metrics.yaml`).
+- Confirm production SSO env vars; never enable `CORTEX_KPI_WEB_ALLOW_DEV_AUTH`.
+- Salesforce boundary unchanged: KPIs ≠ customer SoR.
