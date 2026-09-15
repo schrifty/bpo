@@ -37,10 +37,13 @@ from src.metrics_registry import (
     has_metric_id,
     is_automated_metric,
     iter_all_metrics,
+    iter_metrics_by_owner,
     iter_metrics_by_tags,
     load_metrics_registry,
+    normalize_tag,
     registry_metric_description,
     registry_metric_mgmt_guidance,
+    registry_metric_owner,
     registry_metric_tags,
 )
 from src.metrics_upsert import MetricUpsertContext, MetricUpsertError, invoke_metric_generator
@@ -65,6 +68,7 @@ class KPIResolved:
     metric_id: int | None
     recent_stored: tuple[DatapointValue, ...] = ()
     mgmt_guidance: str | None = None
+    owner: str | None = None
 
 
 def default_resolve_context(
@@ -292,6 +296,7 @@ def resolve_kpi(
         mgmt_guidance=mgmt_guidance,
         metric_id=metric_id,
         recent_stored=recent,
+        owner=registry_metric_owner(entry),
     )
 
 
@@ -320,11 +325,23 @@ def _stored_rows_for_entry(
     return by_name.get(metric_name, [])
 
 
-def _registry_metrics_for_tags(
+def _registry_metrics_for_scope(
     tags: Sequence[str] | None,
     *,
+    owner: str | None = None,
     registry: dict[str, Any],
 ) -> list[tuple[str, dict[str, Any]]]:
+    if owner:
+        rows = iter_metrics_by_owner(owner, registry=registry)
+        if tags:
+            need = [normalize_tag(t) for t in tags if normalize_tag(t)]
+            if need:
+                rows = [
+                    (name, entry)
+                    for name, entry in rows
+                    if all(tag in registry_metric_tags(entry) for tag in need)
+                ]
+        return rows
     if tags:
         return iter_metrics_by_tags(tags, registry=registry)
     return iter_all_metrics(registry=registry)
@@ -333,6 +350,7 @@ def _registry_metrics_for_tags(
 def iter_resolve_kpis(
     *,
     tags: Sequence[str] | None = None,
+    owner: str | None = None,
     mode: ResolveMode = DEFAULT_RESOLVE_MODE,
     registry: dict[str, Any] | None = None,
     ctx: MetricUpsertContext | None = None,
@@ -346,10 +364,11 @@ def iter_resolve_kpis(
     s3_client: Any | None = None,
     s3_uri: str | None = None,
 ) -> Iterator[KPIResolved]:
-    """Yield registry KPIs (all, or AND tag-set) as each one resolves.
+    """Yield registry KPIs (all, AND tag-set, and/or owner) as each one resolves.
 
-    ``tags=None`` or empty is the full catalog. Non-empty *tags* require every
-    tag (AND). Stored mode reads SQLite once, then attaches rows in memory.
+    ``tags=None`` or empty with no *owner* is the full catalog. Non-empty *tags*
+    require every tag (AND). *owner* filters to that registry owner email.
+    Stored mode reads SQLite once, then attaches rows in memory.
     Live and LeanDNA still compute/fetch per KPI (generators / Data API have
     no bulk value endpoint).
     """
@@ -374,7 +393,7 @@ def iter_resolve_kpis(
     if mode == "stored" and conn is not None:
         stored_by_name, stored_by_name_grain = _index_stored_kpis(conn)
     try:
-        for name, entry in _registry_metrics_for_tags(tags, registry=reg):
+        for name, entry in _registry_metrics_for_scope(tags, owner=owner, registry=reg):
             stored_rows = (
                 _stored_rows_for_entry(
                     name,
@@ -406,6 +425,7 @@ def iter_resolve_kpis(
 def resolve_kpis(
     *,
     tags: Sequence[str] | None = None,
+    owner: str | None = None,
     mode: ResolveMode = DEFAULT_RESOLVE_MODE,
     registry: dict[str, Any] | None = None,
     ctx: MetricUpsertContext | None = None,
@@ -419,10 +439,11 @@ def resolve_kpis(
     s3_client: Any | None = None,
     s3_uri: str | None = None,
 ) -> list[KPIResolved]:
-    """Resolve every registry KPI, or those matching an AND tag-set."""
+    """Resolve every registry KPI, or those matching owner / AND tag-set filters."""
     return list(
         iter_resolve_kpis(
             tags=tags,
+            owner=owner,
             mode=mode,
             registry=registry,
             ctx=ctx,
@@ -575,11 +596,14 @@ def column_widths_for_tag(
 def column_widths_for_tags(
     tags: Sequence[str] | None = None,
     *,
+    owner: str | None = None,
     registry: dict[str, Any] | None = None,
 ) -> KPIColumnWidths:
-    """Column widths for all KPIs, or an AND tag-set (cheap; no generators/API)."""
+    """Column widths for all KPIs, or an owner / AND tag-set (cheap; no generators/API)."""
     reg = registry if registry is not None else load_metrics_registry()
-    return column_widths_for_metrics(_registry_metrics_for_tags(tags, registry=reg))
+    return column_widths_for_metrics(
+        _registry_metrics_for_scope(tags, owner=owner, registry=reg)
+    )
 
 
 def format_kpi_resolved_line(
@@ -621,6 +645,7 @@ def kpi_resolved_to_json(row: KPIResolved) -> dict[str, Any]:
     return {
         "metric_name": row.metric_name,
         "metric_id": row.metric_id,
+        "owner": row.owner,
         "automated": row.automated,
         "tags": list(row.tags),
         "description": row.description,

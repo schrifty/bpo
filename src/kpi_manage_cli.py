@@ -9,12 +9,17 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from src.config_paths import METRICS_FILE
+from src.config_paths import KPI_OWNERS_FILE, METRICS_FILE
+from src.kpi_owners import load_kpi_owners_config, resolve_kpi_actor
 from src.metrics_registry import (
     VALID_METRIC_DIRECTIONS,
     VALID_METRIC_UNITS,
+    all_registry_owners,
     get_registry_metric,
+    iter_metrics_by_owner,
     load_metrics_registry,
+    registry_metric_owner,
+    registry_metric_tags,
 )
 from src.metrics_registry_write import (
     KPICatalogChange,
@@ -26,7 +31,9 @@ from src.metrics_registry_write import (
     public_metric_entry,
 )
 
-_MANAGE_COMMANDS = frozenset({"add", "edit", "update", "delete", "rm", "remove", "show", "get"})
+_MANAGE_COMMANDS = frozenset(
+    {"add", "edit", "update", "delete", "rm", "remove", "show", "get", "owners"}
+)
 
 
 def is_kpi_manage_command(arg: str) -> bool:
@@ -66,6 +73,20 @@ def _add_shared_write_args(ap: argparse.ArgumentParser) -> None:
         metavar="PATH",
         help=f"Registry YAML (default: {METRICS_FILE})",
     )
+    ap.add_argument(
+        "--owners-config",
+        dest="owners_path",
+        default=None,
+        metavar="PATH",
+        help=f"KPI owners YAML (default: {KPI_OWNERS_FILE})",
+    )
+    ap.add_argument(
+        "--as-user",
+        dest="actor",
+        default=None,
+        metavar="EMAIL",
+        help="Acting user for ownership checks (default: CORTEX_KPI_ACTOR or catalog_admin)",
+    )
     ap.add_argument("--json", action="store_true", help="Print the result as JSON")
     ap.add_argument("--dry-run", action="store_true", help="Validate and print; do not write the file")
 
@@ -77,6 +98,11 @@ def _add_field_args(ap: argparse.ArgumentParser, *, for_edit: bool) -> None:
         dest="mgmt_guidance",
         default=UNSET,
         help="How to manage to this KPI (two sentences max)",
+    )
+    ap.add_argument(
+        "--owner",
+        default=UNSET,
+        help="Owner email (catalog_admin or a configured lead); default on add: acting user",
     )
     ap.add_argument("--metric-id", dest="metric_id", default=UNSET, help="LeanDNA catalog id (integer)")
     ap.add_argument("--generator", dest="generator", default=UNSET, help="metric-generator function name")
@@ -107,6 +133,11 @@ def _add_field_args(ap: argparse.ArgumentParser, *, for_edit: bool) -> None:
         ap.add_argument("--remove-tag", dest="remove_tags", action="append", default=None, metavar="NAME")
         ap.add_argument("--clear-description", action="store_true")
         ap.add_argument("--clear-mgmt-guidance", action="store_true")
+        ap.add_argument(
+            "--clear-owner",
+            action="store_true",
+            help="Clear owner (fails validation — owner is required)",
+        )
         ap.add_argument("--clear-metric-id", action="store_true")
         ap.add_argument("--clear-generator", action="store_true")
         ap.add_argument("--clear-tags", action="store_true")
@@ -130,6 +161,10 @@ def _registry_path(ns: argparse.Namespace) -> Path:
     return Path(ns.registry_path) if ns.registry_path else METRICS_FILE
 
 
+def _owners_path(ns: argparse.Namespace) -> Path | None:
+    return Path(ns.owners_path) if getattr(ns, "owners_path", None) else None
+
+
 def _confirm_delete(name: str, *, assume_yes: bool) -> bool:
     if assume_yes:
         return True
@@ -145,12 +180,15 @@ def _cmd_add(ns: argparse.Namespace) -> int:
         path=_registry_path(ns),
         description=ns.description,
         mgmt_guidance=ns.mgmt_guidance,
+        owner=ns.owner,
         metric_id=ns.metric_id,
         generator=ns.generator,
         tags=_merged_tags(ns),
         unit=ns.unit,
         target=ns.target,
         direction=ns.direction,
+        actor=ns.actor,
+        owners_path=_owners_path(ns),
         dry_run=bool(ns.dry_run),
     )
     _print_change(change, as_json=bool(ns.json))
@@ -164,6 +202,7 @@ def _cmd_edit(ns: argparse.Namespace) -> int:
         new_name=ns.new_name,
         description=ns.description,
         mgmt_guidance=ns.mgmt_guidance,
+        owner=ns.owner,
         metric_id=ns.metric_id,
         generator=ns.generator,
         tags=_merged_tags(ns),
@@ -174,12 +213,15 @@ def _cmd_edit(ns: argparse.Namespace) -> int:
         direction=ns.direction,
         clear_description=bool(ns.clear_description),
         clear_mgmt_guidance=bool(ns.clear_mgmt_guidance),
+        clear_owner=bool(ns.clear_owner),
         clear_metric_id=bool(ns.clear_metric_id),
         clear_generator=bool(ns.clear_generator),
         clear_tags=bool(ns.clear_tags),
         clear_unit=bool(ns.clear_unit),
         clear_target=bool(ns.clear_target),
         clear_direction=bool(ns.clear_direction),
+        actor=ns.actor,
+        owners_path=_owners_path(ns),
         dry_run=bool(ns.dry_run),
     )
     _print_change(change, as_json=bool(ns.json))
@@ -193,6 +235,8 @@ def _cmd_delete(ns: argparse.Namespace) -> int:
     change = delete_registry_metric(
         ns.name,
         path=_registry_path(ns),
+        actor=ns.actor,
+        owners_path=_owners_path(ns),
         dry_run=bool(ns.dry_run),
     )
     _print_change(change, as_json=bool(ns.json))
@@ -215,12 +259,96 @@ def _cmd_show(ns: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_owners(ns: argparse.Namespace) -> int:
+    """List owners configured in kpi_owners.yaml and counts from the registry."""
+    dest = _registry_path(ns)
+    owners_path = _owners_path(ns)
+    registry = load_metrics_registry(path=dest)
+    cfg = load_kpi_owners_config(path=owners_path) if owners_path else load_kpi_owners_config()
+    counts = dict(all_registry_owners(registry=registry))
+    rows: list[dict[str, Any]] = []
+    rows.append(
+        {
+            "email": cfg.catalog_admin,
+            "role": "catalog_admin",
+            "display_name": None,
+            "packs": [],
+            "kpi_count": counts.get(cfg.catalog_admin, 0),
+        }
+    )
+    for lead in cfg.leads:
+        rows.append(
+            {
+                "email": lead.email,
+                "role": "lead",
+                "display_name": lead.display_name,
+                "packs": list(lead.packs),
+                "kpi_count": counts.get(lead.email, 0),
+            }
+        )
+    if ns.list_metrics:
+        owner = ns.owner
+        if not owner:
+            raise MetricsRegistryWriteError("--list-metrics requires --owner EMAIL")
+        metrics = [
+            {"name": name, "tags": registry_metric_tags(entry), "owner": registry_metric_owner(entry)}
+            for name, entry in iter_metrics_by_owner(owner, registry=registry)
+        ]
+        payload = {"owner": owner, "metrics": metrics, "path": str(dest)}
+        if ns.json:
+            print(json.dumps(payload, indent=2, default=str, ensure_ascii=False))
+            return 0
+        if not metrics:
+            print(f"No KPIs owned by {owner!r} in {dest}", file=sys.stderr)
+            return 1
+        for row in metrics:
+            tags = ", ".join(row["tags"]) if row["tags"] else "—"
+            print(f"{row['name']}\t{tags}")
+        return 0
+    if ns.json:
+        print(
+            json.dumps(
+                {
+                    "catalog_admin": cfg.catalog_admin,
+                    "owners": rows,
+                    "topic_packs": {
+                        pid: {
+                            "description": pack.description,
+                            "required_any_tags": list(pack.required_any_tags),
+                        }
+                        for pid, pack in cfg.topic_packs.items()
+                    },
+                    "actor_default": resolve_kpi_actor(None, owners=cfg),
+                    "path": str(cfg.path),
+                    "registry": str(dest),
+                },
+                indent=2,
+                default=str,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+    print(f"KPI owners ({cfg.path}):")
+    for row in rows:
+        packs = f" packs={row['packs']}" if row["role"] == "lead" else ""
+        print(f"  {row['email']}  [{row['role']}]  kpis={row['kpi_count']}{packs}")
+    print("Topic packs:")
+    for pid, pack in cfg.topic_packs.items():
+        print(f"  {pid}: any of {list(pack.required_any_tags)}")
+    print(
+        "\nList one owner's KPIs: cortex kpi owners --list-metrics --owner EMAIL",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def build_parser(*, prog: str = "cortex kpi") -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog=prog,
         description=(
             "Add, edit, delete, or show KPI definitions in config/my-metrics.yaml. "
-            "Value lookup: cortex kpi --all | cortex kpi TAG ...  Help: cortex --kpi"
+            "Value lookup: cortex kpi --all | cortex kpi TAG ... | cortex kpi --owner EMAIL. "
+            "Help: cortex --kpi"
         ),
     )
     sub = ap.add_subparsers(dest="manage_command", required=True)
@@ -250,6 +378,29 @@ def build_parser(*, prog: str = "cortex kpi") -> argparse.ArgumentParser:
         help=f"Registry YAML (default: {METRICS_FILE})",
     )
     show_p.add_argument("--json", action="store_true", help="Print the result as JSON")
+
+    owners_p = sub.add_parser("owners", help="List configured KPI owners / list KPIs by owner")
+    owners_p.add_argument(
+        "--registry",
+        dest="registry_path",
+        default=None,
+        metavar="PATH",
+        help=f"Registry YAML (default: {METRICS_FILE})",
+    )
+    owners_p.add_argument(
+        "--owners-config",
+        dest="owners_path",
+        default=None,
+        metavar="PATH",
+        help=f"KPI owners YAML (default: {KPI_OWNERS_FILE})",
+    )
+    owners_p.add_argument("--owner", default=None, metavar="EMAIL", help="With --list-metrics: owner filter")
+    owners_p.add_argument(
+        "--list-metrics",
+        action="store_true",
+        help="List KPI names owned by --owner (definitions only, no values)",
+    )
+    owners_p.add_argument("--json", action="store_true", help="Print the result as JSON")
     return ap
 
 
@@ -266,6 +417,8 @@ def run_kpi_manage_cli(argv: Sequence[str] | None = None, *, prog: str = "cortex
             return _cmd_delete(ns)
         if command in ("show", "get"):
             return _cmd_show(ns)
+        if command == "owners":
+            return _cmd_owners(ns)
     except (MetricsRegistryWriteError, FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

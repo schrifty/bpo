@@ -3,6 +3,19 @@
 ## config cohorts.yaml
 - `cohorts_yaml`
 
+## config kpi_owners.yaml
+- `kpi_owners_yaml.catalog_admin`
+- `kpi_owners_yaml.leads`
+- `kpi_owners_yaml.leads[].display_name`
+- `kpi_owners_yaml.leads[].email`
+- `kpi_owners_yaml.leads[].packs`
+- `kpi_owners_yaml.topic_packs`
+- `kpi_owners_yaml.topic_packs.*.description`
+- `kpi_owners_yaml.topic_packs.*.required_any_tags`
+
+## config my-metrics.yaml
+- `my_metrics_yaml.metrics.*.owner`
+
 ## config pendo_orphans.yaml
 - `pendo_orphans_yaml`
 

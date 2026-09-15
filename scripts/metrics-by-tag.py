@@ -16,8 +16,10 @@ catalog maintenance), use ``cortex kpi add|edit|delete|show`` (``cortex --kpi``)
 Examples::
 
   metrics-by-tag                          # list tags
+  metrics-by-tag --list-owners            # list owners
   metrics-by-tag --all                    # every KPI
   metrics-by-tag --all --mode stored --skip-s3
+  metrics-by-tag --owner you@leandna.com  # by registry owner
   metrics-by-tag engineering              # one tag
   metrics-by-tag engineering ai           # tag-set AND
   metrics-by-tag engineering --mode stored --skip-s3 --db /tmp/kpi.sqlite
@@ -58,7 +60,7 @@ from src.leandna_data_api_request import data_api_base_url  # noqa: E402
 from src.leandna_metric_registry_resolve import METRICS_REGISTRY_DEFAULT_SITE_ID  # noqa: E402
 from src.leandna_metrics_cli import configure_cortex_logging  # noqa: E402
 from src.metrics_latest import DEFAULT_RECENT_DATAPOINT_COUNT  # noqa: E402
-from src.metrics_registry import all_registry_tags  # noqa: E402
+from src.metrics_registry import all_registry_owners, all_registry_tags  # noqa: E402
 
 _DEFAULT_LOOKBACK_DAYS = 365
 _READ_TIMEOUT_S = 60.0
@@ -74,8 +76,24 @@ def _print_tag_catalog() -> int:
     for tag, count in tags:
         print(f"  {tag}: {count}")
     print(
-        "\nUsage: metrics-by-tag --all | metrics-by-tag <tag> [<tag> ...]   "
+        "\nUsage: metrics-by-tag --all | metrics-by-tag <tag> [<tag> ...] | "
+        "metrics-by-tag --owner EMAIL   "
         "e.g. metrics-by-tag --all --mode stored --skip-s3",
+    )
+    return 0
+
+
+def _print_owner_catalog() -> int:
+    owners = all_registry_owners()
+    if not owners:
+        print("No owners defined in config/my-metrics.yaml.", file=sys.stderr)
+        return 1
+    print("Owners in config/my-metrics.yaml (owner: KPI count):")
+    for owner, count in owners:
+        print(f"  {owner}: {count}")
+    print(
+        "\nUsage: metrics-by-tag --owner EMAIL [--mode live|stored|leandna] "
+        "[--json]",
     )
     return 0
 
@@ -88,10 +106,15 @@ def _data_api_configured() -> bool:
         return False
 
 
-def _scope_label(all_kpis: bool, tags: list[str]) -> str:
-    if all_kpis:
-        return "all"
-    return ",".join(tags)
+def _scope_label(all_kpis: bool, tags: list[str], owner: str | None) -> str:
+    parts: list[str] = []
+    if owner:
+        parts.append(f"owner={owner}")
+    if all_kpis and not owner:
+        parts.append("all")
+    elif tags:
+        parts.append(",".join(tags))
+    return "+".join(parts) if parts else "all"
 
 
 def main() -> int:
@@ -122,7 +145,18 @@ def main() -> int:
         action="store_true",
         help="Resolve every registry KPI (ignore TAG arguments)",
     )
+    ap.add_argument(
+        "--owner",
+        default=None,
+        metavar="EMAIL",
+        help="Filter to KPIs with this registry owner email",
+    )
     ap.add_argument("--list", action="store_true", help="List all defined tags and their KPI counts, then exit")
+    ap.add_argument(
+        "--list-owners",
+        action="store_true",
+        help="List registry owners and KPI counts, then exit",
+    )
     ap.add_argument("--json", action="store_true", help="Emit a JSON array of matching KPIs with current values")
     ap.add_argument(
         "--mode",
@@ -179,10 +213,14 @@ def main() -> int:
 
     tags = [t for t in (*(ns.tags or ()), *(ns.tag_flags or ())) if str(t).strip()]
     all_kpis = bool(ns.all)
+    owner = str(ns.owner).strip() if ns.owner else None
     if all_kpis and tags:
         print("warning: --all ignores TAG filters", file=sys.stderr)
 
-    if ns.list or (not all_kpis and not tags):
+    if ns.list_owners:
+        return _print_owner_catalog()
+
+    if ns.list or (not all_kpis and not tags and not owner):
         return _print_tag_catalog()
 
     if ns.mode == "leandna" and not _data_api_configured():
@@ -192,7 +230,7 @@ def main() -> int:
             print(str(e), file=sys.stderr)
             return 1
 
-    scope = _scope_label(all_kpis, tags)
+    scope = _scope_label(all_kpis, tags, owner)
     if ns.mode == "stored":
         print(
             f"KPI inspect (stored): scope={scope!r} recent={ns.recent_count} "
@@ -220,15 +258,18 @@ def main() -> int:
         verbose=ns.verbose,
     )
 
-    resolve_tags = None if all_kpis else tags
+    resolve_tags = None if (all_kpis and not owner) else (tags or None)
+    if all_kpis and owner:
+        resolve_tags = None
     rows = []
-    widths = None if ns.json else column_widths_for_tags(resolve_tags)
+    widths = None if ns.json else column_widths_for_tags(resolve_tags, owner=owner)
     try:
         if widths is not None:
             print(widths.header, flush=True)
             print(f"{'─' * widths.name}  {'─' * widths.tags}  {'─' * 5}", flush=True)
         for row in iter_resolve_kpis(
             tags=resolve_tags,
+            owner=owner,
             mode=ns.mode,
             ctx=ctx,
             requested_sites=ns.requested_sites,
@@ -247,11 +288,19 @@ def main() -> int:
 
     if not rows:
         available = ", ".join(t for t, _ in all_registry_tags()) or "(none)"
-        if all_kpis:
+        owners = ", ".join(o for o, _ in all_registry_owners() if o != "(missing)") or "(none)"
+        if owner and not tags:
+            print(
+                f"No KPIs owned by {owner!r}. Registry owners: {owners}",
+                file=sys.stderr,
+            )
+        elif all_kpis:
             print("No KPIs in config/my-metrics.yaml.", file=sys.stderr)
         else:
             print(
-                f"No KPIs matching tag-set {tags!r} (AND). Available tags: {available}",
+                f"No KPIs matching tag-set {tags!r} (AND)"
+                + (f" owner={owner!r}" if owner else "")
+                + f". Available tags: {available}",
                 file=sys.stderr,
             )
         return 1

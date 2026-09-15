@@ -17,13 +17,22 @@ from typing import Any
 import yaml
 
 from .config_paths import METRICS_FILE
+from .kpi_owners import (
+    KPIOwnershipError,
+    assert_actor_may_mutate_metric,
+    load_kpi_owners_config,
+    resolve_kpi_actor,
+    validate_entry_ownership,
+)
 from .metrics_registry import (
     VALID_METRIC_DIRECTIONS,
     VALID_METRIC_UNITS,
     get_registry_metric,
     load_metrics_registry,
+    normalize_owner_email,
     normalize_tag,
     registry_metric_mgmt_guidance,
+    registry_metric_owner,
     registry_metric_tags,
     validate_metric_target_direction,
 )
@@ -38,6 +47,17 @@ _METRICS_HEADER_RE = re.compile(r"^metrics:\s*(?:#.*)?$")
 
 class MetricsRegistryWriteError(ValueError):
     """Invalid catalog edit (missing KPI, bad field, or malformed YAML)."""
+
+
+def _ownership_error(exc: KPIOwnershipError) -> MetricsRegistryWriteError:
+    return MetricsRegistryWriteError(str(exc))
+
+
+def _coerce_owner(raw: Any) -> str | None:
+    if raw is None or raw is UNSET:
+        return None
+    text = normalize_owner_email(raw)
+    return text or None
 
 
 @dataclass(frozen=True)
@@ -205,6 +225,7 @@ def default_metric_entry() -> dict[str, Any]:
     return {
         "description": None,
         "mgmt_guidance": None,
+        "owner": None,
         "metric-id": None,
         "metric-generator": None,
         "tags": [],
@@ -216,6 +237,7 @@ def public_metric_entry(entry: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {
         "description": entry.get("description"),
         "mgmt_guidance": registry_metric_mgmt_guidance(entry),
+        "owner": registry_metric_owner(entry),
         "metric-id": entry.get("metric-id"),
         "metric-generator": entry.get("metric-generator"),
         "tags": list(registry_metric_tags(entry)),
@@ -247,6 +269,11 @@ def format_metric_block(name: str, entry: dict[str, Any], *, leading_comment: bo
             guidance if isinstance(guidance, str) else None if guidance is None else str(guidance),
         )
     )
+    owner = registry_metric_owner(entry)
+    if owner:
+        lines.append(f"    owner: {owner}")
+    else:
+        lines.append("    owner: null")
     metric_id = entry.get("metric-id")
     if metric_id is None or metric_id == "":
         lines.append("    metric-id: null")
@@ -304,6 +331,7 @@ def apply_metric_fields(
     *,
     description: Any = UNSET,
     mgmt_guidance: Any = UNSET,
+    owner: Any = UNSET,
     metric_id: Any = UNSET,
     generator: Any = UNSET,
     tags: Any = UNSET,
@@ -314,6 +342,7 @@ def apply_metric_fields(
     direction: Any = UNSET,
     clear_description: bool = False,
     clear_mgmt_guidance: bool = False,
+    clear_owner: bool = False,
     clear_metric_id: bool = False,
     clear_generator: bool = False,
     clear_tags: bool = False,
@@ -333,6 +362,10 @@ def apply_metric_fields(
     elif mgmt_guidance is not UNSET:
         text = None if mgmt_guidance is None else str(mgmt_guidance).strip()
         entry["mgmt_guidance"] = text or None
+    if clear_owner:
+        entry["owner"] = None
+    elif owner is not UNSET:
+        entry["owner"] = _coerce_owner(owner)
     if clear_metric_id:
         entry["metric-id"] = None
     elif metric_id is not UNSET:
@@ -381,6 +414,41 @@ def apply_metric_fields(
     return entry
 
 
+def _assert_entry_ownership(entry: dict[str, Any], *, owners_path: Path | None) -> None:
+    try:
+        owners = load_kpi_owners_config(path=owners_path) if owners_path is not None else load_kpi_owners_config()
+    except FileNotFoundError as exc:
+        raise MetricsRegistryWriteError(str(exc)) from exc
+    except KPIOwnershipError as exc:
+        raise _ownership_error(exc) from exc
+    own_err = validate_entry_ownership(entry, owners=owners)
+    if own_err:
+        raise MetricsRegistryWriteError(own_err)
+
+
+def _resolve_actor_and_authorize(
+    *,
+    actor: str | None,
+    existing_owner: str | None,
+    new_owner: str | None,
+    action: str,
+    owners_path: Path | None,
+) -> str:
+    try:
+        owners = load_kpi_owners_config(path=owners_path) if owners_path is not None else load_kpi_owners_config()
+        resolved = resolve_kpi_actor(actor, owners=owners)
+        assert_actor_may_mutate_metric(
+            resolved,
+            existing_owner=existing_owner,
+            new_owner=new_owner,
+            action=action,
+            owners=owners,
+        )
+        return resolved
+    except (KPIOwnershipError, FileNotFoundError) as exc:
+        raise MetricsRegistryWriteError(str(exc)) from exc
+
+
 def _read_lines(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
     if not text:
@@ -415,12 +483,15 @@ def add_registry_metric(
     path: Path | None = None,
     description: Any = UNSET,
     mgmt_guidance: Any = UNSET,
+    owner: Any = UNSET,
     metric_id: Any = UNSET,
     generator: Any = UNSET,
     tags: Any = UNSET,
     unit: Any = UNSET,
     target: Any = UNSET,
     direction: Any = UNSET,
+    actor: str | None = None,
+    owners_path: Path | None = None,
     dry_run: bool = False,
 ) -> KPICatalogChange:
     dest = Path(path) if path is not None else METRICS_FILE
@@ -432,16 +503,33 @@ def add_registry_metric(
         raise MetricsRegistryWriteError(f"YAML file has no metrics mapping: {dest}")
     if get_registry_metric(display, registry=registry) is not None:
         raise MetricsRegistryWriteError(f"KPI already exists: {display!r}")
+    # Default new rows to the acting user when --owner is omitted.
+    owners = None
+    try:
+        owners = load_kpi_owners_config(path=owners_path) if owners_path is not None else load_kpi_owners_config()
+    except (KPIOwnershipError, FileNotFoundError) as exc:
+        raise MetricsRegistryWriteError(str(exc)) from exc
+    resolved_actor = resolve_kpi_actor(actor, owners=owners)
+    owner_value = owner if owner is not UNSET else resolved_actor
     entry = apply_metric_fields(
         default_metric_entry(),
         description=description,
         mgmt_guidance=mgmt_guidance,
+        owner=owner_value,
         metric_id=metric_id,
         generator=generator,
         tags=[] if tags is UNSET else tags,
         unit=unit,
         target=target,
         direction=direction,
+    )
+    _assert_entry_ownership(entry, owners_path=owners_path)
+    _resolve_actor_and_authorize(
+        actor=resolved_actor,
+        existing_owner=None,
+        new_owner=registry_metric_owner(entry),
+        action="add",
+        owners_path=owners_path,
     )
     block = format_metric_block(display, entry, leading_comment=True)
     lines = _append_block(_read_lines(dest), block)
@@ -463,6 +551,7 @@ def edit_registry_metric(
     new_name: str | None = None,
     description: Any = UNSET,
     mgmt_guidance: Any = UNSET,
+    owner: Any = UNSET,
     metric_id: Any = UNSET,
     generator: Any = UNSET,
     tags: Any = UNSET,
@@ -473,12 +562,15 @@ def edit_registry_metric(
     direction: Any = UNSET,
     clear_description: bool = False,
     clear_mgmt_guidance: bool = False,
+    clear_owner: bool = False,
     clear_metric_id: bool = False,
     clear_generator: bool = False,
     clear_tags: bool = False,
     clear_unit: bool = False,
     clear_target: bool = False,
     clear_direction: bool = False,
+    actor: str | None = None,
+    owners_path: Path | None = None,
     dry_run: bool = False,
 ) -> KPICatalogChange:
     dest = Path(path) if path is not None else METRICS_FILE
@@ -495,10 +587,12 @@ def edit_registry_metric(
         raise MetricsRegistryWriteError("--new-name cannot be empty")
     if renamed != display and get_registry_metric(renamed, registry=registry) is not None:
         raise MetricsRegistryWriteError(f"KPI already exists: {renamed!r}")
+    existing_owner = registry_metric_owner(current)
     entry = apply_metric_fields(
         current,
         description=description,
         mgmt_guidance=mgmt_guidance,
+        owner=owner,
         metric_id=metric_id,
         generator=generator,
         tags=tags,
@@ -509,12 +603,21 @@ def edit_registry_metric(
         direction=direction,
         clear_description=clear_description,
         clear_mgmt_guidance=clear_mgmt_guidance,
+        clear_owner=clear_owner,
         clear_metric_id=clear_metric_id,
         clear_generator=clear_generator,
         clear_tags=clear_tags,
         clear_unit=clear_unit,
         clear_target=clear_target,
         clear_direction=clear_direction,
+    )
+    _assert_entry_ownership(entry, owners_path=owners_path)
+    _resolve_actor_and_authorize(
+        actor=actor,
+        existing_owner=existing_owner,
+        new_owner=registry_metric_owner(entry),
+        action="edit",
+        owners_path=owners_path,
     )
     lines = _read_lines(dest)
     span = _span_for_name(lines, display)
@@ -547,6 +650,8 @@ def delete_registry_metric(
     name: str,
     *,
     path: Path | None = None,
+    actor: str | None = None,
+    owners_path: Path | None = None,
     dry_run: bool = False,
 ) -> KPICatalogChange:
     dest = Path(path) if path is not None else METRICS_FILE
@@ -558,6 +663,13 @@ def delete_registry_metric(
     if found is None:
         raise MetricsRegistryWriteError(f"KPI not found in registry: {display!r}")
     _, current = found
+    _resolve_actor_and_authorize(
+        actor=actor,
+        existing_owner=registry_metric_owner(current),
+        new_owner=registry_metric_owner(current),
+        action="delete",
+        owners_path=owners_path,
+    )
     lines = _read_lines(dest)
     span = _span_for_name(lines, display)
     new_lines = lines[: span.start_line] + lines[span.end_line :]

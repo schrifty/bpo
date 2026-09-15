@@ -1,0 +1,34 @@
+# KPI ownership — Marc maintains this list.
+#
+# Cortex registry ownership is independent of Salesforce (customer SoR) and of
+# LeanDNA Metric.ownerId (optional enrichment via `cortex kpi mine`).
+#
+# Identities are Google Workspace emails (lowercase). Web SSO is out of scope
+# for the ownership data model; CLI/library use --as-user / CORTEX_KPI_ACTOR.
+#
+# Permissions:
+#   catalog_admin — full catalog (add/edit/delete any KPI; any owner; any tags)
+#   leads         — edit-own, read-all; may set metric-generator / metric-id;
+#                   KPIs they own must stay within their allowed topic packs
+#
+# Topic packs constrain lead-owned rows: the metric's tags must include at least
+# one of the pack's required_any_tags (normalized like registry tags).
+
+catalog_admin: marc.schriftman@leandna.com
+
+leads: []
+# Example:
+# - email: jane.doe@leandna.com
+#   display_name: Jane Doe
+#   packs: [engineering, support]
+
+topic_packs:
+  engineering:
+    description: Engineering delivery, quality, AI, SDD, and related KPIs
+    required_any_tags: [engineering]
+  support:
+    description: HELP / care / support operations KPIs
+    required_any_tags: [support]
+  akkr:
+    description: AKKR portfolio metrics-deck KPIs
+    required_any_tags: [akkr]

@@ -9,6 +9,7 @@ CONFIG_DIR = _REPO_ROOT / "config"
 
 COHORTS_FILE = CONFIG_DIR / "cohorts.yaml"
 METRICS_FILE = CONFIG_DIR / "my-metrics.yaml"
+KPI_OWNERS_FILE = CONFIG_DIR / "kpi_owners.yaml"
 JSM_ORGANIZATION_ALIASES_FILE = CONFIG_DIR / "jsm_organization_aliases.yaml"
 CS_REPORT_CUSTOMER_ALIASES_FILE = CONFIG_DIR / "cs_report_customer_aliases.yaml"
 CS_REPORT_COLUMN_LABELS_FILE = CONFIG_DIR / "cs_report_column_labels.yaml"
