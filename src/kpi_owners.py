@@ -1,8 +1,8 @@
 """KPI ownership principals, topic packs, and edit authorization.
 
 Source of truth: ``config/kpi_owners.yaml`` (Marc-maintained). Salesforce is not
-used for KPI ownership. Web SSO is out of scope here — callers pass an actor
-email (CLI ``--as-user`` / ``CORTEX_KPI_ACTOR``).
+used for KPI ownership. Callers pass an actor email (CLI ``--as-user`` /
+``CORTEX_KPI_ACTOR``, or the authenticated Google Workspace user for the KPI web).
 """
 
 from __future__ import annotations
@@ -306,6 +306,26 @@ def validate_entry_ownership(
             f"metric tags {registry_metric_tags(entry)} do not satisfy: {', '.join(pack_desc)}"
         )
     return None
+
+
+def assert_actor_may_view_catalog(
+    actor: str,
+    *,
+    owners: KPIOwnersConfig | None = None,
+) -> None:
+    """Fail loud when *actor* may not browse the KPI catalog (web view / read APIs).
+
+    Catalog admin and configured leads: **read-all**. Unknown emails are denied
+    (no silent empty catalog).
+    """
+    cfg = owners if owners is not None else load_kpi_owners_config()
+    actor_email = normalize_owner_email(actor)
+    if not actor_email:
+        raise KPIOwnershipError("actor is required for KPI catalog access")
+    if not cfg.is_known_owner(actor_email):
+        raise KPIOwnershipError(
+            f"unauthorized KPI viewer {actor_email!r}; not catalog_admin or a configured lead"
+        )
 
 
 def assert_actor_may_mutate_metric(
