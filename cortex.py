@@ -159,18 +159,26 @@ cortex KPI commands
 Values (config/my-metrics.yaml)
   cortex kpi --all [--mode live|stored|leandna] [--json] [--skip-s3]
   cortex kpi TAG [TAG ...]              AND tag-set (every listed tag)
+  cortex kpi --owner EMAIL              KPIs owned by EMAIL
+  cortex kpi --list-owners              Owner → KPI counts
   cortex kpi                            List defined tags
 
 Catalog (writes config/my-metrics.yaml)
-  cortex kpi add NAME [--tags a,b] [--generator FN] [--description TEXT]
-                      [--mgmt-guidance TEXT] [--metric-id N]
+  cortex kpi add NAME [--owner EMAIL] [--tags a,b] [--generator FN]
+                      [--description TEXT] [--mgmt-guidance TEXT] [--metric-id N]
                       [--unit currency|percent]
-                      [--target N --direction higher|lower] [--dry-run]
-  cortex kpi edit NAME [--new-name NAME] [--add-tag T] [--remove-tag T]
-                       [--mgmt-guidance TEXT] [--clear-mgmt-guidance]
-                       [--clear-target] [--clear-generator] …
-  cortex kpi delete NAME [--yes] [--dry-run]
+                      [--target N --direction higher|lower]
+                      [--as-user EMAIL] [--dry-run]
+  cortex kpi edit NAME [--owner EMAIL] [--new-name NAME] [--add-tag T] …
+                       [--as-user EMAIL] [--clear-target] [--clear-generator] …
+  cortex kpi delete NAME [--yes] [--as-user EMAIL] [--dry-run]
   cortex kpi show NAME [--json]
+  cortex kpi owners [--list-metrics --owner EMAIL] [--json]
+
+Ownership (config/kpi_owners.yaml)
+  catalog_admin — full catalog. Leads — edit-own, read-all; topic-pack bounded.
+  Actor defaults to CORTEX_KPI_ACTOR or catalog_admin. Invalid owner / unauthorized
+  edit fails loud (no silent skip). Salesforce is not used for KPI ownership.
 
 LeanDNA owned metrics (Data API)
   cortex kpi mine [--values] [--requested-sites ID]

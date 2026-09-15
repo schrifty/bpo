@@ -3234,6 +3234,69 @@
       ]
     },
     {
+      "path": "kpi_owners_yaml.catalog_admin",
+      "terms": [
+        "kpi_owners_yaml.catalog_admin",
+        "[config/kpi_owners.yaml] email with full KPI catalog edit rights (not Salesforce)"
+      ]
+    },
+    {
+      "path": "kpi_owners_yaml.leads",
+      "terms": [
+        "kpi_owners_yaml.leads",
+        "[config/kpi_owners.yaml] named KPI leads (edit-own, read-all; topic-pack bounded)"
+      ]
+    },
+    {
+      "path": "kpi_owners_yaml.leads[].email",
+      "terms": [
+        "kpi_owners_yaml.leads[].email",
+        "[config/kpi_owners.yaml] lead identity email used as registry owner"
+      ]
+    },
+    {
+      "path": "kpi_owners_yaml.leads[].display_name",
+      "terms": [
+        "kpi_owners_yaml.leads[].display_name",
+        "[config/kpi_owners.yaml] optional lead display name"
+      ]
+    },
+    {
+      "path": "kpi_owners_yaml.leads[].packs",
+      "terms": [
+        "kpi_owners_yaml.leads[].packs",
+        "[config/kpi_owners.yaml] topic pack ids the lead may own KPIs within"
+      ]
+    },
+    {
+      "path": "kpi_owners_yaml.topic_packs",
+      "terms": [
+        "kpi_owners_yaml.topic_packs",
+        "[config/kpi_owners.yaml] topic pack definitions constraining lead-owned KPIs"
+      ]
+    },
+    {
+      "path": "kpi_owners_yaml.topic_packs.*.description",
+      "terms": [
+        "kpi_owners_yaml.topic_packs.*.description",
+        "[config/kpi_owners.yaml] human-readable topic pack description"
+      ]
+    },
+    {
+      "path": "kpi_owners_yaml.topic_packs.*.required_any_tags",
+      "terms": [
+        "kpi_owners_yaml.topic_packs.*.required_any_tags",
+        "[config/kpi_owners.yaml] registry tags; lead-owned KPI must include at least one"
+      ]
+    },
+    {
+      "path": "my_metrics_yaml.metrics.*.owner",
+      "terms": [
+        "my_metrics_yaml.metrics.*.owner",
+        "[config/my-metrics.yaml] explicit KPI owner email (catalog_admin or configured lead)"
+      ]
+    },
+    {
       "path": "pendo_orphans_yaml",
       "terms": [
         "pendo_orphans_yaml",

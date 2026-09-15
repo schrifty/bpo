@@ -1,6 +1,8 @@
 # LeanDNA metric registry — config/my-metrics.yaml
 #
-# Keys are LeanDNA metric display names (owner: marc.schriftman@leandna.com, siteId 416).
+# Keys are LeanDNA metric display names. Each row has an explicit ``owner`` email
+# (catalog_admin or a lead from config/kpi_owners.yaml). Default owner for this
+# file's historical rows: marc.schriftman@leandna.com (LeanDNA site 416).
 # Populated from metrics-get-mine (Data API GET /data/identity + /data/Metric).
 #
 # KPI definitions are storage-independent: a generator produces a live value for decks
@@ -13,6 +15,9 @@
 #   description       — Human-readable summary of what the metric measures; filled in for
 #                       entries with a generator, null when not yet defined
 #   mgmt_guidance     — Two sentences max: how to manage to this KPI
+#   owner             — Explicit owner email (catalog_admin or a lead from
+#                       config/kpi_owners.yaml). Required; list with
+#                       `cortex kpi --owner EMAIL` / `cortex kpi owners`.
 #   metric-id         — Optional Data API catalog id (same as app ndx). Required only to
 #                       write LeanDNA MetricDataPoint rows, or to inspect them via
 #                       `metrics-by-tag --mode leandna` (create metrics in LeanDNA UI).
@@ -55,6 +60,7 @@ metrics:
     mgmt_guidance: >-
       Track onboarding cycle time and intervene when implementations stall.
       This is not a HELP-queue metric.
+    owner: marc.schriftman@leandna.com
     metric-id: 1860
     metric-generator: null
     tags: [control-tower, onboarding]
@@ -65,6 +71,7 @@ metrics:
     mgmt_guidance: >-
       Manage supply-chain delivery against the committed date.
       Misses are execution issues, not ticket volume.
+    owner: marc.schriftman@leandna.com
     metric-id: 1745
     metric-generator: null
     tags: [supply-chain]
@@ -79,6 +86,7 @@ metrics:
       Drive the monthly LEAN jira_escalated Bug count toward 15 or below, but treat the
       target as asterisked: some rows are enhancement requests, not defects.
       A jump may be product quality or intake change, not more HELP volume.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_customer_reported_bugs_created
     tags: [engineering, quality, legacy]
@@ -92,6 +100,7 @@ metrics:
       Protect platform availability and page on sustained drops below high-nines;
       this is infrastructure, not support staffing.
       Superseded by SLO Attainment % once error budgets are defined.
+    owner: marc.schriftman@leandna.com
     metric-id: 1769
     metric-generator: null
     tags: [reliability, platform, legacy]
@@ -102,6 +111,7 @@ metrics:
     mgmt_guidance: >-
       Watch 30-day Cursor token volume as an adoption and cost leading indicator.
       Investigate spikes for waste or a new team rollout.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_ai_token_usage
     tags: [ai, engineering, forward]
@@ -111,6 +121,7 @@ metrics:
     mgmt_guidance: >-
       Manage in-month Cursor spend against finance expectations.
       Pair with Token Cost per Dev before cutting tools.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_monthly_ai_spend
     tags: [enterprise, finance]
@@ -122,6 +133,7 @@ metrics:
     mgmt_guidance: >-
       Shorten new-site SUT cycle time; long values mean onboarding is stuck.
       Do not mix this with HELP time to resolution.
+    owner: marc.schriftman@leandna.com
     metric-id: 2175
     metric-generator: null
     tags: [onboarding]
@@ -134,6 +146,7 @@ metrics:
     mgmt_guidance: >-
       Hold teams to completing the committed sprint (target 80% or higher).
       Chronic misses are planning or WIP problems.
+    owner: marc.schriftman@leandna.com
     metric-id: 2086
     metric-generator: get_sprint_delivery_by_team
     tags: [engineering, legacy]
@@ -149,6 +162,7 @@ metrics:
     mgmt_guidance: >-
       Customers should hear back within 48 hours; about one hour is healthy.
       Do not celebrate TTFR if P90 TTR and SLA adherence are still failing.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_median_ttfr
     tags: [support, sla, care]
@@ -161,6 +175,7 @@ metrics:
     mgmt_guidance: >-
       Keep typical resolution at or below 6.67 days.
       Use this for the median customer; the tail is P90 TTR.
+    owner: marc.schriftman@leandna.com
     metric-id: 2171
     metric-generator: get_median_ttr
     tags: [support, sla, care]
@@ -175,6 +190,7 @@ metrics:
     mgmt_guidance: >-
       Hold at least 90% of measured resolved tickets to TTFR or TTR.
       Below that, inspect breaches by queue before adding headcount.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_sla_adherence
     tags: [support, sla, care]
@@ -189,6 +205,7 @@ metrics:
     mgmt_guidance: >-
       Below 100% means the backlog grew that month; a healthy steady state is
       about 95–110%. Readings at 160%+ are a drawdown phase, not a forever target.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_help_resolved_created_ratio
     tags: [support, throughput]
@@ -205,6 +222,7 @@ metrics:
     mgmt_guidance: >-
       Use this month-close count as the volume baseline and compare months with
       created per business day. Do not set a target until the February 2026 drop is explained.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_help_ticket_count
     tags: [support, volume]
@@ -216,6 +234,7 @@ metrics:
     mgmt_guidance: >-
       This is the finance headcount constant for support.
       Confirm it when people join or leave; do not infer FTE from Ticket Count.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_support_fte
     tags: [support, finance]
@@ -227,6 +246,7 @@ metrics:
     mgmt_guidance: >-
       Created HELP per support FTE in the previous calendar month.
       A drop with unchanged FTE is utilization, not a quality win — check P90 TTR and Open HELP >30d %.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_tickets_per_fte
     tags: [support, finance]
@@ -239,6 +259,7 @@ metrics:
     mgmt_guidance: >-
       Treat this as demand-side cost (opex ÷ created HELP), not the number to staff from.
       Rising $ with flat opex is a volume story; pair with P90 TTR, SLA, and Open HELP >30d % before calling it efficiency.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_support_spend_per_ticket
     tags: [support, finance]
@@ -253,6 +274,7 @@ metrics:
     mgmt_guidance: >-
       This is cost per closed ticket in the same month as Ticket Count.
       During a drawdown (Resolved/Created well above 100%) this is the fairer efficiency read than spend per created ticket.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_support_spend_per_resolved
     tags: [support, finance]
@@ -267,6 +289,7 @@ metrics:
     mgmt_guidance: >-
       Support opex plus Data and Engineering follow-on priced at engineering opex per shipped issue.
       Do not compare this to the engineering $1,600/issue target; it is the HELP-originated cost of a customer problem.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_help_fully_loaded_spend_per_ticket
     tags: [support, finance]
@@ -280,6 +303,7 @@ metrics:
     mgmt_guidance: >-
       Manage the LEAN jira_escalated count, not the rate, on the same month as Ticket Count.
       A stable count with a rising rate usually means HELP volume fell, not that engineering got worse.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_engineering_escalation_count
     tags: [support, escalation, engineering]
@@ -292,6 +316,7 @@ metrics:
     mgmt_guidance: >-
       Use this percentage as context only after a volume-regime change.
       Do not steer staffing off the rate when the underlying count is stable.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_engineering_escalation_rate
     tags: [support, escalation, engineering]
@@ -304,6 +329,7 @@ metrics:
     mgmt_guidance: >-
       Manage the CUSTOMER jira_escalated count on the same month as Ticket Count.
       Decide whether Data tickets are the intended path before treating a high count as a support miss.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_data_escalation_count
     tags: [support, escalation, data-integration]
@@ -316,6 +342,7 @@ metrics:
     mgmt_guidance: >-
       This is the share of HELP that spawned Data work, often 60%+ recently.
       Do not apply a lower-is-better target until routing intent is explicit.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_data_escalation_rate
     tags: [support, escalation, data-integration]
@@ -328,6 +355,7 @@ metrics:
     mgmt_guidance: >-
       Manage the open stock; a falling count with Resolved/Created at or above 100% is a healthy drawdown.
       This is the missing stock counterpart to monthly flow.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_open_help
     tags: [support, backlog]
@@ -339,6 +367,7 @@ metrics:
     mgmt_guidance: >-
       Drive the share of open HELP older than 30 days down; that is stuck work, not new intake.
       Pair with Open HELP Waiting on Us >30d % so customer-held tickets are not mixed in.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_open_help_over_30d_pct
     tags: [support, backlog, care]
@@ -352,6 +381,7 @@ metrics:
     mgmt_guidance: >-
       This is tickets that left Done and came back, as a share of tickets resolved that month.
       A rising reopen share means TTR may look better because work was closed too early.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_help_reopen_pct
     tags: [support, care]
@@ -364,6 +394,7 @@ metrics:
     mgmt_guidance: >-
       This is customer-held open work; do not treat it as a support delay.
       Pair with Open HELP Waiting on Us >30d % when P90 TTR is long.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_open_help_waiting_on_customer_pct
     tags: [support, care, backlog]
@@ -376,6 +407,7 @@ metrics:
     mgmt_guidance: >-
       Drive aged open HELP that is still on us (support, engineering, or data).
       That is stuck customer-visible work; do not mix it with waiting-on-customer stock.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_open_help_waiting_on_us_over_30d_pct
     tags: [support, care, backlog]
@@ -388,6 +420,7 @@ metrics:
     mgmt_guidance: >-
       Kill the long tail; target is 10 days or less.
       If median TTR is fine and P90 is not, the problem is stuck tickets, not average speed.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_p90_ttr
     tags: [support, sla, care]
@@ -399,6 +432,7 @@ metrics:
     mgmt_guidance: >-
       Keep in-progress work moving (target at most 1 day median).
       Rising cycle time is a WIP or review bottleneck.
+    owner: marc.schriftman@leandna.com
     metric-id: 2024
     metric-generator: get_dev_team_cycle_times
     tags: [engineering, legacy]
@@ -410,6 +444,7 @@ metrics:
     mgmt_guidance: >-
       Keep create-to-resolve near 14 days or less.
       This is delivery latency, not HELP TTR.
+    owner: marc.schriftman@leandna.com
     metric-id: 2179
     metric-generator: get_dev_team_lead_time
     tags: [engineering, legacy]
@@ -422,6 +457,7 @@ metrics:
     mgmt_guidance: >-
       Drive monthly sync failures down; each failure is a customer-visible data miss.
       Wire a generator before managing to a number.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [reliability, data-integration]
@@ -432,6 +468,7 @@ metrics:
     mgmt_guidance: >-
       Watch year-to-date accumulation; a calm month can still leave residual YTD risk.
       Wire a generator before managing to a number.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [reliability, data-integration]
@@ -442,6 +479,7 @@ metrics:
     mgmt_guidance: >-
       Raise the share of catalog rows that are actually generated (target 90%).
       Gaps here mean the scorecard is still manual.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_kpi_automation_pct
     tags: [automation, ops]
@@ -454,6 +492,7 @@ metrics:
     mgmt_guidance: >-
       Track completed points (target 150) as capacity output, not quality.
       Pair with defects and cycle time.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
     tags: [engineering, legacy]
@@ -466,6 +505,7 @@ metrics:
     mgmt_guidance: >-
       Placeholder until the generator exists.
       Do not manage the org to this name until it has a definition.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [ai]
@@ -476,6 +516,7 @@ metrics:
     mgmt_guidance: >-
       Keep 100% of Engineering on Cursor in the last 7 days.
       Any drop is an adoption or access issue, not a utilization tradeoff.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_weekly_active_ai_users
     tags: [engineering, ai, AKKR, forward]
@@ -490,6 +531,7 @@ metrics:
     mgmt_guidance: >-
       Hold at least 90% of merged PRs as AI-assisted.
       This is the same series family as AI Code Share; do not tell conflicting stories.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_ai_assisted_prs_pct
     tags: [engineering, ai, AKKR, legacy]
@@ -504,6 +546,7 @@ metrics:
     mgmt_guidance: >-
       Hold at least 80% of changed lines as Cursor-attributed.
       Investigate if this and % AI-Assisted PRs diverge sharply.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_ai_code_share
     tags: [engineering, ai, AKKR, forward]
@@ -517,6 +560,7 @@ metrics:
       Track tokens per engineer over time; there is no target, because a floor would be
       arbitrary until we know what healthy usage looks like.
       Collapses still mean the tool is not in the workflow.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_tokens_per_dev
     tags: [engineering, ai, AKKR, forward]
@@ -526,6 +570,7 @@ metrics:
     mgmt_guidance: >-
       Aim for about $250 per engineer as spend that matches usage, not as a cost-cut target.
       Pair with Tokens per Dev.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_token_cost_per_dev
     tags: [engineering, ai, AKKR, forward]
@@ -538,6 +583,7 @@ metrics:
     mgmt_guidance: >-
       Grow Cursor spend toward 5% of engineering opex if adoption is working.
       Do not cut this in isolation when delivery KPIs are up.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_ai_spend_pct
     tags: [engineering, ai, AKKR, forward]
@@ -550,6 +596,7 @@ metrics:
     mgmt_guidance: >-
       Hit at least 500 engineer PRs in the month.
       A miss with high AI share is a throughput problem, not an AI problem.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_prs_merged
     tags: [engineering, impact, AKKR, legacy]
@@ -561,6 +608,7 @@ metrics:
     mgmt_guidance: >-
       Keep at most 15 bugs per 100 shipped issues.
       Rising defects with high growth allocation means quality is the constraint.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_defects_per_100_issues
     tags: [engineering, impact, quality, AKKR, legacy]
@@ -574,6 +622,7 @@ metrics:
     mgmt_guidance: >-
       Hit at least 280 Done issues in the month.
       This is the output denominator for several impact KPIs.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_issues_shipped
     tags: [engineering, impact, AKKR, legacy]
@@ -587,6 +636,7 @@ metrics:
     mgmt_guidance: >-
       Keep at least 90% of eligible Done work as planned or growth.
       Bugs and tech-debt crowding this out is what to manage down.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_growth_allocation_pct
     tags: [engineering, impact, AKKR, legacy]
@@ -599,6 +649,7 @@ metrics:
     mgmt_guidance: >-
       Drive fully loaded cost per shipped issue toward $1,600 or less.
       Improvements can be more output or less cost, not vanity savings.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_headcount_plus_ai_spend_per_issue
     tags: [engineering, impact, ai, AKKR, legacy]
@@ -611,6 +662,7 @@ metrics:
     mgmt_guidance: >-
       Track Cursor dollars per shipped issue over time; there is no target.
       A cap would be arbitrary until spend and output have a stable relationship.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_ai_spend_per_issue
     tags: [engineering, impact, ai, AKKR, legacy]
@@ -631,6 +683,7 @@ metrics:
       This is an input metric; never report it alone.
       AI Code Share reached 88.85% while Issues Shipped stayed flat, so adoption
       without a paired outcome metric proves only that the process changed.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [engineering, sdd, forward, pending]
@@ -647,6 +700,7 @@ metrics:
       This is latency, not throughput — halving it proves nothing about volume,
       because throughput equals WIP ÷ cycle time.
       Pair it with a throughput measure before claiming a 2×–3× delivery gain.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [engineering, sdd, forward, pending]
@@ -662,6 +716,7 @@ metrics:
       Supersedes Defects per 100 Issues, whose denominator is ticket count.
       Prefer change units over release count as the denominator: releases get more
       frequent under SDD, which would improve the rate mechanically.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [engineering, quality, forward, pending]
@@ -675,6 +730,7 @@ metrics:
       Use this to detect QA becoming the delivery bottleneck as upstream speeds up.
       The split matters more than the total: queue time is a staffing or WIP problem,
       active test time is a tooling problem.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [engineering, quality, forward, pending]
@@ -687,6 +743,7 @@ metrics:
     mgmt_guidance: >-
       Supersedes Site Uptime %, which is a single number with no error budget.
       Manage the budget burn, not the headline nine; this sits with Infrastructure.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [reliability, platform, forward, pending]
@@ -700,6 +757,7 @@ metrics:
     mgmt_guidance: >-
       This is incident recovery, not ticket resolution — do not conflate it with
       support P90 TTR, which measures a different population.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [reliability, platform, forward, pending]
@@ -714,6 +772,7 @@ metrics:
       Supersedes Headcount + AI Spend / Issue, which divides fixed opex by ticket
       count and so penalises discovery and compliance work.
       This is the one pending row not blocked on Gemba — it can clear first.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [engineering, finance, forward, pending]
@@ -728,6 +787,7 @@ metrics:
     mgmt_guidance: >-
       A thermometer for pipeline health, not a steering wheel: no single team owns it.
       Do not confuse it with Time to Value, which measures customer onboarding.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [engineering, product, forward, pending]

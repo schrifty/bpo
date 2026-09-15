@@ -26,6 +26,8 @@ metrics:
   # Existing Alpha
   "Alpha":
     description: First metric.
+    mgmt_guidance: Hit the target. Investigate misses.
+    owner: marc.schriftman@leandna.com
     metric-id: 10
     metric-generator: gen_a
     tags: [engineering]
@@ -34,6 +36,8 @@ metrics:
 
   "Beta":
     description: null
+    mgmt_guidance: Keep the queue healthy.
+    owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
     tags: [support]
@@ -62,6 +66,8 @@ def test_format_metric_block_matches_house_style() -> None:
         "Sprint Delivery %",
         {
             "description": "Unweighted mean of per-board delivery % for the latest closed sprint.",
+            "mgmt_guidance": None,
+            "owner": "marc.schriftman@leandna.com",
             "metric-id": None,
             "metric-generator": "get_sprint_delivery_by_team",
             "tags": ["engineering"],
@@ -71,6 +77,7 @@ def test_format_metric_block_matches_house_style() -> None:
         },
     )
     assert block.startswith('  # Sprint Delivery %\n  "Sprint Delivery %":\n')
+    assert "    owner: marc.schriftman@leandna.com\n" in block
     assert "    metric-id: null\n" in block
     assert "    mgmt_guidance: null\n" in block
     assert "    metric-generator: get_sprint_delivery_by_team\n" in block

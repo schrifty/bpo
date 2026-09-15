@@ -54,6 +54,22 @@ def registry_metric_mgmt_guidance(entry: Any) -> str | None:
     return text or None
 
 
+def normalize_owner_email(raw: Any) -> str:
+    """Canonical owner id: trimmed, lowercased email (or opaque id string)."""
+    return str(raw or "").strip().lower()
+
+
+def registry_metric_owner(entry: Any) -> str | None:
+    """Explicit ``owner`` email/id for a registry entry (required for multi-owner catalogs)."""
+    if not isinstance(entry, dict):
+        return None
+    raw = entry.get("owner")
+    if raw is None:
+        return None
+    text = normalize_owner_email(raw)
+    return text or None
+
+
 def normalize_tag(raw: Any) -> str:
     """Canonical tag form: trimmed, lowercased, inner whitespace/underscores → hyphen."""
     text = str(raw or "").strip().lower()
@@ -169,6 +185,41 @@ def iter_metrics_by_tag(
 ) -> list[tuple[str, dict[str, Any]]]:
     """Registry rows carrying *tag* as ``(display name, entry dict)`` in file order."""
     return iter_metrics_by_tags((tag,), registry=registry)
+
+
+def iter_metrics_by_owner(
+    owner: str,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Registry rows owned by *owner* (email/id, case-insensitive) in file order."""
+    needle = normalize_owner_email(owner)
+    if not needle:
+        return []
+    out: list[tuple[str, dict[str, Any]]] = []
+    for name, entry in iter_all_metrics(registry=registry):
+        if registry_metric_owner(entry) == needle:
+            out.append((name, entry))
+    return out
+
+
+def all_registry_owners(
+    *,
+    registry: dict[str, Any] | None = None,
+) -> list[tuple[str, int]]:
+    """Sorted ``(owner, count)`` pairs across the registry (most-owned first, then email)."""
+    counts: dict[str, int] = {}
+    missing = 0
+    for _, entry in iter_all_metrics(registry=registry):
+        owner = registry_metric_owner(entry)
+        if not owner:
+            missing += 1
+            continue
+        counts[owner] = counts.get(owner, 0) + 1
+    pairs = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    if missing:
+        pairs.append(("(missing)", missing))
+    return pairs
 
 
 def registry_datapoint_metric_id(entry: Any) -> int | None:
