@@ -1,6 +1,13 @@
 """Unit tests for Feature Adoption usage-pattern narrative (Pendo half-over-half)."""
 
-from src.pendo_client import _feature_adoption_pattern_narrative
+from src.config import FEATURE_ADOPTION_INSIGHTS
+from src.pendo_client import PendoClient, _feature_adoption_pattern_narrative
+
+
+def test_pendo_client_imports_with_feature_adoption_flag() -> None:
+    """Regression: config must export FEATURE_ADOPTION_INSIGHTS or Pendo preflight cannot import."""
+    assert isinstance(FEATURE_ADOPTION_INSIGHTS, bool)
+    assert PendoClient is not None
 
 
 def test_narrative_mentions_total_shift():

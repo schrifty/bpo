@@ -591,6 +591,10 @@ CORTEX_PENDO_MAX_BURST = max(1, _pendo_burst)
 _pendo_global_rl = os.environ.get("CORTEX_PENDO_GLOBAL_RATE_LIMIT", "true").strip().lower()
 CORTEX_PENDO_GLOBAL_RATE_LIMIT = _pendo_global_rl not in ("0", "false", "no", "off")
 
+# Feature Adoption slide: half-over-half usage narrative (extra Pendo aggregations). Off by default.
+_fai = os.environ.get("CORTEX_FEATURE_ADOPTION_INSIGHTS", "").strip().lower()
+FEATURE_ADOPTION_INSIGHTS = _fai in ("1", "true", "yes", "on")
+
 # Notable Signals: optional LLM pass to prioritize / merge heuristic + cross-source lines (after Phase 1 rules).
 _sslm = os.environ.get("CORTEX_SIGNALS_LLM", "").strip().lower()
 CORTEX_SIGNALS_LLM = _sslm in ("1", "true", "yes", "on")
