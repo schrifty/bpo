@@ -4,6 +4,7 @@
 *.tfstate.*
 *.tfvars
 !terraform.tfvars.example
+state-archive-old-account/
 crash.log
 override.tf
 override.tf.json

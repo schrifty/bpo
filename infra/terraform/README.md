@@ -18,8 +18,15 @@ Idempotent replacement for manual IAM / EFS / ECS / EventBridge setup.
 ## Prerequisites
 
 - [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5 (`brew install terraform`)
-- AWS CLI configured (`aws sts get-caller-identity`)
+- AWS CLI logged in as the Cortex **project** (`aws sts get-caller-identity --profile aws-schrifty-login`). Region is **`us-east-2`** (new AWS experience).
 - Docker (build/push image)
+
+Set the profile for every Terraform and ECR command:
+
+```bash
+export AWS_PROFILE=aws-schrifty-login
+export AWS_REGION=us-east-2
+```
 
 ## Quick start
 

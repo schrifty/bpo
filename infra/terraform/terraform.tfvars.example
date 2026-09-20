@@ -1,6 +1,6 @@
 # Copy to terraform.tfvars and adjust. Do NOT commit terraform.tfvars (gitignored).
 
-aws_region   = "us-east-1"
+aws_region   = "us-east-2"
 name_prefix  = "cortex"
 environment  = "prod"
 
