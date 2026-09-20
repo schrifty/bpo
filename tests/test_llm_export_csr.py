@@ -7,6 +7,7 @@ from src.export_llm_context_snapshot import _compact_csr
 from src.llm_export_csr import (
     LLM_EXPORT_TOP_ARR_SCOPE,
     attach_csr_top_customers_for_llm_export,
+    llm_export_csr_top_n,
     top_active_ultimate_parents_by_arr_for_llm_export,
 )
 
@@ -150,6 +151,33 @@ def test_render_cs_report_section_falls_back_to_json_without_customers():
     assert '"note"' in body
 
 
+def test_llm_export_csr_top_n_defaults_to_all_current_book(monkeypatch):
+    monkeypatch.delenv("CORTEX_LLM_EXPORT_CSR_TOP_N", raising=False)
+    assert llm_export_csr_top_n() == 0
+
+
+def test_llm_export_csr_top_n_env_cap(monkeypatch):
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_CSR_TOP_N", "2")
+    assert llm_export_csr_top_n() == 2
+
+
+def test_top_active_ultimate_parents_top_n_zero_returns_all():
+    report = {
+        "customers": [],
+        "_llm_export_salesforce_revenue_book": {
+            "matched_customer_contract_rollups": [
+                {"customer": "Alpha", "arr": 300.0, "active": True},
+                {"customer": "Beta", "arr": 200.0, "active": True},
+                {"customer": "Gamma", "arr": 100.0, "active": True},
+            ],
+        },
+    }
+    all_rows = top_active_ultimate_parents_by_arr_for_llm_export(report, top_n=0)
+    assert [r["ultimate_parent"] for r in all_rows] == ["Alpha", "Beta", "Gamma"]
+    capped = top_active_ultimate_parents_by_arr_for_llm_export(report, top_n=1)
+    assert [r["ultimate_parent"] for r in capped] == ["Alpha"]
+
+
 def test_top_active_ultimate_parents_groups_carrier_divisions():
     report = {
         "customers": [{"customer": "carrier"}],
@@ -262,4 +290,31 @@ def test_attach_csr_top_customers_for_llm_export(monkeypatch):
     summary = attach_csr_top_customers_for_llm_export(report)
     assert summary["customers_selected"] == 1
     assert summary["customers_with_csr_data"] == 1
+    assert summary["selection_mode"] == "current_book"
     assert report["csr"]["customers"]["Acme"]["platform_health"]["customer"] == "Acme"
+
+
+def test_attach_csr_respects_top_n_env(monkeypatch):
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_CSR_TOP_N", "1")
+    monkeypatch.setattr(
+        "src.cs_report_client.load_csr_top_customers_by_arr",
+        lambda sel: {
+            "scope": LLM_EXPORT_TOP_ARR_SCOPE,
+            "top_n": len(sel),
+            "selection_ranked": [],
+            "customers": {row["ultimate_parent"]: {"platform_health": {}, "supply_chain": {}, "platform_value": {}} for row in sel},
+        },
+    )
+    report = {
+        "_llm_export_salesforce_revenue_book": {
+            "matched_customer_contract_rollups": [
+                {"customer": "Acme", "arr": 50.0, "active": True},
+                {"customer": "Other", "arr": 1.0, "active": True},
+            ],
+        },
+        "customers": [],
+    }
+    summary = attach_csr_top_customers_for_llm_export(report)
+    assert summary["selection_mode"] == "top_n"
+    assert summary["customers_selected"] == 1
+    assert list(report["csr"]["customers"]) == ["Acme"]

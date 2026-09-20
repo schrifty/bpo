@@ -2,7 +2,7 @@
 """Export an all-customers LLM-oriented data snapshot to Google Drive under ``Output/``.
 
 Datasource bundle: :mod:`src.data_sources` profile ``llm_export_all_customers`` — Pendo portfolio
-rollup, CS Report (top customers by ARR), portfolio Salesforce revenue book, per-customer Salesforce comprehensive
+rollup, CS Report (current-book customers ranked by ARR), portfolio Salesforce revenue book, per-customer Salesforce comprehensive
 (multi-object CRM categories), and Jira HELP (unscoped). The portfolio fetch does not read or sync
 QBR slide YAML (cohort findings use built-in defaults).
 
@@ -320,7 +320,8 @@ _REGISTRY_EXCLUDED_RATIONALE: dict[str, str] = {
     ),
     "cs_report_customer_week": (
         "Per-customer CS Report week slices attach to single-customer health reports. "
-        "The all-customers LLM export uses the same per-customer APIs for the top N labels by ARR in §4."
+        "The all-customers LLM export uses the same per-customer APIs for every current-book "
+        "Salesforce ultimate parent in §4 (factory rows may still be sampled for the token budget)."
     ),
     "leandna_item_master": (
         "LeanDNA Data API (item master) is wired into QBR enrichment paths, not into "
@@ -646,8 +647,8 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "true churn is stripped from §1/§5.",
             "",
             "- **§4 — CS Report (weekly export):** Per-customer **platform_health**, **supply_chain**, and "
-            "**platform_value** for the **top Salesforce labels by ARR** (not an all-customer site merge). When size "
-            "caps are enabled, site rows and long text fields may be truncated.",
+            "**platform_value** for **every current-book Salesforce ultimate parent** (ranked by ARR; not an "
+            "all-customer site merge). When size caps are enabled, site rows and long text fields may be truncated.",
             "",
             "- **§5 — Pendo usage signals:** A **ranked checklist** of product-side callouts (examples: Kei not used, "
             "high guide dismiss rate, very read-only usage). This export asks for a **long** list so you can scan the "
@@ -2403,7 +2404,7 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             _json_compact(doc.get("salesforce_comprehensive_portfolio") or {}),
             "",
-            "## 4. CS Report (top customers by ARR — per-customer week)",
+            "## 4. CS Report (current book — per-customer week, ranked by ARR)",
             "",
             "Per-customer CS Report for the highest-ARR active Salesforce labels. **§4.1** is a single "
             "markdown table of every customer's section rollups (health mix, shortages, inventory "

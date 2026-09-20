@@ -1,4 +1,4 @@
-"""CS Report attachment for the all-customers LLM export (top ultimate parents by ARR)."""
+"""CS Report attachment for the all-customers LLM export (current-book ultimate parents by ARR)."""
 
 from __future__ import annotations
 
@@ -15,19 +15,23 @@ LLM_EXPORT_TOP_ARR_SCOPE = "top_ultimate_parents_by_arr"
 
 
 def llm_export_csr_top_n() -> int:
-    """Number of top-ARR ultimate parents to attach CS Report slices for (§4).
+    """Cap on current-book ultimate parents to attach CS Report slices for (§4).
 
-    Default 100 effectively covers the full CSR customer set — the export budget is now
-    token-based (~450K), so per-customer CSR (~1.7K tokens each) fits without the old
-    byte-cap throttle. Override with ``CORTEX_LLM_EXPORT_CSR_TOP_N`` (clamped to 500).
+    ``0`` (default) means every current-book Salesforce ultimate parent, ranked by ARR.
+    Set ``CORTEX_LLM_EXPORT_CSR_TOP_N`` to a positive integer to restore a top-N slice
+    (clamped to 500). The 450K token budget still samples factory rows; it no longer
+    drops customers from §4 by default.
     """
     raw = (os.environ.get("CORTEX_LLM_EXPORT_CSR_TOP_N") or "").strip()
     if not raw:
-        return 100
+        return 0
     try:
-        return max(1, min(int(raw), 500))
+        n = int(raw)
     except ValueError:
-        return 100
+        return 0
+    if n <= 0:
+        return 0
+    return min(n, 500)
 
 
 def _active_contract_rollups(report: dict[str, Any]) -> list[dict[str, Any]]:
@@ -238,7 +242,10 @@ def top_active_ultimate_parents_by_arr_for_llm_export(
             str(x.get("ultimate_parent") or "").lower(),
         )
     )
-    return rows[: max(1, int(top_n))]
+    n = int(top_n)
+    if n <= 0:
+        return rows
+    return rows[:n]
 
 
 def top_active_customers_by_arr_for_csr(
@@ -251,11 +258,12 @@ def top_active_customers_by_arr_for_csr(
 
 
 def attach_csr_top_customers_for_llm_export(report: dict[str, Any]) -> dict[str, Any]:
-    """Set ``report['csr']`` to per-ultimate-parent CS Report slices for top ARR (not all-customers merge)."""
+    """Set ``report['csr']`` to per-ultimate-parent CS Report slices for the current book."""
     top_n = llm_export_csr_top_n()
     summary: dict[str, Any] = {
         "scope": LLM_EXPORT_TOP_ARR_SCOPE,
         "top_n": top_n,
+        "selection_mode": "current_book" if top_n <= 0 else "top_n",
         "customers_selected": 0,
         "customers_with_csr_data": 0,
         "customers_csr_errors": 0,
@@ -294,7 +302,7 @@ def attach_csr_top_customers_for_llm_export(report: dict[str, Any]) -> dict[str,
             elif errs < 3:
                 summary["customers_with_csr_data"] += 1
     logger.info(
-        "LLM export: CS Report for top %d customer(s) by ARR (%d with data, %d all-section errors)",
+        "LLM export: CS Report for %d current-book customer(s) by ARR (%d with data, %d all-section errors)",
         len(selection),
         summary["customers_with_csr_data"],
         summary["customers_csr_errors"],

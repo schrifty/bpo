@@ -15,14 +15,20 @@ from .llm_export_csr import (
 )
 
 
+_LLM_EXPORT_JIRA_DEFAULT_TOP_N = 100
+
+
 def llm_export_jira_top_n() -> int:
     raw = (os.environ.get("CORTEX_LLM_EXPORT_JIRA_TOP_N") or "").strip()
-    if not raw:
-        return llm_export_csr_top_n()
-    try:
-        return max(1, min(int(raw), 100))
-    except ValueError:
-        return llm_export_csr_top_n()
+    if raw:
+        try:
+            return max(1, min(int(raw), 100))
+        except ValueError:
+            pass
+    csr_n = llm_export_csr_top_n()
+    if csr_n > 0:
+        return min(csr_n, 100)
+    return _LLM_EXPORT_JIRA_DEFAULT_TOP_N
 
 
 def llm_export_jira_workers() -> int:

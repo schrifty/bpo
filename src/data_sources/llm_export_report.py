@@ -126,6 +126,8 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
         csr_summary = attach_csr_top_customers_for_llm_export(report)
         n_sel = int(csr_summary.get("customers_selected") or 0)
         n_ok = int(csr_summary.get("customers_with_csr_data") or 0)
+        mode = str(csr_summary.get("selection_mode") or "current_book")
+        sel_label = f"current_book_n={n_sel}" if mode == "current_book" else f"top_{n_sel}_by_arr"
         if n_sel == 0:
             provenance.append(
                 _provenance_row(
@@ -139,7 +141,7 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
                 _provenance_row(
                     SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK,
                     status="partial",
-                    detail=f"top_{n_sel}_by_arr with_data={n_ok}",
+                    detail=f"{sel_label} with_data={n_ok}",
                 )
             )
         else:
@@ -147,7 +149,7 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
                 _provenance_row(
                     SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK,
                     status="ok",
-                    detail=f"top_{n_sel}_by_arr",
+                    detail=sel_label,
                 )
             )
     except Exception as e:

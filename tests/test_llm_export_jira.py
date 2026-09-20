@@ -5,7 +5,16 @@ from __future__ import annotations
 from src.llm_export_jira import (
     _jira_merged_lookup_bundle,
     attach_jira_top_customers_for_llm_export,
+    llm_export_jira_top_n,
 )
+
+
+def test_jira_top_n_does_not_inherit_unlimited_csr(monkeypatch):
+    monkeypatch.delenv("CORTEX_LLM_EXPORT_JIRA_TOP_N", raising=False)
+    monkeypatch.delenv("CORTEX_LLM_EXPORT_CSR_TOP_N", raising=False)
+    assert llm_export_jira_top_n() == 100
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_CSR_TOP_N", "40")
+    assert llm_export_jira_top_n() == 40
 
 
 def test_jira_merged_lookup_bundle_includes_division_names():

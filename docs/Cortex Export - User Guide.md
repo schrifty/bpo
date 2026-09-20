@@ -39,7 +39,7 @@ The portfolio export is split into numbered sections. When you ask the AI a ques
 | **Section 3b-renewal — Renewal in progress** | Contracts that **expired** but a **renewal deal is still open**. These are **not** churn — sales is still working them. |
 | **Section 3b-future — Future contracts** | Deals **signed but not started yet** (contract start date in the future). Not active today, not churn. |
 | **Section 3c — Salesforce (detailed CRM)** | Extra Salesforce detail (opportunities, cases, contacts, etc.) for top customers. **`arr_by_ultimate_parent`** ranks **all** ultimate parents using the same contract-rollup math as the export (Carrier divisions collapse correctly). Sort by **`current_arr`**. Includes renewing and churned parents — not only the current book. |
-| **Section 4 — CS Report** | Customer Success weekly health: platform health, supply chain, value metrics for large accounts. **§4.1** is a per-customer summary table (all rollup totals). **§4.2** is per-factory detail with **every CSR workbook metric column** (CSR display labels + `field_legend` → workbook columns). |
+| **Section 4 — CS Report** | Customer Success weekly health: platform health, supply chain, value metrics for **every current-book customer** (ranked by ARR). **§4.1** is a per-customer summary table (all rollup totals). **§4.2** is per-factory detail with **every CSR workbook metric column** (CSR display labels + `field_legend` → workbook columns). Factory rows may be sampled when the token budget is tight. |
 | **Section 4b — Slack** | Top customers by ARR (default **10**): 6-month Slack channel history per customer plus a Cortex **LLM summary** (`llm_summary`). Timing is in the export coverage manifest (`_llm_export_slack.performance`). |
 | **Section 5 — Usage signals** | Product “flags” — e.g. low adoption, features not used, unusual usage patterns. |
 | **Section 6 — Trend context** | Extra timing/trend notes when included. |
@@ -77,7 +77,7 @@ Salesforce decides **who is a customer** and **whether they’re active, renewin
 
 | List | Where | Who’s included |
 |------|--------|----------------|
-| **`selection_ranked`** | Coverage block; drives §2 Jira / §4 CS Report top-N | **Current book only** — ACTIVE + OUT_OF_CONTRACT_RENEWING. True churn (lost contracts, no renewal) is excluded on purpose. |
+| **`selection_ranked`** | Coverage block; drives §2 Jira (top-N) / §4 CS Report (current book, or top-N if `CORTEX_LLM_EXPORT_CSR_TOP_N` is set) | **Current book only** — ACTIVE + OUT_OF_CONTRACT_RENEWING. True churn (lost contracts, no renewal) is excluded on purpose. |
 | **`arr_by_ultimate_parent`** | §3c Salesforce comprehensive | **All** ultimate parents from contract rollups — active, renewing, churned, future. Carrier divisions collapse to one row (~$1.1M). Ford appears here when `commercial_status` is OUT_OF_CONTRACT_RENEWING. |
 
 If Ford shows **`CHURNED`** with no renewal pipeline in Salesforce, the export is reflecting CRM data — verify open opportunities on the parent account before expecting them in a current-ARR ranking.
@@ -164,7 +164,7 @@ Copy/paste and adapt these. Start with “Use only the attached Cortex export; q
 3. **Renewal ≠ churn.** Section 3b-renewal is for deals still being worked — treat them as part of the current book for revenue, not as lost accounts.
 4. **Future contracts aren’t live yet.** Section 3b-future is for signed deals that haven’t started — don’t count them as active usage or support customers.
 5. **Check the date.** Salesforce data may be up to ~48 hours cached. For contract or renewal decisions, confirm in Salesforce if the export is more than a day or two old.
-6. **The file may be shortened.** On some runs, only the **top N customers** get full Jira, CS Report, or CRM detail. The coverage section says what was capped.
+6. **The file may be shortened.** On some runs, Jira or CRM detail is still **top N**, and CS Report factory rows are **sampled** so the file fits the token budget. The coverage section says what was capped.
 
 ---
 

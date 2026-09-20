@@ -1456,11 +1456,12 @@ def load_csr_top_customers_by_arr(
         "top_n": len(selection_ranked),
         "aggregate_scope": "top_ultimate_parents_by_arr",
         "note": (
-            "Per-customer CS Report (delta=week) for the highest-ARR active Salesforce ultimate "
-            "parents (contract rollups summed by ultimate parent — same grouping as "
+            "Per-customer CS Report (delta=week) for current-book Salesforce ultimate "
+            "parents ranked by ARR (contract rollups summed by ultimate parent — same grouping as "
             "``arr_by_ultimate_parent`` in §3c). Each entry under ``customers`` has "
             "platform_health, supply_chain, and platform_value for that parent group "
-            "(not a portfolio-wide merge)."
+            "(not a portfolio-wide merge). Factory rows in the LLM export may still be sampled "
+            "to fit the token budget."
         ),
         "selection_ranked": selection_ranked,
         "customers": customers,

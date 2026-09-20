@@ -2492,6 +2492,13 @@
       ]
     },
     {
+      "path": "_llm_export_csr.selection_mode",
+      "terms": [
+        "_llm_export_csr.selection_mode",
+        "[CSR] LLM export selection: current_book (all) or top_n"
+      ]
+    },
+    {
       "path": "csr.platform_health",
       "terms": [
         "csr.platform_health",

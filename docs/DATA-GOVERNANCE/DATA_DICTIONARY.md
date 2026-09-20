@@ -485,7 +485,8 @@ Commercial classification and ARR rollups for Salesforce Customer Entity reporti
 
 **Caveat:** boolean `active` on rollups is **deprecated**; use `commercial_status` and `current_arr` for executive views.
 
-## LLM export CS Report (`csr`, §4 — top customers by ARR)
+## LLM export CS Report (`csr`, §4 — current-book customers ranked by ARR)
+- `_llm_export_csr.selection_mode` — `current_book` (default: every current-book ultimate parent) or `top_n`
 - `csr.scope`
 - `csr.top_n`
 - `csr.selection_ranked`
