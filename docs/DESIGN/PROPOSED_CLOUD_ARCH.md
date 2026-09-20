@@ -46,7 +46,7 @@ Each task emits:
 - `CORTEX_RUN_SUMMARY={"success":…,"failures":[…],…}` on stdout
 - EMF line with `Cortex.RunSuccess`, `Cortex.RunDurationSeconds`, `Cortex.DeckFailures`, `Cortex.IntegrationWarnings`
 
-On failure, `failures-<job>-<run_id>.json` is uploaded to Drive Output when configured.
+On failure, look up the task in CloudWatch (`CORTEX_RUN_SUMMARY` and step logs). Cortex does not upload `failures-*.json` to shared Drive.
 
 ---
 

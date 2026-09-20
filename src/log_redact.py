@@ -1,8 +1,9 @@
-"""Redact credentials from job logs and failure artifacts.
+"""Redact credentials from job logs and optional local failure artifacts.
 
 Applied to child stdout forwarded to CloudWatch and to stdout/stderr tails
-uploaded with failures.json. Customer names and HTTP status text are kept so
-retry classification still works.
+kept on StepResult / local ``failures-*.json`` when ``CORTEX_FAILURES_JSON_LOCAL``
+is set. Customer names and HTTP status text are kept so retry classification
+still works.
 """
 
 from __future__ import annotations

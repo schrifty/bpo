@@ -186,6 +186,38 @@ def test_extract_step_failure_messages_includes_run_summary_warnings() -> None:
     assert "Pendo snapshot stale" in messages
 
 
+def test_write_failures_artifact_skips_drive_by_default(monkeypatch, tmp_path) -> None:
+    import src.job_runner as jr
+    from src.job_runner import _write_failures_artifact
+
+    monkeypatch.delenv("CORTEX_FAILURES_JSON_LOCAL", raising=False)
+    monkeypatch.setattr(jr, "_PROJECT_ROOT", tmp_path)
+
+    def _boom(*_a, **_k):
+        raise AssertionError("must not upload failures JSON to Drive")
+
+    monkeypatch.setattr(
+        "src.drive_config.upload_text_file_to_drive_folder",
+        _boom,
+        raising=False,
+    )
+    assert _write_failures_artifact("pendo-top-arr-detailed", "47446182abcd", ["step: failed"]) is None
+    assert not list(tmp_path.rglob("failures-*.json"))
+
+
+def test_write_failures_artifact_local_opt_in(monkeypatch, tmp_path) -> None:
+    import src.job_runner as jr
+    from src.job_runner import _write_failures_artifact
+
+    monkeypatch.setenv("CORTEX_FAILURES_JSON_LOCAL", "1")
+    monkeypatch.setattr(jr, "_PROJECT_ROOT", tmp_path)
+    path = _write_failures_artifact("pendo-top-arr-detailed", "47446182abcd", ["Completed with 1 error(s)"])
+    assert path is not None
+    written = tmp_path / "output" / "failures-pendo-top-arr-detailed-47446182.json"
+    assert written.read_text(encoding="utf-8")
+    assert "Completed with 1 error(s)" in written.read_text(encoding="utf-8")
+
+
 def test_build_failures_payload_includes_failed_step_details() -> None:
     from src.job_runner import StepResult
 

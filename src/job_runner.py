@@ -576,7 +576,21 @@ def _write_failures_artifact(
     step_results: list[StepResult] | None = None,
     preflight_errors: list[str] | None = None,
 ) -> str | None:
+    """Optionally write a local failures JSON. Never upload to shared Drive.
+
+    Operators already get ``CORTEX_RUN_SUMMARY`` and step logs in CloudWatch.
+    Drive ``failures-*.json`` files looked like exports and rarely named the
+    real fault (especially ``pendo-top-arr-detailed``).
+    """
     if not failures:
+        return None
+    if not _truthy_env("CORTEX_FAILURES_JSON_LOCAL"):
+        logger.info(
+            "Job %s failed (run_id=%s); details are in CloudWatch for this task, "
+            "not uploaded to Drive",
+            job_name,
+            run_id,
+        )
         return None
     body = json.dumps(
         _build_failures_payload(
@@ -589,54 +603,11 @@ def _write_failures_artifact(
         indent=2,
         default=str,
     )
-    if _truthy_env("CORTEX_FAILURES_JSON_LOCAL"):
-        path = _PROJECT_ROOT / "output" / f"failures-{job_name}-{run_id[:8]}.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(body, encoding="utf-8")
-        logger.info("Wrote failures artifact: %s", path)
-        return str(path)
-    try:
-        from .export_drive_layout import ensure_historical_data_folder, ensure_historical_day_folder, historical_day_folder_label
-        from .drive_config import (
-            get_cortex_exports_history_folder_id,
-            get_qbr_output_root_folder_id,
-            upload_text_file_to_drive_folder,
-        )
-
-        root_id = get_qbr_output_root_folder_id()
-        if not root_id:
-            return None
-        fname = f"failures-{job_name}-{run_id[:8]}.json"
-        fid: str | None = None
-        targets: list[tuple[str, bool]] = [(root_id, True)]
-        cortex_history = get_cortex_exports_history_folder_id()
-        if cortex_history:
-            targets.append((cortex_history, False))
-        for i, (folder_id, is_output_root) in enumerate(targets):
-            try:
-                historical_id = (
-                    ensure_historical_data_folder(folder_id) if is_output_root else folder_id
-                )
-                day_folder_id = ensure_historical_day_folder(historical_id)
-                uploaded = upload_text_file_to_drive_folder(
-                    fname, body, day_folder_id, mime_type="application/json"
-                )
-                if i == 0:
-                    fid = uploaded
-                    logger.info(
-                        "Uploaded failures artifact to Drive Historical Data/%s/%s (id=%s)",
-                        historical_day_folder_label(),
-                        fname,
-                        fid,
-                    )
-            except Exception as exc:
-                if i == 0:
-                    raise
-                logger.error("Cortex dual-write failures.json failed: %s", exc)
-        return fid
-    except Exception as exc:
-        logger.warning("Could not upload failures.json to Drive: %s", exc)
-        return None
+    path = _PROJECT_ROOT / "output" / f"failures-{job_name}-{run_id[:8]}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+    logger.info("Wrote local failures artifact: %s", path)
+    return str(path)
 
 
 def _truthy_env(name: str) -> bool:
