@@ -46,6 +46,7 @@ class SourceId(str, Enum):
     PENDO_CUSTOMER_HEALTH = "pendo_customer_health"
     CS_REPORT_ALL_CUSTOMERS_WEEK = "cs_report_all_customers_week"
     CS_REPORT_CUSTOMER_WEEK = "cs_report_customer_week"
+    CS_REPORT_ENTITIES_WEEK = "cs_report_entities_week"
     SALESFORCE_PORTFOLIO_AGGREGATE = "salesforce_portfolio_aggregate"
     SALESFORCE_COMPREHENSIVE_PORTFOLIO = "salesforce_comprehensive_portfolio"
     # All-customers LLM export: per-customer HELP for top ARR labels (not portfolio-wide ``None`` scope).

@@ -191,8 +191,20 @@ def test_build_step_argv_and_job_specs() -> None:
     spec = load_job_spec("csr-dump-0600")
     assert spec.steps[0]["command"] == "export-csr"
     assert spec.steps[0]["slot"] == "0600"
+    assert build_step_argv({"command": "export-csr-entities"}) == ["--export-csr-entities"]
     assert load_job_spec("csr-dump-0000").steps[0]["slot"] == "0000"
     assert load_job_spec("csr-dump-1800").steps[0]["slot"] == "1800"
+
+
+def _stub_csr_entities_week(monkeypatch) -> list[int]:
+    calls: list[int] = []
+
+    def _fake(rows, **_k):
+        calls.append(len(rows))
+        return {"row_count": 2}
+
+    monkeypatch.setattr("src.export_csr_entities_week.export_csr_entities_week_from_rows", _fake)
+    return calls
 
 
 def test_export_csr_dumps_writes_markdown_once_after_sheets(monkeypatch) -> None:
@@ -254,6 +266,7 @@ def test_export_csr_dumps_writes_markdown_once_after_sheets(monkeypatch) -> None
     monkeypatch.setattr("src.export_csr_dump.load_csr_dump_source_marker", lambda: None)
     saved: list[dict] = []
     monkeypatch.setattr("src.export_csr_dump.save_csr_dump_source_marker", lambda payload: saved.append(payload))
+    entity_calls = _stub_csr_entities_week(monkeypatch)
 
     result = export_csr_dumps(
         slot="0000",
@@ -265,6 +278,8 @@ def test_export_csr_dumps_writes_markdown_once_after_sheets(monkeypatch) -> None
     assert kinds == ["sheet", "sheet", "sheet", "md", "md", "md"]
     assert saved and saved[0]["file"] == "CS Report.xlsx"
     assert saved[0]["modified"] == "2026-08-21T08:00:00.000Z"
+    assert result["entities_week"]["row_count"] == 2
+    assert entity_calls == [1]
 
 
 def test_csr_dump_source_fingerprint_requires_file_and_modified() -> None:
@@ -325,6 +340,7 @@ def _stub_csr_dump_load(monkeypatch, *, meta: dict | None = None) -> None:
         "src.export_csr_dump.rollup_csr_site_rows",
         lambda _sites, *, level: [{"grain": level}],
     )
+    _stub_csr_entities_week(monkeypatch)
 
 
 def test_export_csr_dumps_skips_when_source_unchanged(monkeypatch) -> None:
@@ -349,6 +365,7 @@ def test_export_csr_dumps_skips_when_source_unchanged(monkeypatch) -> None:
     assert result["skipped"] is True
     assert result["uploaded"] == 0
     assert "CS Report.xlsx" in (result["skip_reason"] or "")
+    assert result["entities_week"]["row_count"] == 2
 
 
 def test_export_csr_dumps_force_rewrites_when_unchanged(monkeypatch) -> None:
@@ -420,6 +437,7 @@ def test_export_csr_dumps_single_customer_does_not_skip(monkeypatch) -> None:
     )
     assert result["skipped"] is False
     assert result["uploaded"] == 1
+    assert "entities_week" not in result
 
 
 def test_distinct_csr_week_customers_filters_delta() -> None:

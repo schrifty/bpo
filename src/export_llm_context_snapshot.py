@@ -323,6 +323,10 @@ _REGISTRY_EXCLUDED_RATIONALE: dict[str, str] = {
         "The all-customers LLM export uses the same per-customer APIs for every current-book "
         "Salesforce ultimate parent in §4 (factory rows may still be sampled for the token budget)."
     ),
+    "cs_report_entities_week": (
+        "Uncapped entity-grain JSON/CSV (`csr-entities-week-persistent.json`) is written to Drive "
+        "Output/ by the CSR dump / `--export-csr-entities`. This LLM snapshot uses §4 per-parent slices."
+    ),
     "leandna_item_master": (
         "LeanDNA Data API (item master) is wired into QBR enrichment paths, not into "
         "`build_llm_export_snapshot_report` / this markdown builder yet."

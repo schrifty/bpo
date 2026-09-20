@@ -467,22 +467,46 @@ def export_csr_dumps(
     source_meta = csr_latest_report_meta()
     fingerprint = csr_dump_source_fingerprint(source_meta)
     full_drive_dump = not no_drive and not (customer or "").strip()
-    if full_drive_dump and not force and csr_dump_source_unchanged(fingerprint, load_csr_dump_source_marker()):
-        skip_reason = (
-            f"CS Report unchanged ({fingerprint['file']}, modified {fingerprint['modified']})"
-        )
-        logger.info("CSR dump skipped: %s slot=%s", skip_reason, slot_label)
-        if diag is not None:
-            diag.set_integration_meta({"skipped": True, "skip_reason": skip_reason})
-        return {
-            "slot": slot_label,
-            "export_date": export_date.isoformat(),
-            "customers": len(targets),
-            "uploaded": 0,
-            "failures": [],
-            "skipped": True,
-            "skip_reason": skip_reason,
-        }
+    entities_week: dict[str, Any] | None = None
+    if full_drive_dump or (no_drive and not (customer or "").strip()):
+        from .export_csr_entities_week import export_csr_entities_week_from_rows
+
+        def _write_entities_week() -> dict[str, Any]:
+            if diag is not None:
+                with export_phase(diag, "csr-entities-week"):
+                    return export_csr_entities_week_from_rows(
+                        rows, no_drive=no_drive, out_dir=out_dir
+                    )
+            return export_csr_entities_week_from_rows(rows, no_drive=no_drive, out_dir=out_dir)
+
+        if full_drive_dump and not force and csr_dump_source_unchanged(
+            fingerprint, load_csr_dump_source_marker()
+        ):
+            skip_reason = (
+                f"CS Report unchanged ({fingerprint['file']}, modified {fingerprint['modified']})"
+            )
+            logger.info("CSR dump skipped: %s slot=%s", skip_reason, slot_label)
+            entities_week = _write_entities_week()
+            if diag is not None:
+                diag.set_integration_meta(
+                    {
+                        "skipped": True,
+                        "skip_reason": skip_reason,
+                        "entities_week_rows": entities_week.get("row_count"),
+                    }
+                )
+            return {
+                "slot": slot_label,
+                "export_date": export_date.isoformat(),
+                "customers": len(targets),
+                "uploaded": 0,
+                "failures": [],
+                "skipped": True,
+                "skip_reason": skip_reason,
+                "entities_week": entities_week,
+            }
+
+        entities_week = _write_entities_week()
 
     failures: list[str] = []
     uploaded: list[dict[str, Any]] = []
@@ -617,6 +641,8 @@ def export_csr_dumps(
         "failures": failures,
         "skipped": False,
     }
+    if entities_week is not None:
+        result["entities_week"] = entities_week
     if failures:
         raise RuntimeError(
             f"CSR dump incomplete: {len(failures)}/{len(targets)} customer(s) failed: "

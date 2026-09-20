@@ -216,6 +216,13 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         if step.get("force"):
             argv.append("--force")
         return argv
+    if command in ("export-csr-entities", "csr-entities-week"):
+        argv = ["--export-csr-entities"]
+        if step.get("no_drive"):
+            argv.append("--no-drive")
+        if step.get("out_dir"):
+            argv.extend(["--out-dir", str(step["out_dir"])])
+        return argv
     if command == "metrics-upsert":
         argv = ["metrics-upsert"]
         if step.get("metric"):

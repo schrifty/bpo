@@ -2492,6 +2492,62 @@
       ]
     },
     {
+      "path": "csr_entities_week.grain",
+      "terms": [
+        "csr_entities_week.grain",
+        "[CSR] Output/ entity-week export grain (entity)"
+      ]
+    },
+    {
+      "path": "csr_entities_week.delta",
+      "terms": [
+        "csr_entities_week.delta",
+        "[CSR] entity-week export uses delta=week"
+      ]
+    },
+    {
+      "path": "csr_entities_week.uncapped",
+      "terms": [
+        "csr_entities_week.uncapped",
+        "[CSR] entity-week export is not top-N or token-capped"
+      ]
+    },
+    {
+      "path": "csr_entities_week.row_count",
+      "terms": [
+        "csr_entities_week.row_count",
+        "[CSR] entity-week row count"
+      ]
+    },
+    {
+      "path": "csr_entities_week.columns",
+      "terms": [
+        "csr_entities_week.columns",
+        "[CSR] entity-week JSON/CSV column order"
+      ]
+    },
+    {
+      "path": "csr_entities_week.rows[]",
+      "terms": [
+        "csr_entities_week.rows[]",
+        "[CSR] one row per workbook customer + entity"
+      ]
+    },
+    {
+      "path": "csr_entities_week.source.file",
+      "terms": [
+        "csr_entities_week.source.file",
+        "[CSR] source workbook name"
+      ]
+    },
+    {
+      "path": "csr_entities_week.source.modified",
+      "terms": [
+        "csr_entities_week.source.modified",
+        "[CSR] source workbook Drive modifiedTime"
+      ]
+    },
+    {
       "path": "_llm_export_csr.selection_mode",
       "terms": [
         "_llm_export_csr.selection_mode",

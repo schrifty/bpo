@@ -215,6 +215,7 @@ Column names, KPI JSON shape, and how Cortex reads the workbook are documented i
 |---|---|---|---|---|
 | `CSR-LATEST-EXPORT-FILE` | Latest XLSX export from the shared drive. | Google Drive export of newest file in Data Exports folder | `docs/DATA-GOVERNANCE/CSR_DATA_SCHEMA.md`, `src/cs_report_client.py` | Core surface |
 | `CSR-CUSTOMER-WEEK-ROW` | Per-customer weekly row selection in the CS Report workbook. | Workbook columns `customer`, `delta = week` | `src/cs_report_client.py` | Core surface |
+| `CSR-ENTITIES-WEEK-EXPORT` | Uncapped entity-grain JSON + CSV in Drive Output/. | Cortex rollup of week factory rows by `customer` + `entity` | `src/export_csr_entities_week.py` | Core surface; not yet validated vs native APEX entity download |
 
 ### Registry Entries
 

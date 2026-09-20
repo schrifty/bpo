@@ -24,6 +24,16 @@
 - `teams_yaml.leandna_site_ids`
 - `teams_yaml.leandna_team`
 
+## CSR entity-week portfolio (`csr_entities_week`, Output/)
+- `csr_entities_week.grain` — always `entity`
+- `csr_entities_week.delta` — always `week`
+- `csr_entities_week.uncapped` — true (not top-N / not LLM token-capped)
+- `csr_entities_week.row_count`
+- `csr_entities_week.columns` — identity plus every CSR export display label
+- `csr_entities_week.rows[]` — one row per CS Report workbook `customer` + `entity`
+- `csr_entities_week.source.file`
+- `csr_entities_week.source.modified`
+
 ## CSR
 - `csr.platform_health`
 - `csr.platform_health.customer`

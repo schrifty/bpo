@@ -73,14 +73,16 @@ Exports & data
   --export-csr            CS Report delta=week Sheets + markdown twins
                           [--customer NAME] [--slot 0000|0600|1200|1800]
                           [--force] [--no-drive] [--out-dir DIR]
+  --export-csr-entities   Uncapped entity-grain JSON + CSV in Output/
+                          [--no-drive] [--out-dir DIR]
 
   Drive layout: Output/Customer Exports/{customer}/ holds -persistent files;
   same-day copies go under Historical Data/{ISO-date}/. Prior-month files
   archive to Historical Data/{YYYY-MM}/ at startup. Cortex shared drive
   mirrors those as exports/customer exports, exports/history, and decks/.
   --export-csr intra-day snapshots: Historical Data/{ISO-date}/{HHmm}/.
-  Full CSR Drive runs skip when the workbook modifiedTime is unchanged
-  (--force to rewrite).
+  Full CSR Drive runs skip per-customer Sheets when the workbook modifiedTime is unchanged
+  (--force to rewrite). Entity-week JSON/CSV in Output/ still refresh on those runs.
 
   --data                  Print catalog paths from
                           config/comprehensive_data_element_list.json
@@ -1434,6 +1436,13 @@ def main():
         export_pendo_top_arr_main(rest, prog="cortex --export-pendo-top-arr")
         return
 
+    if "--export-csr-entities" in sys.argv:
+        from src.export_csr_entities_week import export_csr_entities_week_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-csr-entities"]
+        export_csr_entities_week_main(rest, prog="cortex --export-csr-entities")
+        return
+
     if "--export-csr" in sys.argv:
         from src.export_csr_dump import export_csr_main
 
@@ -1466,6 +1475,13 @@ def main():
 
         rest = [a for a in sys.argv[1:] if a != "--export-pendo-top-arr"]
         export_pendo_top_arr_main(rest, prog="cortex --export-pendo-top-arr")
+        return
+
+    if "--export-csr-entities" in sys.argv:
+        from src.export_csr_entities_week import export_csr_entities_week_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-csr-entities"]
+        export_csr_entities_week_main(rest, prog="cortex --export-csr-entities")
         return
 
     if "--export-csr" in sys.argv:

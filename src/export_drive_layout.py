@@ -55,6 +55,7 @@ CSR_DUMP_LEVELS = ("site", "bu", "entity")
 _MANAGED_EXPORT_PREFIXES = (
     "Pendo Export  ",  # legacy customer export stem prefix
     "all-customers",
+    "csr-entities-week",
     "LLM-Context-Portfolio",  # legacy portfolio LLM stem
     "match-customer-names",
     "Engineering-Review-Portfolio",
