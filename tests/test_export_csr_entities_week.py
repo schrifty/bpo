@@ -131,6 +131,11 @@ def test_csv_and_json_and_local_write(monkeypatch, tmp_path) -> None:
     paths = write_csr_entities_week_local(doc, tmp_path)
     assert paths["json"].endswith(f"{CSR_ENTITIES_WEEK_STEM}.json")
     assert (tmp_path / f"{CSR_ENTITIES_WEEK_STEM}.csv").is_file()
+    json_dir = tmp_path / "json-only"
+    json_paths = write_csr_entities_week_local(doc, json_dir, json_only=True)
+    assert "csv" not in json_paths
+    assert (json_dir / f"{CSR_ENTITIES_WEEK_STEM}.json").is_file()
+    assert not (json_dir / f"{CSR_ENTITIES_WEEK_STEM}.csv").exists()
 
 
 def test_persistent_names_stay_in_output_root() -> None:

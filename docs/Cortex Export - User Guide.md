@@ -365,6 +365,7 @@ Folder names prefer Pendo/cohort prefixes (e.g. `Safran SA` → `Safran`). Unmat
 
 ```bash
 cortex --export-csr-entities
+cortex --export-csr-entities --json-only
 cortex --export-csr-entities --no-drive --out-dir output/csr-entities-week
 ```
 
