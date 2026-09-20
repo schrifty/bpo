@@ -162,7 +162,7 @@ Below, “KPI” means a JSON-encoded column as in §3.
 - **Schema drift:** New columns in the XLSX are ignored until referenced in code; renames break KPI extraction.
 - **Sheet:** Only the first worksheet is read; multi-sheet workbooks may hide data.
 - **Caching:** Parsed rows are cached in-process after first download.
-- **Entity-week portfolio export:** `src/export_csr_entities_week.py` writes `csr-entities-week-persistent.json` / `.csv` (all CSR display columns, one row per workbook customer + entity). That file is a Cortex factory rollup until compared to a native APEX entity download.
+- **Entity-week portfolio export:** `src/export_csr_entities_week.py` writes `csr-entities-week-persistent.json` (all CSR display columns, one row per workbook customer + entity). That file is a Cortex factory rollup until compared to a native APEX entity download.
 
 ---
 

@@ -9,7 +9,7 @@ Cortex produces three main kinds of markdown exports:
 | **Portfolio LLM context** (`all-customers`) | Leadership, CS, AMs — whole book | Pendo headlines, Jira, Salesforce, CS Report, signals, risk — **all customers** in one file |
 | **Per-customer export** (`Customer Export (Nd)`) | Account teams — one strategic customer | Deep **Pendo** usage plus **CS Report** factory metrics when matched — **one customer** per file (+ matching Sheet) |
 | **CSR dump** (`CustomerSuccessReport-DD-MMM-YYYY`) | Account teams — CS Report factories / BUs / entities | Full CS Report **`delta=week`** at site, business-unit, and entity grain (three Sheets, each with a matching markdown twin) |
-| **CSR entity-week** (`csr-entities-week`) | Analysts / shared Drive consumers | Uncapped **entity** grain for the whole week workbook as JSON + CSV in Output/ |
+| **CSR entity-week** (`csr-entities-week`) | Analysts / shared Drive consumers | Uncapped **entity** grain for the whole week workbook as JSON in Output/ |
 
 Both Pendo exports and CSR dumps use the same **Drive layout** (see [Where files live on Drive](#where-files-live-on-drive)).
 
@@ -365,19 +365,17 @@ Folder names prefer Pendo/cohort prefixes (e.g. `Safran SA` → `Safran`). Unmat
 
 ```bash
 cortex --export-csr-entities
-cortex --export-csr-entities --json-only
 cortex --export-csr-entities --no-drive --out-dir output/csr-entities-week
 ```
 
-A single **uncapped** entity-grain file for the whole CS Report week workbook (not the LLM snapshot, not per-customer folders):
+A single **uncapped** entity-grain JSON file for the whole CS Report week workbook (not the LLM snapshot, not per-customer folders):
 
-- `Output/csr-entities-week-persistent.json` (preferred)
-- `Output/csr-entities-week-persistent.csv` (same rows)
-- Same-day copies under `Output/Historical Data/{YYYY-MM-DD}/`
+- `Output/csr-entities-week-persistent.json`
+- Same-day copy under `Output/Historical Data/{YYYY-MM-DD}/`
 
-Each row is one workbook `customer` + `entity`. Columns are identity (`csr_customer`, `customer_exports_folder`, `Site count`) plus **every** CSR export metric label (empty when unused). There is no `field_legend` on this file (display labels are the column names). Counts and dollar KPIs are summed from factory rows; percents and DOI are unweighted site means — the same Cortex rollup as the per-customer entity Sheets, **not** a native APEX entity extract until that download is compared.
+Each row is one workbook `customer` + `entity`. Columns are identity (`csr_customer`, `customer_exports_folder`, `Site count`) plus **every** CSR export metric label (empty when unused). There is no `field_legend` on this file (display labels are the column names), and no CSV twin — the JSON carries `columns` for any tabular reshape. Counts and dollar KPIs are summed from factory rows; percents and DOI are unweighted site means — the same Cortex rollup as the per-customer entity Sheets, **not** a native APEX entity extract until that download is compared.
 
-Scheduled `csr-dump-*` jobs refresh these files even when per-customer Sheets skip because the workbook is unchanged. `--export-csr --customer` does not overwrite the portfolio files.
+Scheduled `csr-dump-*` jobs refresh this file even when per-customer Sheets skip because the workbook is unchanged. `--export-csr --customer` does not overwrite the portfolio file.
 
 Scheduled dump jobs use a **4-hour** step timeout. A timed-out or long-running failure is **not** one-shot retried (retries are for start / first-few-minutes blips only).
 

@@ -73,7 +73,7 @@ Exports & data
   --export-csr            CS Report delta=week Sheets + markdown twins
                           [--customer NAME] [--slot 0000|0600|1200|1800]
                           [--force] [--no-drive] [--out-dir DIR]
-  --export-csr-entities   Uncapped entity-grain JSON + CSV in Output/
+  --export-csr-entities   Uncapped entity-grain JSON in Output/
                           [--no-drive] [--out-dir DIR]
 
   Drive layout: Output/Customer Exports/{customer}/ holds -persistent files;

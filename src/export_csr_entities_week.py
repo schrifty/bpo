@@ -1,4 +1,4 @@
-"""Portfolio CS Report entity-grain export (uncapped JSON + CSV) for Output/.
+"""Portfolio CS Report entity-grain export (uncapped JSON) for Output/.
 
 One row per ``(csr_customer, entity)`` from ``delta=week`` factory rows, using the same
 Cortex entity rollup as the per-customer dump (sums / unweighted means — not yet validated
@@ -8,9 +8,7 @@ against a native APEX entity download).
 from __future__ import annotations
 
 import argparse
-import csv
 import datetime as dt
-import io
 import json
 import os
 import sys
@@ -123,48 +121,14 @@ def render_csr_entities_week_json(doc: dict[str, Any]) -> str:
     return json.dumps(doc, indent=2, ensure_ascii=False, default=str) + "\n"
 
 
-def _csv_cell(value: Any) -> Any:
-    if value is None:
-        return ""
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False, default=str)
-    return value
-
-
-def render_csr_entities_week_csv(doc: dict[str, Any]) -> str:
-    columns = list(doc.get("columns") or [])
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(columns)
-    for row in doc.get("rows") or []:
-        if not isinstance(row, dict):
-            continue
-        writer.writerow([_csv_cell(row.get(col)) for col in columns])
-    return buf.getvalue()
-
-
-def write_csr_entities_week_local(
-    doc: dict[str, Any],
-    out_dir: Path,
-    *,
-    json_only: bool = False,
-) -> dict[str, str]:
+def write_csr_entities_week_local(doc: dict[str, Any], out_dir: Path) -> dict[str, str]:
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path = out_dir / f"{CSR_ENTITIES_WEEK_STEM}.json"
     json_path.write_text(render_csr_entities_week_json(doc), encoding="utf-8")
-    out: dict[str, str] = {"json": str(json_path)}
-    if not json_only:
-        csv_path = out_dir / f"{CSR_ENTITIES_WEEK_STEM}.csv"
-        csv_path.write_text(render_csr_entities_week_csv(doc), encoding="utf-8")
-        out["csv"] = str(csv_path)
-    return out
+    return {"json": str(json_path)}
 
 
-def upload_csr_entities_week_document(
-    doc: dict[str, Any],
-    *,
-    json_only: bool = False,
-) -> dict[str, str]:
+def upload_csr_entities_week_document(doc: dict[str, Any]) -> dict[str, str]:
     folders = ensure_portfolio_output_folders()
     json_urls = upload_text_persistent_and_historical(
         stem=CSR_ENTITIES_WEEK_STEM,
@@ -176,26 +140,11 @@ def upload_csr_entities_week_document(
         mime_type="application/json",
         mirror_layouts=folders.get("mirror_layouts"),
     )
-    urls: dict[str, str] = {
+    return {
         "persistent_json_id": json_urls["persistent_file_id"],
         "historical_json_id": json_urls["historical_file_id"],
         "row_count": str(doc.get("row_count") or 0),
     }
-    if json_only:
-        return urls
-    csv_urls = upload_text_persistent_and_historical(
-        stem=CSR_ENTITIES_WEEK_STEM,
-        content=render_csr_entities_week_csv(doc),
-        ext=".csv",
-        persistent_folder_id=folders["persistent_folder_id"],
-        historical_folder_id=folders["historical_folder_id"],
-        base_label=folders["base_label"],
-        mime_type="text/csv",
-        mirror_layouts=folders.get("mirror_layouts"),
-    )
-    urls["persistent_csv_id"] = csv_urls["persistent_file_id"]
-    urls["historical_csv_id"] = csv_urls["historical_file_id"]
-    return urls
 
 
 def export_csr_entities_week_from_rows(
@@ -203,9 +152,8 @@ def export_csr_entities_week_from_rows(
     *,
     no_drive: bool = False,
     out_dir: Path | None = None,
-    json_only: bool = False,
 ) -> dict[str, Any]:
-    """Build the entity-week document and write Drive Output/ (or local files)."""
+    """Build the entity-week document and write Drive Output/ (or a local file)."""
     if not distinct_csr_week_customers(week_rows):
         raise RuntimeError("CS Report has no delta=week rows — cannot build entity-week export")
     doc = build_csr_entities_week_document(week_rows)
@@ -213,34 +161,25 @@ def export_csr_entities_week_from_rows(
         paths = write_csr_entities_week_local(
             doc,
             out_dir or Path("output") / "csr-entities-week",
-            json_only=json_only,
         )
         logger.info(
-            "CSR entity-week export wrote %d row(s) locally json=%s csv=%s",
+            "CSR entity-week export wrote %d row(s) locally json=%s",
             doc["row_count"],
             paths["json"],
-            paths.get("csv") or "(skipped)",
         )
         return {"row_count": doc["row_count"], "local": paths, "skipped_drive": True}
-    urls = upload_csr_entities_week_document(doc, json_only=json_only)
-    suffix = "json" if json_only else "json and .csv"
+    urls = upload_csr_entities_week_document(doc)
     logger.info(
-        "CSR entity-week export uploaded %d row(s) → Output/%s-persistent.%s",
+        "CSR entity-week export uploaded %d row(s) → Output/%s-persistent.json",
         doc["row_count"],
         CSR_ENTITIES_WEEK_STEM,
-        suffix,
     )
     print(
         f"Uploaded {doc['row_count']} entity row(s) → Output/{CSR_ENTITIES_WEEK_STEM}-persistent.json"
-        + ("" if json_only else f" and {CSR_ENTITIES_WEEK_STEM}-persistent.csv")
     )
     print(
         f"Output/ (JSON): https://drive.google.com/file/d/{urls['persistent_json_id']}/view"
     )
-    if not json_only:
-        print(
-            f"Output/ (CSV): https://drive.google.com/file/d/{urls['persistent_csv_id']}/view"
-        )
     return {"row_count": doc["row_count"], "drive": urls}
 
 
@@ -252,11 +191,6 @@ def export_csr_entities_week_main(
     parser = argparse.ArgumentParser(prog=prog)
     parser.add_argument("--no-drive", action="store_true")
     parser.add_argument("--out-dir", type=Path, default=None)
-    parser.add_argument(
-        "--json-only",
-        action="store_true",
-        help="Write JSON only (skip CSV)",
-    )
     args = parser.parse_args(argv)
     with export_diagnostics_scope() as diag:
         with export_phase(diag, "csr-entities-week"):
@@ -266,10 +200,7 @@ def export_csr_entities_week_main(
                     "CS Report workbook missing or empty — cannot build entity-week export (fail loud)"
                 )
             export_csr_entities_week_from_rows(
-                rows,
-                no_drive=args.no_drive,
-                out_dir=args.out_dir,
-                json_only=args.json_only,
+                rows, no_drive=args.no_drive, out_dir=args.out_dir
             )
         job_name = os.environ.get("CORTEX_JOB_NAME", "").strip() or "export-csr-entities"
         diag.emit_run_summary(job_name=job_name, fail_on_warnings=False)

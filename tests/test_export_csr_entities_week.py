@@ -8,7 +8,6 @@ from src.export_csr_entities_week import (
     align_csr_entities_week_rows,
     build_csr_entities_week_document,
     csr_entities_week_columns,
-    render_csr_entities_week_csv,
     render_csr_entities_week_json,
     write_csr_entities_week_local,
 )
@@ -108,7 +107,7 @@ def test_build_document_is_uncapped_and_aligns_all_columns(monkeypatch) -> None:
     assert all(set(row) == set(doc["columns"]) for row in aligned)
 
 
-def test_csv_and_json_and_local_write(monkeypatch, tmp_path) -> None:
+def test_json_render_and_local_write(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "src.export_csr_entities_week.csr_site_entries_for_exact_week_customer",
         lambda _name, _rows: _sites_safran(),
@@ -124,24 +123,15 @@ def test_csv_and_json_and_local_write(monkeypatch, tmp_path) -> None:
     doc = build_csr_entities_week_document([{"customer": "Safran SA", "delta": "week"}])
     raw_json = render_csr_entities_week_json(doc)
     assert '"uncapped": true' in raw_json
-    csv_text = render_csr_entities_week_csv(doc)
-    header = csv_text.splitlines()[0]
-    assert header.startswith("csr_customer,customer_exports_folder,Site count,")
-    assert "Safran SA" in csv_text
+    assert "Safran SA" in raw_json
     paths = write_csr_entities_week_local(doc, tmp_path)
     assert paths["json"].endswith(f"{CSR_ENTITIES_WEEK_STEM}.json")
-    assert (tmp_path / f"{CSR_ENTITIES_WEEK_STEM}.csv").is_file()
-    json_dir = tmp_path / "json-only"
-    json_paths = write_csr_entities_week_local(doc, json_dir, json_only=True)
-    assert "csv" not in json_paths
-    assert (json_dir / f"{CSR_ENTITIES_WEEK_STEM}.json").is_file()
-    assert not (json_dir / f"{CSR_ENTITIES_WEEK_STEM}.csv").exists()
+    assert "csv" not in paths
+    assert not (tmp_path / f"{CSR_ENTITIES_WEEK_STEM}.csv").exists()
 
 
 def test_persistent_names_stay_in_output_root() -> None:
     json_name = persistent_filename(CSR_ENTITIES_WEEK_STEM, ext=".json")
-    csv_name = persistent_filename(CSR_ENTITIES_WEEK_STEM, ext=".csv")
     assert json_name == "csr-entities-week-persistent.json"
     assert is_managed_export_filename(json_name)
     assert is_output_root_resident_filename(json_name)
-    assert is_output_root_resident_filename(csv_name)
