@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.eng_kpi_deck import (
+    ERROR_DETAIL_MAX,
     EngKpiCard,
     HistoryPoint,
     append_kpi_slide,
@@ -10,6 +11,7 @@ from src.eng_kpi_deck import (
     append_title_slide,
     build_engineering_kpi_slide_requests,
     classify_notable_change,
+    error_callout,
     is_active_engineering_kpi,
     iter_active_engineering_kpis,
     merge_live_history,
@@ -185,6 +187,40 @@ def test_kpi_slide_embeds_chart_when_history_exists() -> None:
         isinstance(r, dict) and "createSheetsChart" in r for r in reqs
     )
     assert charts.kwargs["series"]["Value"] == [30.0, 36.0, 40.0]
+
+
+def _error_card(name: str = "AI Token Usage", error: str = "HTTPError: 401 Unauthorized") -> EngKpiCard:
+    row = DigestRow(
+        name=name,
+        metric_id=None,
+        value=None,
+        target=None,
+        direction="higher",
+        off_target=True,
+        error=error,
+    )
+    return EngKpiCard(row=row, grain="month", history=(), notable=None)
+
+
+def test_error_callout_trims_long_detail() -> None:
+    line = error_callout("boom " * 80)
+    assert line.startswith("Could not compute: boom")
+    assert len(line) <= len("Could not compute: ") + ERROR_DETAIL_MAX
+
+
+def test_kpi_slide_names_the_failing_source() -> None:
+    reqs: list = []
+    append_kpi_slide(reqs, _error_card(), slide_index=2, charts=None)
+    body = _all_text(reqs)
+    assert "Could not compute: HTTPError: 401 Unauthorized" in body
+
+
+def test_title_slide_counts_and_names_failed_kpis() -> None:
+    reqs: list = []
+    append_title_slide(reqs, [_card(), _error_card()], as_of="2026-09-20", slide_index=0)
+    body = _all_text(reqs)
+    assert "1 KPI(s) could not be computed" in body
+    assert "AI Token Usage" in body
 
 
 def test_build_plan_orders_cover_then_notables_then_kpis() -> None:

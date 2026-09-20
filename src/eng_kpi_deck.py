@@ -39,6 +39,7 @@ PERSISTENT_TITLE = "Engineering KPIs"
 REL_CHANGE_BAND = 0.10
 PERCENT_POINT_BAND = 3.0
 HISTORY_POINTS = 12
+ERROR_DETAIL_MAX = 160
 
 _KIND_SUCCESS = "success"
 _KIND_FAILURE = "failure"
@@ -170,6 +171,14 @@ def classify_notable_change(
         previous=previous,
         current=current,
     )
+
+
+def error_callout(error: str) -> str:
+    """Name the failing source on the slide instead of only ``error`` in the value."""
+    detail = " ".join(str(error).split())
+    if len(detail) > ERROR_DETAIL_MAX:
+        detail = detail[: ERROR_DETAIL_MAX - 1].rstrip() + "…"
+    return f"Could not compute: {detail}"
 
 
 def _on_target(value: float, target: float | None, direction: str | None) -> bool | None:
@@ -353,6 +362,7 @@ def append_title_slide(
     _header(reqs, sid, PERSISTENT_TITLE)
     notable_n = sum(1 for c in cards if c.notable)
     month_close = sum(1 for c in cards if c.grain == GRAIN_MONTH)
+    failed = [c for c in cards if c.row.error]
     lines = [
         f"{len(cards)} active engineering KPIs · as of {as_of}",
         f"{notable_n} notable period-to-period move(s) · {month_close} month-close, "
@@ -365,6 +375,20 @@ def append_title_slide(
         append_text_box(reqs, oid, sid, MARGIN, y, CONTENT_W, 22, line)
         _style_body(reqs, oid, size=14, color=NAVY if i == 0 else GRAY, bold=i == 0)
         y += 28
+    if failed:
+        oid = f"{sid}_err"
+        names = ", ".join(sorted(c.row.name for c in failed))
+        append_text_box(
+            reqs,
+            oid,
+            sid,
+            MARGIN,
+            y,
+            CONTENT_W,
+            22,
+            f"{len(failed)} KPI(s) could not be computed — {names}. Each slide names the failure.",
+        )
+        _style_body(reqs, oid, size=13, color={"red": 0.85, "green": 0.15, "blue": 0.15}, bold=True)
     return sid
 
 
@@ -485,7 +509,14 @@ def append_kpi_slide(
     )
 
     callout_y = kpi_y + kpi_h + 10
-    if card.notable:
+    if card.row.error:
+        oid = f"{sid}_err"
+        append_text_box(
+            reqs, oid, sid, MARGIN, callout_y, CONTENT_W, 18, error_callout(card.row.error)
+        )
+        _style_body(reqs, oid, size=12, color=worse, bold=True)
+        chart_top = callout_y + 22
+    elif card.notable:
         oid = f"{sid}_call"
         append_text_box(reqs, oid, sid, MARGIN, callout_y, CONTENT_W, 18, card.notable.summary)
         _style_body(reqs, oid, size=12, color=delta_accent, bold=True)
