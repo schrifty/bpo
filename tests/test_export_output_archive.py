@@ -602,6 +602,8 @@ def test_relocate_non_persistent_skips_user_guide_at_output_root() -> None:
     assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
     child["name"] = "Cortex Export - User Guide.md"
     assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
+    child["name"] = "Cortex User Guide.md"
+    assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
 
 
 def test_relocate_non_persistent_skips_akkr_metrics_deck() -> None:

@@ -1,4 +1,4 @@
-# Cortex Export — User Guide
+# Cortex User Guide
 
 This guide explains **what’s in Cortex export files**, **how to read them**, and **how to ask an AI good questions** using the data. You do not need to know how exports are built to use them well.
 
@@ -303,7 +303,7 @@ All Cortex exports under the QBR generator use the same pattern:
 
 **Portfolio exports** (`export-all`, engineering portfolio deck) use `Output/` as the persistent base. **Per-customer Pendo** and **CSR dumps** use each customer’s folder under `Customer Exports/`. **AKKR / metrics decks** stay in `Output/` under `{TAG} Metrics`; only the month-named copy is stored under `Historical Data/{YYYY-MM}/`.
 
-This user guide is also published to **`Output/User Guide.md`** on Cortex startup when the repo copy is newer than Drive or missing there. It is not archived into `Historical Data/` with export snapshots.
+This user guide is also published to **`Output/Cortex User Guide.md`** on Cortex startup when the repo copy is newer than Drive or missing there. It is not archived into `Historical Data/` with export snapshots.
 
 Other artifacts (Jira cache JSON, chart spreadsheets) live under the generator root (`Cache/`, `chart-data/`) — not in this export layout.
 

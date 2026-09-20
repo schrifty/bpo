@@ -63,21 +63,28 @@ _MANAGED_EXPORT_PREFIXES = (
 )
 LLM_CONTEXT_EXPORT_STEM = "all-customers"
 LLM_CONTEXT_EXPORT_STEM_LEGACY = "LLM-Context-Portfolio"
-EXPORT_USER_GUIDE_DRIVE_FILENAME = "User Guide.md"
-EXPORT_USER_GUIDE_DRIVE_FILENAME_LEGACY = "Cortex Export - User Guide.md"
+EXPORT_USER_GUIDE_DRIVE_FILENAME = "Cortex User Guide.md"
+EXPORT_USER_GUIDE_DRIVE_FILENAMES_LEGACY = (
+    "User Guide.md",
+    "Cortex Export - User Guide.md",
+)
+EXPORT_USER_GUIDE_DRIVE_FILENAME_LEGACY = EXPORT_USER_GUIDE_DRIVE_FILENAMES_LEGACY[-1]
 EXPORT_USER_GUIDE_REPO_FILENAME = "Cortex Export - User Guide.md"
 CSR_DUMP_SOURCE_MARKER_FILENAME = "CSR-Dump-source.json"
 OUTPUT_ROOT_STATIC_FILENAMES = frozenset(
     {
         EXPORT_USER_GUIDE_DRIVE_FILENAME,
-        EXPORT_USER_GUIDE_DRIVE_FILENAME_LEGACY,
+        *EXPORT_USER_GUIDE_DRIVE_FILENAMES_LEGACY,
         CSR_DUMP_SOURCE_MARKER_FILENAME,
     }
 )
 PORTFOLIO_DRIVE_FILENAME_RENAMES: tuple[tuple[str, str], ...] = (
     ("LLM-Context-Portfolio-persistent.md", "all-customers-persistent.md"),
     ("LLM-Context-Portfolio.md", "all-customers.md"),
-    (EXPORT_USER_GUIDE_DRIVE_FILENAME_LEGACY, EXPORT_USER_GUIDE_DRIVE_FILENAME),
+    *(
+        (legacy, EXPORT_USER_GUIDE_DRIVE_FILENAME)
+        for legacy in EXPORT_USER_GUIDE_DRIVE_FILENAMES_LEGACY
+    ),
 )
 # Persistent metrics decks in Output/ (e.g. ``AKKR Metrics``). Historical copies use
 # ``{TAG} Metrics - {Month}`` and must not match this pattern.
