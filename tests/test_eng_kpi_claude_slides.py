@@ -27,6 +27,7 @@ def _card(
     history: tuple[HistoryPoint, ...] = (),
     notable: NotableChange | None = None,
     error: str | None = None,
+    tags: tuple[str, ...] = ("engineering",),
 ) -> EngKpiCard:
     row = DigestRow(
         name=name,
@@ -37,7 +38,7 @@ def _card(
         off_target=off_target,
         error=error,
         description=f"{name} definition",
-        tags=("engineering",),
+        tags=tags,
     )
     return EngKpiCard(row=row, grain=grain, history=history, notable=notable)
 
@@ -92,35 +93,43 @@ def test_card_fact_marks_unavailable_kpis() -> None:
 
 
 def test_digest_counts_movement_and_standing() -> None:
-    digest = build_eng_kpi_claude_digest(_cards(), as_of="2026-09-20")
-    assert digest["function"] == "Engineering"
-    assert digest["kpi_count"] == 4
+    support = [_card("TTFR", 2.0, 48.0, direction="lower", tags=("support",))]
+    digest = build_eng_kpi_claude_digest(_cards(), support, as_of="2026-09-20")
+    assert digest["function"] == "Engineering/DevOps & Support"
+    assert digest["kpi_count"] == 5
     assert digest["off_target_count"] == 1
     assert digest["unavailable_count"] == 1
     assert digest["worse_count"] == 1
     assert digest["better_count"] == 1
+    assert digest["support_kpis"][0]["team"] == "Support"
 
 
-def test_deck_purpose_says_charts_come_later() -> None:
+def test_deck_purpose_states_four_page_structure() -> None:
     digest = build_eng_kpi_claude_digest(_cards(), as_of="2026-09-20")
     brief = deck_purpose_brief(digest)
-    assert "own chart slide" in brief
+    assert "four-page KPI review" in brief
+    assert "Implementation is intentionally omitted" in brief
     assert "2026-09-20" in brief
 
 
-def test_plan_is_standing_then_movement_with_only_moved_kpis() -> None:
+def test_plan_is_summary_then_team_narrative() -> None:
     digest = build_eng_kpi_claude_digest(_cards(), as_of="2026-09-20")
     plan = build_eng_kpi_claude_plan(digest)
-    assert [p["slide_type"] for p in plan] == ["standing", "movement"]
-    assert [k["name"] for k in plan[1]["kpis"]] == ["PRs Merged", "Customer-Reported Bugs"]
+    assert [p["slide_type"] for p in plan] == ["summary", "team_narrative"]
+    assert [k["name"] for k in plan[0]["kpis"]] == [
+        "PRs Merged",
+        "Customer-Reported Bugs",
+    ]
+    assert len(plan[0]["kpis"]) <= 3
 
 
-def test_plan_movement_slide_handles_a_quiet_period() -> None:
+def test_plan_summary_handles_a_quiet_period() -> None:
     quiet = [_card("PRs Merged", 280.0, 500.0, off_target=True)]
     plan = build_eng_kpi_claude_plan(
         build_eng_kpi_claude_digest(quiet, as_of="2026-09-20")
     )
-    assert any("no KPI moved" in str(m) for m in plan[1]["must_include"])
+    assert plan[0]["kpis"] == []
+    assert plan[1]["title"] == "How Each Team Is Doing"
 
 
 def test_render_raises_eng_specific_error_on_claude_failure(monkeypatch) -> None:
@@ -140,6 +149,6 @@ def test_render_appends_one_slide_per_plan_entry(monkeypatch) -> None:
     )
     reqs: list = []
     idx, sids = render_eng_kpi_claude_slides(reqs, _cards(), as_of="2026-09-20")
-    assert idx == 2
-    assert [s.split("_")[-1] for s in sids] == ["standing", "movement"]
+    assert idx == 3
+    assert [s.split("_")[-1] for s in sids] == ["summary", "teams"]
     assert reqs

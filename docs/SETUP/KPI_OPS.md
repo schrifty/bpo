@@ -66,12 +66,19 @@ before adoption (Cursor spend and token KPIs) keep their zeros.
 
 ## Engineering KPIs deck (`engineering-kpis`)
 
-Claude designs the two opening slides (standing + what moved); the per-KPI slides
-stay hand-built because their point is the stored-history chart and the slide IR has
-no chart element. Control it with `--claude` / `--no-claude`, or
-`CORTEX_METRICS_CLAUDE_SLIDES` (default on when `ANTHROPIC_API_KEY` is set). A Claude
-or parse failure **fails the job** unless `CORTEX_METRICS_CLAUDE_ALLOW_FALLBACK=1`,
-which reverts to the fixed cover and notable-changes slides and logs that it did.
+The deck is exactly four pages:
+
+1. title;
+2. no more than the three largest period-over-period KPI changes;
+3. separate Engineering/DevOps and Support health narratives;
+4. the active Engineering/DevOps KPI list: Name, Value, Up/Down, Target, Definition.
+
+Implementation is omitted until its registry KPIs have instrumented sources. Claude
+designs pages 2–3; pages 1 and 4 are deterministic. Control it with `--claude` /
+`--no-claude`, or `CORTEX_METRICS_CLAUDE_SLIDES` (default on when
+`ANTHROPIC_API_KEY` is set). A Claude or parse failure **fails the job** unless
+`CORTEX_METRICS_CLAUDE_ALLOW_FALLBACK=1`, which uses factual fixed-layout pages 2–3
+and logs that it did.
 
 ## Morning digest (`metrics-digest` / `morning-report`)
 

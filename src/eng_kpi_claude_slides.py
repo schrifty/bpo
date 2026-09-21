@@ -1,8 +1,8 @@
-"""Claude designs the opening slides of the Engineering KPIs deck.
+"""Claude designs pages 2–3 of the four-page Engineering KPIs deck.
 
-The per-KPI slides stay hand-built: their point is the stored-history chart, and
-the slide IR has no chart element. Claude gets the two slides that were a wall of
-text — where engineering stands, and what moved period to period.
+Page 1 is a deterministic title page and page 4 is the deterministic KPI list.
+Claude gets the summary of the three largest moves and the Engineering/DevOps
+and Support team narrative.
 
 Strict by default (see ``fail-loud-integrations``): a Claude or parse failure
 raises unless ``CORTEX_METRICS_CLAUDE_ALLOW_FALLBACK`` is set, in which case the
@@ -69,18 +69,42 @@ def card_fact(card: EngKpiCard) -> dict[str, Any]:
     return fact
 
 
+def _movement_score(card: EngKpiCard) -> float:
+    if not card.notable:
+        return -1.0
+    previous = card.notable.previous
+    delta = abs(card.notable.current - previous)
+    return delta / abs(previous) if previous else delta
+
+
+def _team_fact(card: EngKpiCard, team: str) -> dict[str, Any]:
+    fact = card_fact(card)
+    fact["team"] = team
+    return fact
+
+
 def build_eng_kpi_claude_digest(
-    cards: list[EngKpiCard], *, as_of: str
+    engineering_cards: list[EngKpiCard],
+    support_cards: list[EngKpiCard] | None = None,
+    *,
+    as_of: str,
 ) -> dict[str, Any]:
-    """Facts for the opener slides: standing, movement counts, and every KPI."""
-    facts = [card_fact(c) for c in cards]
+    """Facts for the three-change summary and two-team narrative."""
+    support = support_cards or []
+    engineering_facts = [_team_fact(c, "Engineering/DevOps") for c in engineering_cards]
+    support_facts = [_team_fact(c, "Support") for c in support]
+    facts = engineering_facts + support_facts
     off = [f for f in facts if f["status"] == "off_target"]
     unavailable = [f for f in facts if f["status"] in ("error", "no_data")]
     counted = [f for f in facts if f["status"] in ("on_target", "off_target")]
     worse = [f for f in facts if f.get("move_direction") == "worse"]
     better = [f for f in facts if f.get("move_direction") == "better"]
+    changed = sorted(
+        [c for c in engineering_cards + support if c.notable],
+        key=lambda c: (-_movement_score(c), c.row.name.casefold()),
+    )[:3]
     return {
-        "function": "Engineering",
+        "function": "Engineering/DevOps & Support",
         "as_of": as_of,
         "kpi_count": len(facts),
         "on_target_count": len(counted) - len(off),
@@ -89,12 +113,22 @@ def build_eng_kpi_claude_digest(
         "unavailable_count": len(unavailable),
         "worse_count": len(worse),
         "better_count": len(better),
+        "engineering_kpis": engineering_facts,
+        "support_kpis": support_facts,
+        "top_changes": [
+            _team_fact(
+                c,
+                "Support" if "support" in {str(t).lower() for t in c.row.tags} else "Engineering/DevOps",
+            )
+            for c in changed
+        ],
         "deck_purpose": (
-            "This deck is the engineering KPI review as of "
-            f"{as_of}. Every KPI gets its own chart slide later in the deck, so "
-            "these opening slides must not restate the full list: slide one gives "
-            "the verdict on engineering delivery and AI adoption, slide two says "
-            "what actually moved since the prior period and what it implies. "
+            "This is a four-page KPI review as of "
+            f"{as_of}. Page 1 is the title. Page 2 summarizes no more than the "
+            "three KPIs that changed most. Page 3 gives separate factual narratives "
+            "for Engineering/DevOps and Support. Implementation is intentionally "
+            "omitted because it has no instrumented KPI sources. Page 4 is a fixed "
+            "list of every Engineering/DevOps KPI. "
             f"Scope: {len(facts)} KPIs, {len(off)} off target, "
             f"{len(worse)} moved worse, {len(better)} moved better, "
             f"{len(unavailable)} unavailable."
@@ -104,63 +138,63 @@ def build_eng_kpi_claude_digest(
 
 
 def build_eng_kpi_claude_plan(digest: dict[str, Any]) -> list[dict[str, Any]]:
-    """Two opener slides: where engineering stands, then what moved."""
-    facts: list[dict[str, Any]] = list(digest.get("kpis") or [])
-    moved = [f for f in facts if f.get("move_direction") in ("better", "worse", "moved")]
+    """Exactly two Claude pages: top-three summary and team narratives."""
+    changed: list[dict[str, Any]] = list(digest.get("top_changes") or [])[:3]
+    team_facts = list(digest.get("engineering_kpis") or []) + list(
+        digest.get("support_kpis") or []
+    )
     return [
         {
-            "id": "standing",
-            "slide_type": "standing",
-            "title": "Engineering KPIs — Where We Stand",
+            "id": "summary",
+            "slide_type": "summary",
+            "title": "Summary — Largest Changes",
             "purpose": (
-                "The cover. A reader who stops here should know whether "
-                "engineering delivery and AI adoption are healthy, and why."
+                "Show only the KPIs with the largest period-over-period movement. "
+                "This is a summary, not a scorecard."
             ),
             "must_include": [
-                "A headline sentence naming the overall state of engineering "
-                "delivery and the single biggest reason for it.",
-                "A kpi_row of 4-6 tiles for the most decision-relevant KPIs, with "
-                "the target in the label (e.g. 'PRs Merged (target 500)').",
-                "Color tiles so off-target reads red-ish and on-target blue/teal.",
-                f"A line noting the as-of date {digest.get('as_of')} and that each "
-                "following slide is one KPI with its stored-history chart.",
-                "One takeaway line: the so-what for an engineering leader.",
+                "Show no more than three KPI tiles or rows—exactly the supplied KPIs.",
+                "For each show name, team, prior value, current value, and direction.",
+                "Preserve each KPI name exactly and use its supplied move string; "
+                "do not shorten or relabel one KPI as another.",
+                "Use red-ish styling for a move that is worse and blue/teal for better.",
+                "Add one short takeaway that connects the largest changes without "
+                "inventing causes.",
             ],
-            "kpis": facts,
+            "kpis": changed,
         },
         {
-            "id": "movement",
-            "slide_type": "movement",
-            "title": "What Moved Since Last Period",
+            "id": "teams",
+            "slide_type": "team_narrative",
+            "title": "How Each Team Is Doing",
             "purpose": (
-                "Separate real movement from noise. Only KPIs whose move cleared "
-                "the 10% / 3-point band or crossed a target are supplied."
+                "Give a concise, evidence-backed health narrative for each team. "
+                "Implementation is omitted by design."
             ),
             "must_include": [
-                "Group the moves: what got worse first, then what got better. "
-                "Never repeat a status word at the start of every line.",
-                "A table with columns KPI, Prior, Current, Move — worst first, "
-                "using the supplied move strings for the numbers.",
-                "Two or three bullets on what the biggest moves imply, using only "
-                "the supplied definition / how_computed facts.",
-                "A takeaway naming the one thing to look at first."
-                if moved
-                else "State plainly that no KPI moved beyond the noise band.",
+                "Use exactly two clearly separated sections: Engineering/DevOps and Support.",
+                "For each team write 2–3 short sentences: overall health, strongest "
+                "evidence, and largest risk. Cite KPI names and values.",
+                "Judge only against supplied targets and changes. Do not infer causes.",
+                "Do not mention Implementation or missing slides.",
             ],
-            "kpis": moved or facts,
+            "kpis": team_facts,
         },
     ]
 
 
 def render_eng_kpi_claude_slides(
     reqs: list[dict[str, Any]],
-    cards: list[EngKpiCard],
+    engineering_cards: list[EngKpiCard],
+    support_cards: list[EngKpiCard] | None = None,
     *,
     as_of: str,
-    start_index: int = 0,
+    start_index: int = 1,
 ) -> tuple[int, list[str]]:
-    """Append Claude-designed opener slides. Returns (next index, slide ids)."""
-    digest = build_eng_kpi_claude_digest(cards, as_of=as_of)
+    """Append Claude-designed pages 2–3. Returns (next index, slide ids)."""
+    digest = build_eng_kpi_claude_digest(
+        engineering_cards, support_cards, as_of=as_of
+    )
     plan = build_eng_kpi_claude_plan(digest)
     try:
         irs = generate_metrics_slide_irs(plan, digest)
@@ -177,6 +211,6 @@ def render_eng_kpi_claude_slides(
         "Engineering KPI Claude slides: model=%s slides=%d kpis=%d",
         CORTEX_METRICS_CLAUDE_MODEL,
         len(sids),
-        len(cards),
+        len(engineering_cards) + len(support_cards or []),
     )
     return idx, sids

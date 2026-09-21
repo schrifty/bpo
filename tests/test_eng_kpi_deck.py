@@ -8,15 +8,20 @@ from src.eng_kpi_deck import (
     ERROR_DETAIL_MAX,
     EngKpiCard,
     HistoryPoint,
+    NotableChange,
     append_kpi_slide,
+    append_kpi_list_slide,
     append_notable_slide,
     append_title_slide,
     build_engineering_kpi_slide_requests,
     classify_notable_change,
     error_callout,
     is_active_engineering_kpi,
+    is_active_support_kpi,
     iter_active_engineering_kpis,
+    iter_active_support_kpis,
     merge_live_history,
+    top_changed_cards,
 )
 from src.metrics_digest import DigestRow
 from src.metrics_registry import load_metrics_registry
@@ -57,6 +62,15 @@ def test_active_engineering_kpis_skip_pending_and_support() -> None:
         assert is_active_engineering_kpi(entry), name
         tags = set(entry.get("tags") or [])
         assert "pending" not in {str(t).lower() for t in tags}
+
+
+def test_active_support_kpis_are_instrumented_support_rows() -> None:
+    rows = iter_active_support_kpis()
+    names = {name for name, _ in rows}
+    assert "TTFR (30 Days)" in names
+    assert "Data Escalations" in names
+    assert "PRs Merged" not in names
+    assert all(is_active_support_kpi(entry) for _, entry in rows)
 
 
 def test_classify_notable_improvement_for_lower_is_better() -> None:
@@ -225,28 +239,38 @@ def test_title_slide_counts_and_names_failed_kpis() -> None:
     assert "AI Token Usage" in body
 
 
-def test_build_plan_orders_cover_then_notables_then_kpis() -> None:
+def test_four_page_plan_is_title_summary_teams_then_list() -> None:
     cards = [_card(name="AI Token Usage"), _card(name="PRs Merged")]
     reqs, sids = build_engineering_kpi_slide_requests(
         cards, as_of="2026-09-14", charts=None, use_claude=False
     )
-    assert sids[0] == "eng_kpis_title"
-    assert sids[1] == "eng_kpis_notable"
-    assert len(sids) == 4
+    assert sids == [
+        "eng_kpis_title",
+        "eng_kpis_summary",
+        "eng_kpis_teams",
+        "eng_kpis_list",
+    ]
     assert reqs
 
 
-def test_build_plan_uses_claude_openers_then_chart_slides(monkeypatch) -> None:
+def test_four_page_plan_uses_claude_for_pages_two_and_three(monkeypatch) -> None:
     monkeypatch.setattr(
         "src.eng_kpi_claude_slides.render_eng_kpi_claude_slides",
-        lambda reqs, cards, *, as_of, start_index=0: (2, ["eng_kpis_c0_standing", "eng_kpis_c1_movement"]),
+        lambda reqs, cards, support_cards, *, as_of, start_index=1: (
+            3,
+            ["eng_kpis_c1_summary", "eng_kpis_c2_teams"],
+        ),
     )
     cards = [_card(name="AI Token Usage"), _card(name="PRs Merged")]
     _reqs, sids = build_engineering_kpi_slide_requests(
         cards, as_of="2026-09-14", charts=None, use_claude=True
     )
-    assert sids[:2] == ["eng_kpis_c0_standing", "eng_kpis_c1_movement"]
-    assert sids[2:] == ["eng_kpi_2", "eng_kpi_3"]
+    assert sids == [
+        "eng_kpis_title",
+        "eng_kpis_c1_summary",
+        "eng_kpis_c2_teams",
+        "eng_kpis_list",
+    ]
 
 
 def test_claude_opener_failure_is_loud_without_opt_in(monkeypatch) -> None:
@@ -274,4 +298,43 @@ def test_claude_opener_falls_back_when_opted_in(monkeypatch) -> None:
     _reqs, sids = build_engineering_kpi_slide_requests(
         [_card()], as_of="2026-09-14", charts=None, use_claude=True
     )
-    assert sids[:2] == ["eng_kpis_title", "eng_kpis_notable"]
+    assert sids == [
+        "eng_kpis_title",
+        "eng_kpis_summary",
+        "eng_kpis_teams",
+        "eng_kpis_list",
+    ]
+
+
+def test_top_changed_cards_caps_summary_at_three() -> None:
+    cards = []
+    for i, (previous, current) in enumerate([(100, 200), (100, 150), (100, 130), (100, 120)]):
+        cards.append(
+            _card(
+                name=f"KPI {i}",
+                value=float(current),
+                history=(HistoryPoint("2026-07", float(previous)), HistoryPoint("2026-08", float(current))),
+                notable=NotableChange("watch", f"KPI {i}", float(previous), float(current)),
+            )
+        )
+    assert [c.row.name for c in top_changed_cards(cards, [])] == ["KPI 0", "KPI 1", "KPI 2"]
+
+
+def test_kpi_list_has_requested_columns_and_every_name() -> None:
+    reqs: list = []
+    cards = [
+        _card(name="AI Token Usage", value=763_169_256),
+        _card(name="Tokens per Dev", value=16_480_667.3),
+        _card(name="Sprint Story Points Delivered"),
+        _card(name="PRs Merged"),
+    ]
+    append_kpi_list_slide(reqs, cards, slide_index=3)
+    body = _all_text(reqs)
+    for heading in ("Name", "Value", "Up/Down", "Target", "Definition"):
+        assert heading in body
+    assert "AI Token Usage" in body
+    assert "PRs Merged" in body
+    assert "763.17M" in body
+    assert "16.48M" in body
+    assert "16,480,667" not in body
+    assert "Sprint Story Points Delivered" in body
