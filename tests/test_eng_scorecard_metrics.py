@@ -691,6 +691,32 @@ def test_get_prs_merged(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def test_get_prs_merged_empty_month_is_an_error_not_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Gh:
+        def list_merged_pulls_since(self, owner, repo, *, since, until=None, max_pulls=None):
+            return []
+
+    monkeypatch.setattr("src.github_client.github_configured", lambda: True)
+    monkeypatch.setattr("src.github_client.GitHubClient", _Gh)
+    monkeypatch.setattr(
+        "src.github_client._resolve_repo_specs",
+        lambda **kwargs: [("leandna-apex", "app")],
+    )
+    monkeypatch.setattr("src.github_client._github_org", lambda: "leandna-apex")
+    monkeypatch.setattr("src.github_client._github_repos_env", lambda: None)
+    monkeypatch.setattr(
+        "src.engineer_identity_map.build_engineer_identity_map",
+        lambda **kwargs: {"configured": False},
+    )
+    monkeypatch.setattr("src.engineer_identity_map.load_github_email_aliases", lambda: ({}, None))
+    monkeypatch.setattr("src.jira_client.get_shared_jira_client", MagicMock)
+    out = get_prs_merged(as_of=datetime(2025, 3, 7, tzinfo=timezone.utc))
+    assert "value" not in out
+    assert "no merged PRs in month=2025-02" in out["error"]
+
+
 def test_get_weekly_active_ai_users_cursor_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     jira = _FakeJira()
     _patch_scope(monkeypatch, jira)

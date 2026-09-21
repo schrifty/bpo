@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.eng_kpi_deck import (
     ERROR_DETAIL_MAX,
     EngKpiCard,
@@ -225,8 +227,51 @@ def test_title_slide_counts_and_names_failed_kpis() -> None:
 
 def test_build_plan_orders_cover_then_notables_then_kpis() -> None:
     cards = [_card(name="AI Token Usage"), _card(name="PRs Merged")]
-    reqs, sids = build_engineering_kpi_slide_requests(cards, as_of="2026-09-14", charts=None)
+    reqs, sids = build_engineering_kpi_slide_requests(
+        cards, as_of="2026-09-14", charts=None, use_claude=False
+    )
     assert sids[0] == "eng_kpis_title"
     assert sids[1] == "eng_kpis_notable"
     assert len(sids) == 4
     assert reqs
+
+
+def test_build_plan_uses_claude_openers_then_chart_slides(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.eng_kpi_claude_slides.render_eng_kpi_claude_slides",
+        lambda reqs, cards, *, as_of, start_index=0: (2, ["eng_kpis_c0_standing", "eng_kpis_c1_movement"]),
+    )
+    cards = [_card(name="AI Token Usage"), _card(name="PRs Merged")]
+    _reqs, sids = build_engineering_kpi_slide_requests(
+        cards, as_of="2026-09-14", charts=None, use_claude=True
+    )
+    assert sids[:2] == ["eng_kpis_c0_standing", "eng_kpis_c1_movement"]
+    assert sids[2:] == ["eng_kpi_2", "eng_kpi_3"]
+
+
+def test_claude_opener_failure_is_loud_without_opt_in(monkeypatch) -> None:
+    from src.eng_kpi_claude_slides import EngKpiClaudeError
+
+    def _boom(*_a, **_k):
+        raise EngKpiClaudeError("Claude API failed")
+
+    monkeypatch.setattr("src.eng_kpi_claude_slides.render_eng_kpi_claude_slides", _boom)
+    monkeypatch.setattr("src.eng_kpi_claude_slides.eng_kpi_claude_allow_fallback", lambda: False)
+    with pytest.raises(EngKpiClaudeError):
+        build_engineering_kpi_slide_requests(
+            [_card()], as_of="2026-09-14", charts=None, use_claude=True
+        )
+
+
+def test_claude_opener_falls_back_when_opted_in(monkeypatch) -> None:
+    from src.eng_kpi_claude_slides import EngKpiClaudeError
+
+    def _boom(*_a, **_k):
+        raise EngKpiClaudeError("Claude API failed")
+
+    monkeypatch.setattr("src.eng_kpi_claude_slides.render_eng_kpi_claude_slides", _boom)
+    monkeypatch.setattr("src.eng_kpi_claude_slides.eng_kpi_claude_allow_fallback", lambda: True)
+    _reqs, sids = build_engineering_kpi_slide_requests(
+        [_card()], as_of="2026-09-14", charts=None, use_claude=True
+    )
+    assert sids[:2] == ["eng_kpis_title", "eng_kpis_notable"]

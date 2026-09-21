@@ -54,6 +54,25 @@ Code path (already covered by unit tests):
 If the URI is **unset**, snapshot still persists locally and logs a warning
 (`s3=skipped_no_uri`). It does not invent a bucket.
 
+### Backfill months a source cannot cover
+
+`kpi-snapshot --history-months N` walks back through closed periods. When a source
+has no data that far back, the generator must **error** for that period rather than
+return `0` — a stored zero is indistinguishable from a real measurement and draws a
+false trend on the deck chart. `PRs Merged` follows this: zero merged PRs across all
+repos means the window predates GitHub coverage, so it returns an error and the
+period is stored as unavailable (charts skip it). Metrics that were genuinely zero
+before adoption (Cursor spend and token KPIs) keep their zeros.
+
+## Engineering KPIs deck (`engineering-kpis`)
+
+Claude designs the two opening slides (standing + what moved); the per-KPI slides
+stay hand-built because their point is the stored-history chart and the slide IR has
+no chart element. Control it with `--claude` / `--no-claude`, or
+`CORTEX_METRICS_CLAUDE_SLIDES` (default on when `ANTHROPIC_API_KEY` is set). A Claude
+or parse failure **fails the job** unless `CORTEX_METRICS_CLAUDE_ALLOW_FALLBACK=1`,
+which reverts to the fixed cover and notable-changes slides and logs that it did.
+
 ## Morning digest (`metrics-digest` / `morning-report`)
 
 | Piece | Location |

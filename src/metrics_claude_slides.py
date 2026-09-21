@@ -214,6 +214,9 @@ def build_metrics_deck_plan(digest: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def deck_purpose_brief(digest: dict[str, Any]) -> str:
+    custom = str(digest.get("deck_purpose") or "").strip()
+    if custom:
+        return custom
     function = digest.get("function")
     return (
         f"This deck gives a reader a quick, clear view of where {function} stands "

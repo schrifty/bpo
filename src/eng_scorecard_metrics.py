@@ -441,6 +441,16 @@ def get_prs_merged(
         if inv.get("month")
         else f"window={inv.get('window_days')}d"
     )
+    if merged <= 0:
+        # Zero merged PRs across every repo means the window predates GitHub
+        # coverage (or the token cannot see it), not a month with no delivery.
+        # Storing it as 0 draws a false hockey stick on the KPI history chart.
+        return {
+            "error": (
+                f"no merged PRs in {period_label} ({scope}) for PRs Merged — "
+                "outside GitHub coverage, not a zero-delivery period"
+            )
+        }
     logger.info("PRs Merged: %s (%s, %s)", merged, scope, period_label)
     result = {
         "value": merged,

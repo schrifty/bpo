@@ -564,18 +564,60 @@ def append_kpi_slide(
     return sid
 
 
+def append_opening_slides(
+    reqs: list[dict[str, Any]],
+    cards: list[EngKpiCard],
+    *,
+    as_of: str,
+    use_claude: bool | None = None,
+) -> tuple[int, list[str]]:
+    """Cover + movement slides, designed by Claude when enabled.
+
+    The per-KPI chart slides stay hand-built; only these two go through the
+    designer. Raises :class:`EngKpiClaudeError` when Claude fails and fallback
+    is not explicitly allowed.
+    """
+    from .eng_kpi_claude_slides import (
+        EngKpiClaudeError,
+        eng_kpi_claude_allow_fallback,
+        eng_kpi_claude_enabled,
+        render_eng_kpi_claude_slides,
+    )
+
+    claude_on = eng_kpi_claude_enabled() if use_claude is None else bool(use_claude)
+    if claude_on:
+        try:
+            return render_eng_kpi_claude_slides(reqs, cards, as_of=as_of, start_index=0)
+        except EngKpiClaudeError as e:
+            if not eng_kpi_claude_allow_fallback():
+                raise
+            logger.warning(
+                "CORTEX_METRICS_CLAUDE_ALLOW_FALLBACK: using hand-built "
+                "Engineering KPI opener slides (%s)",
+                e,
+            )
+            reqs.clear()
+
+    sids = [
+        append_title_slide(reqs, cards, as_of=as_of, slide_index=0),
+        append_notable_slide(reqs, cards, slide_index=1),
+    ]
+    return 2, sids
+
+
 def build_engineering_kpi_slide_requests(
     cards: list[EngKpiCard],
     *,
     as_of: str,
     charts: Any | None = None,
+    use_claude: bool | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     reqs: list[dict[str, Any]] = []
-    sids: list[str] = []
-    sids.append(append_title_slide(reqs, cards, as_of=as_of, slide_index=0))
-    sids.append(append_notable_slide(reqs, cards, slide_index=1))
+    next_index, sids = append_opening_slides(
+        reqs, cards, as_of=as_of, use_claude=use_claude
+    )
     for i, card in enumerate(cards):
-        sids.append(append_kpi_slide(reqs, card, slide_index=i + 2, charts=charts))
+        sids.append(append_kpi_slide(reqs, card, slide_index=next_index + i, charts=charts))
     return reqs, sids
 
 
@@ -589,6 +631,7 @@ def generate_engineering_kpi_deck(
     skip_s3: bool = False,
     cards: list[EngKpiCard] | None = None,
     charts: Any | None = None,
+    use_claude: bool | None = None,
 ) -> dict[str, Any]:
     """Create or update the persistent Engineering KPIs presentation."""
     as_of_s = as_of or date.today().isoformat()
@@ -671,7 +714,14 @@ def generate_engineering_kpi_deck(
             logger.warning("Engineering KPI charts unavailable: %s", e)
             chart_helper = None
 
-    reqs, sids = build_engineering_kpi_slide_requests(cards, as_of=as_of_s, charts=chart_helper)
+    from .eng_kpi_claude_slides import EngKpiClaudeError
+
+    try:
+        reqs, sids = build_engineering_kpi_slide_requests(
+            cards, as_of=as_of_s, charts=chart_helper, use_claude=use_claude
+        )
+    except EngKpiClaudeError as e:
+        return {"error": f"Claude Engineering KPI slides failed: {e}"}
     slides_svc.presentations().batchUpdate(presentationId=deck_id, body={"requests": reqs}).execute()
     try:
         pres = slides_svc.presentations().get(presentationId=deck_id).execute()
@@ -723,6 +773,19 @@ def add_engineering_kpi_deck_arguments(ap: argparse.ArgumentParser) -> None:
     )
     ap.add_argument("--db", default=None, help="KPI SQLite path (default: cache store)")
     ap.add_argument("--skip-s3", action="store_true", help="Do not download the KPI store from S3")
+    ap.add_argument(
+        "--claude",
+        dest="use_claude",
+        action="store_true",
+        default=None,
+        help="Have Claude design the cover and movement slides (default when ANTHROPIC_API_KEY is set)",
+    )
+    ap.add_argument(
+        "--no-claude",
+        dest="use_claude",
+        action="store_false",
+        help="Use the fixed cover and notable-changes slides",
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
 
 
@@ -738,13 +801,18 @@ def run_engineering_kpi_deck_cli(
     if ns.verbose:
         logging.getLogger("cortex").setLevel(logging.INFO)
 
-    print("Generating Engineering KPIs deck (no overall narrative)...")
+    from .eng_kpi_claude_slides import eng_kpi_claude_enabled
+
+    claude_on = eng_kpi_claude_enabled() if ns.use_claude is None else bool(ns.use_claude)
+    designer = "Claude-designed opener" if claude_on else "fixed opener"
+    print(f"Generating Engineering KPIs deck ({designer} + per-KPI charts)...")
     result = generate_engineering_kpi_deck(
         days=int(ns.days),
         timeout_seconds=float(ns.timeout),
         as_of=str(ns.date),
         db_path=Path(ns.db) if ns.db else None,
         skip_s3=bool(ns.skip_s3),
+        use_claude=ns.use_claude,
     )
     if result.get("error"):
         print(f"Error: {result['error']}", file=sys.stderr)
