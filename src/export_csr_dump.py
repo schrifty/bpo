@@ -260,8 +260,16 @@ def rollup_csr_site_rows(sites: list[dict[str, Any]], *, level: str) -> list[dic
             group_key: "" if label == "(blank)" else label,
             "factory_count": len(members),
             "health_score": _worst_health([m.get("health_score") for m in members]),
+            "health_score_csm": _worst_health([m.get("health_score_csm") for m in members]),
+            "health_score_overridden": any(bool(m.get("health_score_overridden")) for m in members),
         }
-        keys = {k for m in members for k in m.keys()} - drop - {group_key, "health_score", "factory_count"}
+        keys = {k for m in members for k in m.keys()} - drop - {
+            group_key,
+            "health_score",
+            "health_score_csm",
+            "health_score_overridden",
+            "factory_count",
+        }
         for key in sorted(keys):
             values = [m.get(key) for m in members]
             if key in _CSR_SUM_KEYS:

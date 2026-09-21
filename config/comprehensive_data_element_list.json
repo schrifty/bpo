@@ -2548,6 +2548,27 @@
       ]
     },
     {
+      "path": "csr.platform_health.sites[].health_score_csm",
+      "terms": [
+        "csr.platform_health.sites[].health_score_csm",
+        "[CSR] Health score (as set by CSM); raw healthScore, no automated fallback"
+      ]
+    },
+    {
+      "path": "csr.platform_health.sites[].health_score_overridden",
+      "terms": [
+        "csr.platform_health.sites[].health_score_overridden",
+        "[CSR] Health score overridden flag (CSM)"
+      ]
+    },
+    {
+      "path": "csr.platform_health.sites[].health_reason_code",
+      "terms": [
+        "csr.platform_health.sites[].health_reason_code",
+        "[CSR] Health reason code (CSM)"
+      ]
+    },
+    {
       "path": "_llm_export_csr.selection_mode",
       "terms": [
         "_llm_export_csr.selection_mode",
@@ -2782,7 +2803,7 @@
       "path": "csr.platform_health.sites[]",
       "terms": [
         "csr.platform_health.sites[]",
-        "[CSR site row] keys may include: factory health_score clear_to_build_pct clear_to_commit_pct component_availability_pct component_availability_projected_pct shortages critical_shortages weekly_active_buyers_pct buyer_mapping_quality high_risk_items site entity"
+        "[CSR site row] keys may include: factory health_score health_score_csm health_score_overridden health_reason_code clear_to_build_pct clear_to_commit_pct component_availability_pct component_availability_projected_pct shortages critical_shortages weekly_active_buyers_pct buyer_mapping_quality high_risk_items site entity"
       ]
     },
     {

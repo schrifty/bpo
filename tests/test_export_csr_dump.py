@@ -79,6 +79,9 @@ def test_rollup_sums_counts_and_means_percents() -> None:
             "entity": "Tijuana C40",
             "factory": "Tijuana C44",
             "health_score": "GREEN",
+            "health_score_csm": "GREEN",
+            "health_score_overridden": True,
+            "health_reason_code": "CHAMPION",
             "shortages": 10,
             "on_hand_value": 100,
             "clear_to_build_pct": 80.0,
@@ -88,6 +91,8 @@ def test_rollup_sums_counts_and_means_percents() -> None:
             "entity": "Tijuana C40",
             "factory": "Tijuana C45",
             "health_score": "RED",
+            "health_score_csm": "NONE",
+            "health_score_overridden": False,
             "shortages": 5,
             "on_hand_value": 50,
             "clear_to_build_pct": 40.0,
@@ -108,6 +113,9 @@ def test_rollup_sums_counts_and_means_percents() -> None:
     assert bu["Cabin"]["on_hand_value"] == 150
     assert bu["Cabin"]["clear_to_build_pct"] == 60.0
     assert bu["Cabin"]["health_score"] == "RED"
+    assert bu["Cabin"]["health_score_csm"] == "GREEN"
+    assert bu["Cabin"]["health_score_overridden"] is True
+    assert bu["Cabin"]["health_reason_code"] == "CHAMPION"
     assert "factory" not in bu["Cabin"]
     assert bu["Seats"]["factory_count"] == 1
     entities = rollup_csr_site_rows(sites, level="entity")

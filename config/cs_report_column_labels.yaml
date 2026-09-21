@@ -15,6 +15,9 @@ labels:
   componentAvailabilityPercentProjected: "Component Availability % (Projected)"
   buyerMappingQualityScore: "Buyer Mapping Quality"
   healthScore: "Health Score"
+  # CSM-managed fields (export labels). Workbook often only has healthScore;
+  # Cortex still emits the three Salesforce write-back columns from that cell
+  # plus optional healthScoreOverridden / healthReasonCode when present.
   factoryName: "Factory"
   businessUnit: "Business Unit"
   customerNdx: "Customer Ndx"

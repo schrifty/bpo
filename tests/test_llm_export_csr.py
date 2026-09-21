@@ -110,6 +110,8 @@ def test_compact_csr_field_legend_maps_display_labels_to_workbook():
     assert set(legend.keys()) >= set(labels)
     assert legend[csr_export_column_label("shortages")] == "shortageItemCount"
     assert legend[csr_export_column_label("factory")] == "factoryName"
+    assert csr_export_column_label("health_score_csm") == "Health score (as set by CSM)"
+    assert "healthScore" in legend["Health score (as set by CSM)"]
 
 
 def test_present_csr_site_uses_current_shortages_purchased_label():

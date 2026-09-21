@@ -42,6 +42,49 @@ def test_build_csr_site_entry_maps_full_csr_row() -> None:
     assert entry["automated_health_composite"] == 92.0
     assert entry["start_date"] == "2026-01-01"
     assert entry["end_date"] == "2026-12-31"
+    assert entry["health_score_csm"] == "GREEN"
+    assert entry["health_score_overridden"] is True
+
+
+def test_csm_health_stays_none_when_derived_uses_automated() -> None:
+    row = {
+        "healthScore": "NONE",
+        "automatedHealthScores": json.dumps(
+            [{"healthScore": 100.0, "override": None, "siteName": "Plant A"}]
+        ),
+    }
+    entry = cs_report_client._build_csr_site_entry(row)
+    assert entry["health_score"] == "GREEN"
+    assert entry["health_score_csm"] == "NONE"
+    assert entry["health_score_overridden"] is False
+    assert "health_reason_code" not in entry
+
+
+def test_csm_health_reason_and_overridden_from_human_columns() -> None:
+    row = {
+        "factoryName": "Plant A",
+        "healthScore": "YELLOW",
+        "healthScoreOverridden": "yes",
+        "healthReasonCode": "EXEC_SPONSOR_GAP",
+    }
+    entry = cs_report_client._build_csr_site_entry(row)
+    assert entry["health_score_csm"] == "YELLOW"
+    assert entry["health_score_overridden"] is True
+    assert entry["health_reason_code"] == "EXEC_SPONSOR_GAP"
+
+
+def test_csm_health_ui_column_names() -> None:
+    row = {
+        "factoryName": "Plant A",
+        "Health score (as set by CSM)": "RED",
+        "Health score overridden": False,
+        "Health reason code": "CAPACITY",
+        "automatedHealthScores": json.dumps([{"healthScore": 90.0, "override": None}]),
+    }
+    entry = cs_report_client._build_csr_site_entry(row)
+    assert entry["health_score_csm"] == "RED"
+    assert entry["health_score_overridden"] is False
+    assert entry["health_reason_code"] == "CAPACITY"
 
 
 def test_normalize_health_score_from_json_kpi() -> None:

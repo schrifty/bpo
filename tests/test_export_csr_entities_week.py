@@ -63,6 +63,9 @@ def test_csr_entities_week_columns_include_identity_and_every_csr_label() -> Non
     assert cols[:3] == ["csr_customer", "customer_exports_folder", "Site count"]
     for internal in CSR_MERGED_SITE_EXPORT_COLUMNS:
         assert csr_export_column_label(internal) in cols
+    assert "Health score (as set by CSM)" in cols
+    assert "Health score overridden" in cols
+    assert "Health reason code" in cols
 
 
 def test_build_document_is_uncapped_and_aligns_all_columns(monkeypatch) -> None:

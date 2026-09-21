@@ -73,7 +73,10 @@ Below, “KPI” means a JSON-encoded column as in §3.
 
 | Spreadsheet column | Export key (internal) | Export display label | Notes |
 |--------------------|----------------------|----------------------|--------|
-| `healthScore` | `health_score` | Health Score | When `NONE`, may fall back to `automatedHealthScores[0]` |
+| `healthScore` | `health_score` | Health Score | When `NONE`, may fall back to `automatedHealthScores[0]` (decks / derived) |
+| `healthScore` (raw) | `health_score_csm` | Health score (as set by CSM) | No automated fallback. Salesforce write-back source. |
+| `healthScoreOverridden` (optional) | `health_score_overridden` | Health score overridden | Else true when CSM `healthScore` is GREEN/YELLOW/RED |
+| `healthReasonCode` (optional) | `health_reason_code` | Health reason code | Also reads nested `automatedHealthScores[0]` reason keys when present |
 | `automatedHealthScores` | `automated_health_composite`, `automated_health_override`, `automated_health_scores` | Automated Health Composite / Override / Scores | Raw JSON preserved on `automated_health_scores` |
 | `shortageItemCount` | `shortages` | Current shortages (purchased) | KPI |
 | `criticalShortages` | `critical_shortages` | Critical shortages | KPI |
@@ -159,6 +162,7 @@ Below, “KPI” means a JSON-encoded column as in §3.
 
 ## 6. Gaps & stability
 
+- **CSM health vs derived Health Score:** The nightly metrics dump’s `healthScore` cell is often `NONE`. Cortex **Health Score** then uses `automatedHealthScores`. **Health score (as set by CSM)** is that cell without substitution — typically `NONE` unless a CSM set GREEN/YELLOW/RED. Champion / Executive Sponsor are the same human-entered layer; they are not in the current 73-column metrics workbook.
 - **Schema drift:** New columns in the XLSX are ignored until referenced in code; renames break KPI extraction.
 - **Sheet:** Only the first worksheet is read; multi-sheet workbooks may hide data.
 - **Caching:** Parsed rows are cached in-process after first download.

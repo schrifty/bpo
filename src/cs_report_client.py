@@ -142,18 +142,114 @@ def _normalize_health_score(raw: Any) -> str:
     return "NONE"
 
 
+def _csr_row_first(row: dict[str, Any], names: tuple[str, ...]) -> Any:
+    """First non-empty value among ``names`` (exact, then case-insensitive)."""
+    wanted = {n.strip().lower() for n in names if n and n.strip()}
+    if not wanted:
+        return None
+    lower_map = {str(k).strip().lower(): v for k, v in row.items()}
+    for name in names:
+        key = name.strip().lower()
+        if key not in lower_map:
+            continue
+        val = lower_map[key]
+        if val not in (None, ""):
+            return val
+    for key, val in lower_map.items():
+        if key in wanted and val not in (None, ""):
+            return val
+    return None
+
+
+def _csm_health_score_from_row(row: dict[str, Any]) -> str:
+    """CSM-entered ``healthScore`` only — never substitute ``automatedHealthScores``."""
+    column_val = _csr_row_first(
+        row,
+        (
+            "healthScoreCsm",
+            "healthScoreAsSetByCsm",
+            "Health score (as set by CSM)",
+            "healthScore",
+            "health_score",
+        ),
+    )
+    if column_val is None:
+        return "NONE"
+    return _normalize_health_score(column_val)
+
+
+def _truthy_csr_flag(raw: Any) -> bool | None:
+    """Parse an explicit CSR yes/no flag; ``None`` if the cell is not a boolean-like value."""
+    if isinstance(raw, bool):
+        return raw
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        if raw == 1:
+            return True
+        if raw == 0:
+            return False
+        return None
+    text = str(raw).strip().lower()
+    if text in {"true", "t", "yes", "y", "1", "override", "overridden"}:
+        return True
+    if text in {"false", "f", "no", "n", "0", "none"}:
+        return False
+    return None
+
+
+def _health_score_overridden_from_row(row: dict[str, Any]) -> bool:
+    """True when CS marked an override, or when CSM health is GREEN/YELLOW/RED."""
+    explicit = _csr_row_first(
+        row,
+        (
+            "healthScoreOverridden",
+            "healthScoreOverride",
+            "Health score overridden",
+        ),
+    )
+    parsed = _truthy_csr_flag(explicit)
+    if parsed is not None:
+        return parsed
+    return _csm_health_score_from_row(row) in {"GREEN", "YELLOW", "RED"}
+
+
+def _health_reason_code_from_row(row: dict[str, Any]) -> str | None:
+    """Human-entered CSR health reason, when the dump (or nested JSON) carries it."""
+    raw = _csr_row_first(
+        row,
+        (
+            "healthReasonCode",
+            "healthReason",
+            "reasonCode",
+            "Health reason code",
+        ),
+    )
+    if raw not in (None, ""):
+        text = str(raw).strip()
+        return text or None
+    auto = row.get("automatedHealthScores")
+    payload = None
+    if isinstance(auto, str) and auto.strip().startswith("["):
+        try:
+            payload = json.loads(auto)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            payload = None
+    elif isinstance(auto, list):
+        payload = auto
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        for key in ("healthReasonCode", "reasonCode", "healthReason", "reason"):
+            nested = payload[0].get(key)
+            if nested not in (None, ""):
+                text = str(nested).strip()
+                if text:
+                    return text
+    return None
+
+
 def _health_score_from_row(row: dict[str, Any]) -> str:
     """Resolve site health: ``healthScore`` column, else ``automatedHealthScores`` composite."""
-    column_val: Any = None
-    for col in ("healthScore", "health_score", "Health Score"):
-        if col in row:
-            column_val = row.get(col)
-            break
-    if column_val is None:
-        for k, v in row.items():
-            if str(k).strip().lower() == "healthscore":
-                column_val = v
-                break
+    column_val = _csr_row_first(row, ("healthScore", "health_score", "Health Score"))
     if column_val is not None:
         bucket = _normalize_health_score(column_val)
         if bucket != "NONE":
@@ -726,6 +822,9 @@ CSR_MERGED_SITE_EXPORT_COLUMNS: tuple[str, ...] = (
     "customer_ndx",
     "factory_ndx",
     "health_score",
+    "health_score_csm",
+    "health_score_overridden",
+    "health_reason_code",
     "automated_health_composite",
     "automated_health_override",
     "clear_to_build_pct",
@@ -814,6 +913,20 @@ _CSR_DERIVED_EXPORT_LABELS: dict[str, str] = {
     "automated_health_composite": "Automated Health Composite",
     "automated_health_override": "Automated Health Override",
     "factory_count": "Site count",
+    "health_score_csm": "Health score (as set by CSM)",
+    "health_score_overridden": "Health score overridden",
+    "health_reason_code": "Health reason code",
+}
+
+_CSR_DERIVED_EXPORT_SOURCES: dict[str, str] = {
+    "automated_health_composite": "(derived from automatedHealthScores; not a workbook column)",
+    "automated_health_override": "(derived from automatedHealthScores; not a workbook column)",
+    "factory_count": "(derived; site count in the rollup group)",
+    "health_score_csm": "healthScore (raw CSM value; no automatedHealthScores fallback)",
+    "health_score_overridden": (
+        "healthScoreOverridden when present; else true when CSM healthScore is GREEN/YELLOW/RED"
+    ),
+    "health_reason_code": "healthReasonCode (workbook or automatedHealthScores nested field)",
 }
 
 
@@ -891,7 +1004,10 @@ def csr_site_field_legend() -> dict[str, str]:
         if workbook:
             legend[label] = workbook
         elif internal in _CSR_DERIVED_EXPORT_LABELS:
-            legend[label] = f"(derived from automatedHealthScores; not a workbook column)"
+            legend[label] = _CSR_DERIVED_EXPORT_SOURCES.get(
+                internal,
+                "(derived; not a single workbook column)",
+            )
         else:
             legend[label] = internal
     return legend
@@ -944,7 +1060,12 @@ def _build_csr_site_entry(row: dict[str, Any]) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "factory": row.get("factoryName", "Unknown"),
         "health_score": _health_score_from_row(row),
+        "health_score_csm": _csm_health_score_from_row(row),
+        "health_score_overridden": _health_score_overridden_from_row(row),
     }
+    reason = _health_reason_code_from_row(row)
+    if reason:
+        entry["health_reason_code"] = reason
     _add_site_entity_from_row(row, entry)
     for column, export_key in _CSR_KPI_INT_FIELDS:
         _set_csr_kpi_int(entry, row, column, export_key)
