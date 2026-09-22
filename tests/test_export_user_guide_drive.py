@@ -99,3 +99,31 @@ def test_maybe_sync_updates_when_local_is_newer(tmp_path: Path, monkeypatch: pyt
     result = maybe_sync_export_user_guide_on_startup(force=True)
     assert result["action"] == "updated"
     assert result["file_id"] == "file-updated"
+
+
+def test_maybe_sync_continues_when_drive_credentials_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """kpi-snapshot metrics profile has no Google SA; startup must not abort."""
+    clear_user_guide_sync_guard()
+    guide = tmp_path / "Cortex Export - User Guide.md"
+    guide.write_text("# Guide\n", encoding="utf-8")
+
+    monkeypatch.setattr("src.export_user_guide_drive._USER_GUIDE_REPO_PATH", guide)
+    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "out-root")
+
+    def _no_creds(*_a, **_k):
+        raise ValueError(
+            "No valid credentials. Set GOOGLE_APPLICATION_CREDENTIALS or run: "
+            "gcloud auth application-default login"
+        )
+
+    monkeypatch.setattr("src.drive_config.list_files_by_name_in_folder", _no_creds)
+    monkeypatch.setattr(
+        "src.drive_config.upload_text_file_to_drive_folder",
+        lambda *_a, **_k: pytest.fail("should not upload without credentials"),
+    )
+
+    result = maybe_sync_export_user_guide_on_startup()
+    assert result["skipped"] == "error"
+    assert "No valid credentials" in result["error"]

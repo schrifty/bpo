@@ -68,35 +68,38 @@ def maybe_sync_export_user_guide_on_startup(*, force: bool = False) -> dict[str,
         upload_text_file_to_drive_folder,
     )
 
-    output_root_id = get_qbr_output_root_folder_id()
-    if not output_root_id:
-        logger.debug("Export user guide sync: no Drive Output folder configured")
-        return {"skipped": "no_output_folder"}
-
-    local_mtime = _USER_GUIDE_REPO_PATH.stat().st_mtime
-    content = _USER_GUIDE_REPO_PATH.read_text(encoding="utf-8")
-    drive_files = list_files_by_name_in_folder(
-        EXPORT_USER_GUIDE_DRIVE_FILENAME,
-        output_root_id,
-        mime_type="text/markdown",
-    )
-    drive_file = drive_files[0] if drive_files else None
-
-    if drive_file and not force:
-        if not _local_user_guide_is_newer(
-            local_mtime=local_mtime,
-            drive_modified_time=str(drive_file.get("modifiedTime") or ""),
-        ):
-            logger.debug(
-                "Export user guide sync: Drive copy is current (%s)",
-                EXPORT_USER_GUIDE_DRIVE_FILENAME,
-            )
-            return {
-                "skipped": "drive_current",
-                "file_id": str(drive_file.get("id") or ""),
-            }
-
+    # Metrics-profile ECS jobs (kpi-snapshot, morning-report) have no Google
+    # secret. Drive listing used to sit outside the continue-on-error handler
+    # and killed the process before run-job.
     try:
+        output_root_id = get_qbr_output_root_folder_id()
+        if not output_root_id:
+            logger.debug("Export user guide sync: no Drive Output folder configured")
+            return {"skipped": "no_output_folder"}
+
+        local_mtime = _USER_GUIDE_REPO_PATH.stat().st_mtime
+        content = _USER_GUIDE_REPO_PATH.read_text(encoding="utf-8")
+        drive_files = list_files_by_name_in_folder(
+            EXPORT_USER_GUIDE_DRIVE_FILENAME,
+            output_root_id,
+            mime_type="text/markdown",
+        )
+        drive_file = drive_files[0] if drive_files else None
+
+        if drive_file and not force:
+            if not _local_user_guide_is_newer(
+                local_mtime=local_mtime,
+                drive_modified_time=str(drive_file.get("modifiedTime") or ""),
+            ):
+                logger.debug(
+                    "Export user guide sync: Drive copy is current (%s)",
+                    EXPORT_USER_GUIDE_DRIVE_FILENAME,
+                )
+                return {
+                    "skipped": "drive_current",
+                    "file_id": str(drive_file.get("id") or ""),
+                }
+
         file_id = None
         targets = [output_root_id]
         cortex = get_cortex_exports_root_folder_id()
