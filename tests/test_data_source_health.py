@@ -31,6 +31,29 @@ def test_check_jira_backed_deck_required_skips_pendo(monkeypatch: pytest.MonkeyP
     assert dsh.check_jira_backed_deck_required() == []
 
 
+def test_check_required_for_job_metrics_skips_cs_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dsh, "check_pendo", lambda: (True, None))
+    monkeypatch.setattr(dsh, "check_salesforce", lambda: (True, None))
+    monkeypatch.setattr(dsh, "check_github", lambda: (True, None))
+    monkeypatch.setattr(dsh, "check_slack", lambda: (True, None))
+    monkeypatch.setattr(
+        dsh,
+        "check_cs_report",
+        lambda: pytest.fail("CS Report/Drive must not be required for metrics jobs"),
+    )
+    assert dsh.check_required_for_job("kpi-snapshot") == []
+    assert dsh.check_required_for_job("morning-report") == []
+
+
+def test_check_required_for_job_decks_still_checks_cs_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dsh, "check_pendo", lambda: (True, None))
+    monkeypatch.setattr(dsh, "check_salesforce", lambda: (True, None))
+    monkeypatch.setattr(dsh, "check_github", lambda: (True, None))
+    monkeypatch.setattr(dsh, "check_slack", lambda: (True, None))
+    monkeypatch.setattr(dsh, "check_cs_report", lambda: (False, "CS Report: No valid credentials"))
+    assert dsh.check_required_for_job("csr-dump-0000") == ["CS Report: No valid credentials"]
+
+
 def test_check_jira_backed_deck_required_reports_jira_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dsh, "check_jira", lambda: (False, "Jira: timeout"))
     monkeypatch.setattr(dsh, "check_github", lambda: (True, None))

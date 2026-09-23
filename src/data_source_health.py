@@ -2,6 +2,7 @@
 
 If Pendo, Salesforce (when configured), GitHub (when configured), or CS Report is down,
 deck runs abort with a clear error instead of proceeding with partial data.
+Metrics-profile jobs skip CS Report (Drive) because those tasks have no Google secret.
 """
 
 from __future__ import annotations
@@ -135,6 +136,9 @@ def check_jira() -> tuple[bool, str | None]:
 
 _PREFLIGHT_SOURCES_DEFAULT = ("pendo", "salesforce", "github", "slack", "cs_report")
 _JIRA_BACKED_DECK_PREFLIGHT_SOURCES = ("jira", "github")
+# Metrics-profile ECS jobs (kpi-snapshot, morning-report) have no Google secret.
+# CS Report preflight uses Drive and would abort the job before SQLite/SES work.
+_METRICS_JOB_PREFLIGHT_SOURCES = ("pendo", "salesforce", "github", "slack")
 
 
 def _run_preflight(source: str) -> tuple[bool, str | None]:
@@ -170,6 +174,22 @@ def check_all_required(*, sources: tuple[str, ...] | None = None) -> list[str]:
 def check_jira_backed_deck_required() -> list[str]:
     """Preflight for engineering-portfolio and implementations_review (Jira primary; GitHub optional)."""
     return check_all_required(sources=_JIRA_BACKED_DECK_PREFLIGHT_SOURCES)
+
+
+def check_required_for_job(job_name: str) -> list[str]:
+    """Run the preflight set that matches the scheduled job's secret profile.
+
+    Deck/LLM jobs still require CS Report (Drive). Metrics-profile jobs skip Drive
+    so missing Google credentials do not block KPI snapshot or digest.
+    """
+    from .secrets_bundles import PROFILE_METRICS, secret_profile_for_job
+
+    name = (job_name or "").strip()
+    if name == "engineering-portfolio":
+        return check_jira_backed_deck_required()
+    if secret_profile_for_job(name) == PROFILE_METRICS:
+        return check_all_required(sources=_METRICS_JOB_PREFLIGHT_SOURCES)
+    return check_all_required()
 
 
 def integration_freshness_metadata() -> dict[str, object]:

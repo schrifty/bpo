@@ -15,7 +15,7 @@ from typing import Any
 import yaml
 
 from .config import CORTEX_FAIL_ON_INTEGRATION_WARNINGS, CORTEX_JOB_TIMEOUT_SECONDS, logger
-from .data_source_health import check_all_required, check_jira_backed_deck_required, integration_freshness_metadata
+from .data_source_health import check_required_for_job, integration_freshness_metadata
 from .log_redact import redact_secrets
 from .run_context import init_run_context, set_run_phase
 from .run_diagnostics import run_diagnostics_scope, run_phase
@@ -632,11 +632,7 @@ def run_job(
             print(f"  - {step.get('name', step.get('command'))}: python3 cortex.py {' '.join(argv)}")
         return 0
 
-    preflight_errors = (
-        check_jira_backed_deck_required()
-        if spec.name == "engineering-portfolio"
-        else check_all_required()
-    )
+    preflight_errors = check_required_for_job(spec.name)
     if preflight_errors:
         for msg in preflight_errors:
             print(f"  • {msg}", file=sys.stderr)
