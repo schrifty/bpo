@@ -415,4 +415,6 @@ def test_ui_mentions_maintain(tmp_path: Path) -> None:
     res = client.get("/")
     assert res.status_code == 200
     assert "Add KPI" in res.text
-    assert "view &amp; maintain" in res.text or "view & maintain" in res.text
+    assert "Report a Bug or File a Feature Request" in res.text
+    assert "view &amp; maintain" not in res.text
+    assert "view & maintain" not in res.text

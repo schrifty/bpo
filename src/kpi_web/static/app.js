@@ -239,19 +239,12 @@
       btn.addEventListener("click", () => toggleTag(t.tag));
       host.appendChild(btn);
     }
-    $("btn-clear-tags").classList.toggle("hidden", state.selectedTags.length === 0);
   }
 
   function toggleTag(tag) {
     const i = state.selectedTags.indexOf(tag);
     if (i >= 0) state.selectedTags.splice(i, 1);
     else state.selectedTags.push(tag);
-    refreshList();
-  }
-
-  function clearTags() {
-    if (!state.selectedTags.length) return;
-    state.selectedTags = [];
     refreshList();
   }
 
@@ -857,7 +850,6 @@
     setUserMenuOpen(false);
     openAddForm();
   });
-  $("btn-clear-tags").addEventListener("click", clearTags);
   $("btn-form-cancel").addEventListener("click", () => $("kpi-form-dialog").close());
   $("kpi-form").addEventListener("submit", submitForm);
   $("btn-delete-cancel").addEventListener("click", () => {

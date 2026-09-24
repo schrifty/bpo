@@ -241,6 +241,11 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     assert "col-delete" in html
     assert "create-only" in html
     assert 'id="f-edit-note"' in html
+    assert 'id="btn-clear-tags"' not in html
+    assert "view &amp; maintain" not in html
+    assert "view & maintain" not in html
+    assert "Report a Bug or File a Feature Request" in html
+    assert "github.com/schrifty/bpo/issues/new" in html
     assert 'id="confirm-delete-dialog"' in html
     assert 'id="btn-delete-confirm"' in html
 
