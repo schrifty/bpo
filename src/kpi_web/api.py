@@ -823,9 +823,9 @@ async def auth_dev_login(request: Request) -> Response:
         token = encode_session(user, settings=settings)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
-    next_url = request.query_params.get("next") or "/"
+    next_url = request.query_params.get("next") or "/kpis"
     if not next_url.startswith("/"):
-        next_url = "/"
+        next_url = "/kpis"
     response = RedirectResponse(next_url, status_code=302)
     set_session_cookie(response, token, settings=settings)
     return response
@@ -860,15 +860,19 @@ async def auth_callback(request: Request) -> Response:
     except Exception as exc:  # noqa: BLE001
         logger.exception("OAuth callback failed")
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
-    response = RedirectResponse("/", status_code=302)
+    next_url = request.cookies.get("cortex_kpi_oauth_next") or "/kpis"
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = "/kpis"
+    response = RedirectResponse(next_url, status_code=302)
     set_session_cookie(response, token, settings=settings)
     response.delete_cookie("cortex_kpi_oauth_state", path="/")
+    response.delete_cookie("cortex_kpi_oauth_next", path="/")
     return response
 
 
 async def auth_logout(request: Request) -> Response:
     settings = _settings(request)
-    response = RedirectResponse("/", status_code=302)
+    response = RedirectResponse("/kpis", status_code=302)
     clear_session_cookie(response, settings=settings)
     return response
 

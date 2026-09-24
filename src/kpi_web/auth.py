@@ -310,4 +310,16 @@ def login_redirect_or_error(request: Request) -> Response:
         secure=settings.cookie_secure,
         path="/",
     )
+    next_url = request.query_params.get("next") or "/kpis"
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = "/kpis"
+    response.set_cookie(
+        "cortex_kpi_oauth_next",
+        next_url,
+        max_age=600,
+        httponly=True,
+        samesite="lax",
+        secure=settings.cookie_secure,
+        path="/",
+    )
     return response

@@ -139,7 +139,7 @@
     actions.innerHTML = "";
     if (status.google_configured) {
       const a = document.createElement("a");
-      a.href = "/auth/login";
+      a.href = "/auth/login?next=/kpis";
       a.innerHTML = '<button type="button">Sign in with Google</button>';
       actions.appendChild(a);
     } else {
@@ -151,7 +151,7 @@
     }
     if (status.dev_auth_enabled) {
       const a = document.createElement("a");
-      a.href = "/auth/dev-login";
+      a.href = "/auth/dev-login?next=/kpis";
       a.innerHTML = '<button type="button">Dev login</button>';
       actions.appendChild(a);
     }

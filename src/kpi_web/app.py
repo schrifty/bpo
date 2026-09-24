@@ -7,8 +7,10 @@ import logging
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import RedirectResponse
 from starlette.routing import Mount, Route
 
+from src.healthscore_web import api as healthscore_api
 from src.kpi_web import api
 from src.kpi_web.settings import KPIWebSettings, load_kpi_web_settings
 
@@ -23,7 +25,21 @@ def create_app(
     """Build the KPI web Starlette app (catalog view + CRUD maintain)."""
     cfg = settings if settings is not None else load_kpi_web_settings(environ=environ)
     routes = [
-        Route("/", api.index_page, methods=["GET"]),
+        Route("/", lambda request: RedirectResponse("/kpis", status_code=302), methods=["GET"]),
+        Route("/kpis", api.index_page, methods=["GET"]),
+        Route("/healthscore", healthscore_api.index_page, methods=["GET"]),
+        Route("/healthscore/api/framework", healthscore_api.api_framework, methods=["GET"]),
+        Route("/healthscore/api/entities", healthscore_api.api_entities, methods=["GET"]),
+        Route(
+            "/healthscore/api/entities/{entity_id}/score",
+            healthscore_api.api_entity_score,
+            methods=["GET"],
+        ),
+        Route(
+            "/healthscore/api/entities/{entity_id}/components/{component_key}",
+            healthscore_api.api_set_component,
+            methods=["PUT"],
+        ),
         Route("/api/health", api.api_health, methods=["GET"]),
         Route("/api/me", api.api_me, methods=["GET"]),
         Route("/api/meta", api.api_meta, methods=["GET"]),
@@ -41,6 +57,11 @@ def create_app(
         Route("/auth/callback", api.auth_callback, methods=["GET"]),
         Route("/auth/logout", api.auth_logout, methods=["GET"]),
         Route("/auth/dev-login", api.auth_dev_login, methods=["GET"]),
+        Mount(
+            "/healthscore/static",
+            app=healthscore_api.static_mount(),
+            name="healthscore-static",
+        ),
         Mount("/static", app=api.static_mount(), name="static"),
     ]
     middleware = [

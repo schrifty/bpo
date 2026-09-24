@@ -18,7 +18,8 @@ CORTEX_KPI_WEB_SKIP_S3=true \
 python3 -m src.kpi_web
 ```
 
-Open http://127.0.0.1:8080 — use **Dev login**. The table defaults to name
+Open http://127.0.0.1:8080/kpis — use **Dev login**. The root path redirects
+to `/kpis`. The table defaults to name
 ascending; click Name, Grain, Owner, Target, or Value to sort, and click
 again to flip descending. Grain sorts by cadence (hourly → quarterly), not
 A–Z. With no row selected, the right pane is a Claude briefing of stored
@@ -139,7 +140,7 @@ CORTEX_KPI_WEB_ALLOWED_DOMAINS=leandna.com
 ```
 
 4. Run `bin/kpi-web` (do **not** set `CORTEX_KPI_WEB_ALLOW_DEV_AUTH` in production).
-5. Users sign in at `/auth/login`. Only emails listed as `catalog_admin` or
+5. Users sign in at `/auth/login` (returning to `/kpis`). Only emails listed as `catalog_admin` or
    `leads` in `config/kpi_owners.yaml` may access the catalog.
 
 ## AWS (ECS + CloudFront)
@@ -221,3 +222,6 @@ test matrix, and env checklist: **[`KPI_RELEASE.md`](./KPI_RELEASE.md)**.
 
 Production: SSO env vars set; never enable `CORTEX_KPI_WEB_ALLOW_DEV_AUTH`.
 Salesforce boundary: KPIs ≠ customer SoR.
+
+The experimental Customer Success product at `/healthscore` remains separate;
+see [`HEALTHSCORE_WEB.md`](./HEALTHSCORE_WEB.md).

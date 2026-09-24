@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cortex Health Score</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/healthscore/static/healthscore.css" />
+</head>
+<body>
+  <header class="top">
+    <a href="/healthscore" class="brand-link">
+      <img src="/static/logo.svg" alt="" class="brand-mark" width="28" height="28" />
+      <span class="brand-word">Cortex<span class="brand-sub">Health Score</span></span>
+    </a>
+    <div id="hs-session" class="session hidden">
+      <button type="button" id="hs-user-badge" class="user-badge" title="Signed in user">
+        <span id="hs-user-initials"></span>
+      </button>
+    </div>
+  </header>
+
+  <main class="hs-main">
+    <section id="hs-login" class="panel hidden">
+      <img src="/static/logo.svg" alt="Cortex" class="login-mark" width="72" height="72" />
+      <h1>Sign in</h1>
+      <p class="muted">Google Workspace SSO is required to view Customer Health Score data.</p>
+      <div id="hs-login-actions" class="row"></div>
+      <p id="hs-login-error" class="error" hidden></p>
+    </section>
+
+    <section id="hs-app" class="hidden">
+      <div class="hs-hero">
+        <div>
+          <div class="hs-eyebrow">Customer Success · Entity-level model</div>
+          <h1>Customer Health Score <span class="hs-draft">Draft framework</span></h1>
+          <p>Understand every weighted input, what drives the score, where the data came from, and what remains unproven.</p>
+        </div>
+        <div class="hs-entity-control">
+          <label for="hs-entity">Salesforce Customer Entity</label>
+          <select id="hs-entity"><option value="">Choose an active entity…</option></select>
+          <span id="hs-entity-source" class="muted"></span>
+        </div>
+      </div>
+
+      <p id="hs-global-error" class="error" hidden></p>
+
+      <div class="hs-score-strip">
+        <div class="hs-score-card">
+          <span class="hs-stat-label">Provisional score</span>
+          <strong id="hs-score">—</strong>
+          <span class="muted">across observed weighted inputs</span>
+          <div id="hs-score-trend"></div>
+        </div>
+        <div class="hs-score-card">
+          <span class="hs-stat-label">Weight coverage</span>
+          <strong id="hs-coverage">0%</strong>
+          <span class="muted" id="hs-coverage-detail">0 of 83 configured</span>
+        </div>
+        <div class="hs-score-card">
+          <span class="hs-stat-label">Framework</span>
+          <strong id="hs-input-count">27 inputs</strong>
+          <span class="muted" id="hs-override-count">4 override flags</span>
+        </div>
+        <div class="hs-score-card hs-warning-card">
+          <span class="hs-stat-label">Important</span>
+          <strong>Not validated</strong>
+          <span class="muted">Do not use for customer decisions yet.</span>
+        </div>
+      </div>
+
+      <div class="hs-layout">
+        <section class="panel hs-components-panel">
+          <div class="hs-section-head">
+            <div>
+              <h2>Score components</h2>
+              <p class="muted">Select a component to inspect its influence and history.</p>
+            </div>
+            <div class="hs-legend">
+              <span><i class="dot automated"></i> Automated</span>
+              <span><i class="dot manual"></i> Manual</span>
+              <span><i class="dot blocked"></i> Blocked</span>
+            </div>
+          </div>
+          <div class="hs-table-scroll">
+            <table class="hs-components">
+              <thead><tr><th>Input</th><th>Pillar</th><th>Weight</th><th>Points</th><th>Influence</th><th>Source</th></tr></thead>
+              <tbody id="hs-components-body"></tbody>
+            </table>
+          </div>
+          <div class="hs-overrides">
+            <h3>Override flags</h3>
+            <div id="hs-overrides-list"></div>
+          </div>
+        </section>
+
+        <aside id="hs-detail" class="detail-pane hs-detail">
+          <div class="hs-detail-empty">
+            <h2>Choose a component</h2>
+            <p class="muted">Its definition, scoring rule, provenance, and history will appear here.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Experimental model · Salesforce is the customer system of record</span>
+  </footer>
+  <script src="/healthscore/static/healthscore.js"></script>
+</body>
+</html>
