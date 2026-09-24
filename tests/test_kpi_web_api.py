@@ -248,6 +248,10 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     assert "github.com/schrifty/bpo/issues/new" in html
     assert 'id="confirm-delete-dialog"' in html
     assert 'id="btn-delete-confirm"' in html
+    js = client.get("/static/app.js")
+    assert js.status_code == 200
+    assert "restoreOverride" in js.text
+    assert "value-restore" in js.text
 
 
 def test_stored_values_fail_loud_when_store_missing(tmp_path: Path) -> None:

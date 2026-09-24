@@ -277,9 +277,12 @@
     const obs = kpi.observation;
     const ov = obs.override;
     if (ov) {
-      return `<span class="value-override" title="${esc(overrideTip(ov))}">${esc(
-        fmtValue(obs.value)
-      )}</span>`;
+      const restore = canEdit(kpi)
+        ? `<button type="button" class="value-restore" title="Show the stored generated value again">Restore</button>`
+        : "";
+      return `<span class="value-wrap"><span class="value-override" title="${esc(
+        overrideTip(ov)
+      )}">${esc(fmtValue(obs.value))}</span>${restore}</span>`;
     }
     if (obs.error) {
       return `<span class="value-error" title="${esc(obs.error)}">error</span>`;
@@ -350,8 +353,16 @@
         });
       }
       const valueTd = tr.querySelector(".value-cell");
+      const restoreBtn = tr.querySelector(".value-restore");
+      if (restoreBtn) {
+        restoreBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          restoreOverride(kpi);
+        });
+      }
       if (editable) {
         valueTd.addEventListener("click", (ev) => {
+          if (ev.target.closest(".value-restore")) return;
           ev.stopPropagation();
           beginValueEdit(valueTd, kpi);
         });
@@ -468,6 +479,23 @@
 
     const detailEdit = $("btn-detail-edit");
     if (detailEdit) detailEdit.addEventListener("click", () => openEditForm(kpi));
+    const restoreBtn = $("btn-restore-value");
+    if (restoreBtn) {
+      restoreBtn.addEventListener("click", () => restoreOverride(kpi));
+    }
+  }
+
+  async function restoreOverride(kpi) {
+    try {
+      await api(`/api/kpis/${encodeURIComponent(kpi.name)}/value`, {
+        method: "PUT",
+        body: JSON.stringify({ value: null }),
+      });
+      await refreshList();
+      if (state.selected === kpi.name) await selectKpi(kpi.name);
+    } catch (err) {
+      showMutateStatus(err.message || String(err), true);
+    }
   }
 
   function overrideNote(kpi) {
@@ -478,9 +506,12 @@
         ? "none"
         : fmtValue(ov.generated_value);
     const who = ov.by ? ` by ${esc(ov.by)}` : "";
+    const restore = canEdit(kpi)
+      ? ` <button type="button" id="btn-restore-value" class="linkish">Restore stored value</button>`
+      : "";
     return `<div class="muted override-note">Manual override${who}; generated value ${esc(
       generated
-    )}</div>`;
+    )}.${restore}</div>`;
   }
 
   function showMutateStatus(msg, isError) {

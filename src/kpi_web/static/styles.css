@@ -669,6 +669,28 @@ dialog::backdrop {
   border-radius: 4px;
 }
 
+.value-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+button.value-restore {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--override);
+  font-size: 0.72rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+button.value-restore:hover {
+  filter: none;
+  color: var(--ink);
+}
+
 .override-note { font-size: 0.78rem; margin-top: 0.25rem; }
 
 .detail-head {

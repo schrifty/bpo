@@ -50,9 +50,11 @@ Permissions match CLI ownership rules (enforced server-side via
    (those with a generator); if none are instrumented, chips fall back to the
    current filtered set. Counts are AND-faceted from chips already selected.
 4. Click a **Value** cell (owners and catalog admin) to override the reading;
-   Enter saves, Escape cancels, and an empty box drops the override. Overrides
-   never overwrite the generated number — both are stored, the override wins on
-   screen, and it renders on a **blue** background.
+   Enter saves, Escape cancels. Overrides never overwrite the generated number —
+   both are stored, the override wins on screen, and it renders on a **blue**
+   background. **Restore** next to an overridden value (and in the detail pane)
+   drops the override so the number already in SQLite shows again. It does not
+   re-run the generator.
 5. Select a KPI to read description, guidance, target, and history. The pencil
    in the detail header edits **name, tags, and target** (plus direction/unit,
    which a target needs). Delete is the trash control at the left of each row
