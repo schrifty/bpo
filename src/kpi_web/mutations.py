@@ -46,6 +46,35 @@ def _as_bool(raw: Any, default: bool = False) -> bool:
     return str(raw).strip().lower() in ("1", "true", "yes", "on")
 
 
+# Set once at creation; the web UI may not change them afterwards.
+IMMUTABLE_EDIT_FIELDS: dict[str, tuple[str, ...]] = {
+    "description": ("description", "clear_description", "clear-description"),
+    "grain": ("grain", "clear_grain", "clear-grain"),
+    "metric-generator": (
+        "metric_generator",
+        "metric-generator",
+        "generator",
+        "clear_generator",
+        "clear-generator",
+    ),
+    "owner": ("owner", "clear_owner", "clear-owner"),
+}
+
+
+def reject_immutable_edits(body: dict[str, Any]) -> None:
+    """Fail loud when an edit body touches a field that is fixed at creation."""
+    blocked = sorted(
+        field
+        for field, keys in IMMUTABLE_EDIT_FIELDS.items()
+        if any(key in body for key in keys)
+    )
+    if blocked:
+        raise MetricsRegistryWriteError(
+            f"{', '.join(blocked)} is immutable after a KPI is created "
+            "(editable: name, tags, target)"
+        )
+
+
 def parse_dry_run(body: dict[str, Any] | None, query_raw: str | None) -> bool:
     if query_raw is not None and str(query_raw).strip() != "":
         return _as_bool(query_raw)

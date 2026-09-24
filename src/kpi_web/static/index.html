@@ -161,15 +161,15 @@
           Rename to
           <input type="text" id="f-new-name" autocomplete="off" />
         </label>
-        <label class="span-2">
+        <label class="span-2 create-only">
           Description
           <textarea id="f-description" rows="3"></textarea>
         </label>
-        <label class="span-2">
+        <label class="span-2 create-only">
           Management guidance
           <textarea id="f-mgmt" rows="3"></textarea>
         </label>
-        <label>
+        <label class="create-only">
           Owner
           <input type="text" id="f-owner" placeholder="email or me" autocomplete="off" />
         </label>
@@ -177,7 +177,7 @@
           Tags <span class="muted">(comma-separated)</span>
           <input type="text" id="f-tags" placeholder="engineering, ai" autocomplete="off" />
         </label>
-        <label>
+        <label class="create-only">
           Grain
           <select id="f-grain" required>
             <option value="hourly">hourly</option>
@@ -207,14 +207,18 @@
             <option value="currency">currency</option>
           </select>
         </label>
-        <label>
+        <label class="create-only">
           Metric ID
           <input type="text" id="f-metric-id" inputmode="numeric" autocomplete="off" />
         </label>
-        <label class="span-2">
+        <label class="span-2 create-only">
           Metric generator
           <input type="text" id="f-generator" placeholder="existing Python generator name" autocomplete="off" />
         </label>
+        <p class="span-2 muted form-note" id="f-edit-note" hidden>
+          Description, guidance, owner, grain, metric ID, and generator are set
+          when the KPI is created and cannot be changed here.
+        </p>
         <label class="check span-2">
           <input type="checkbox" id="f-dry-run" checked />
           Dry-run (preview only; do not write YAML)

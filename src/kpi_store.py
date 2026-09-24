@@ -16,7 +16,7 @@ from typing import Any, Iterable
 from .kpi_observation import KPIObservation
 from .metrics_registry import LEGACY_MONTHLY_GENERATORS
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 GRAIN_HOURLY = "hourly"
 GRAIN_DAILY = "daily"
 GRAIN_WEEKLY = "weekly"
@@ -30,6 +30,9 @@ GRAINS = frozenset(
 
 # Headline month-close name. Retired daily open-stock rows used this name or
 # ``Open Customer-Reported Bugs`` and are dropped on connect.
+# Key under ``KPIObservation.meta`` describing an applied manual override.
+OVERRIDE_META_KEY = "override"
+
 CUSTOMER_REPORTED_BUGS_METRIC = "Customer-Reported Bugs"
 _RETIRED_OPEN_CUSTOMER_REPORTED_BUGS_METRIC = "Open Customer-Reported Bugs"
 _RETIRED_COMBINED_ESCALATION_RATE_METRIC = "Escalation Rate (30 Days)"
@@ -78,6 +81,9 @@ CREATE TABLE IF NOT EXISTS kpi_observation (
     error TEXT,
     as_of TEXT,
     window_days INTEGER,
+    override_value REAL,
+    override_by TEXT,
+    override_at TEXT,
     PRIMARY KEY (metric_name, grain, period_key)
 );
 
@@ -91,8 +97,21 @@ class KPIStoreError(ValueError):
 
 
 @dataclass(frozen=True)
+class ManualOverride:
+    """A human-entered value that shadows — but never replaces — the stored reading."""
+
+    value: float
+    by: str | None = None
+    at: str | None = None
+
+
+@dataclass(frozen=True)
 class StoredKPI:
-    """One persisted KPI row plus the canonical observation."""
+    """One persisted KPI row plus the canonical observation.
+
+    ``observation`` is always the captured (generator) reading. When a manual
+    override exists, read ``effective_observation`` for the number to display.
+    """
 
     metric_name: str
     grain: str
@@ -101,6 +120,40 @@ class StoredKPI:
     observation: KPIObservation
     generator: str | None = None
     tags: tuple[str, ...] = ()
+    override: ManualOverride | None = None
+
+    @property
+    def is_overridden(self) -> bool:
+        return self.override is not None
+
+    @property
+    def effective_observation(self) -> KPIObservation:
+        """Observation to display: the override when set, else the stored reading.
+
+        The generated value stays available under ``meta[OVERRIDE_META_KEY]`` so
+        callers can show both.
+        """
+        if self.override is None:
+            return self.observation
+        meta = {
+            k: v for k, v in self.observation.meta.items() if k != OVERRIDE_META_KEY
+        }
+        meta[OVERRIDE_META_KEY] = {
+            "value": self.override.value,
+            "by": self.override.by,
+            "at": self.override.at,
+            "generated_value": self.observation.display_value,
+            "generated_error": self.observation.error,
+        }
+        return KPIObservation(
+            value=self.override.value,
+            as_of=self.observation.as_of,
+            window_days=self.observation.window_days,
+            source=self.observation.source + ("kpi-web-override",),
+            warnings=self.observation.warnings,
+            origin="stored",
+            meta=meta,
+        )
 
 
 def _utc_now_iso() -> str:
@@ -195,6 +248,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
 def init_schema(conn: sqlite3.Connection) -> None:
     _migrate_grain_schema(conn)
     conn.executescript(_SCHEMA_SQL)
+    _migrate_override_columns(conn)
     conn.execute(
         "INSERT INTO kpi_store_meta(key, value) VALUES ('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -239,6 +293,18 @@ def _migrate_grain_schema(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE kpi_observation_v1")
 
 
+def _migrate_override_columns(conn: sqlite3.Connection) -> None:
+    """Add v3 manual-override columns to a v2 table (values are left untouched)."""
+    have = {str(row["name"]) for row in conn.execute("PRAGMA table_info(kpi_observation)")}
+    for column, decl in (
+        ("override_value", "REAL"),
+        ("override_by", "TEXT"),
+        ("override_at", "TEXT"),
+    ):
+        if column not in have:
+            conn.execute(f"ALTER TABLE kpi_observation ADD COLUMN {column} {decl}")
+
+
 def migrate_legacy_daily_customer_reported_bugs(conn: sqlite3.Connection) -> None:
     """Drop retired daily open-bug stock (not a registry KPI)."""
     conn.execute(
@@ -281,8 +347,8 @@ def _observation_calendar_day(*, as_of: str | None, period_key: str, grain: str)
     return day or (period_key or "").strip()
 
 
-def _dedupe_keep_rank(row: sqlite3.Row) -> tuple[int, str, str]:
-    """Higher tuple wins: period matching the day, then later capture, then later period."""
+def _dedupe_keep_rank(row: sqlite3.Row) -> tuple[int, int, str, str]:
+    """Higher tuple wins: manual override, period matching the day, later capture, later period."""
     grain = str(row["grain"] or "")
     period = str(row["period_key"] or "")
     day = _observation_calendar_day(as_of=row["as_of"], period_key=period, grain=grain)
@@ -292,7 +358,8 @@ def _dedupe_keep_rank(row: sqlite3.Row) -> tuple[int, str, str]:
         matches = 1 if period == day[:7] else 0
     else:
         matches = 0
-    return (matches, str(row["captured_at"] or ""), period)
+    overridden = 1 if row["override_value"] is not None else 0
+    return (overridden, matches, str(row["captured_at"] or ""), period)
 
 
 def dedupe_one_reading_per_day(conn: sqlite3.Connection) -> int:
@@ -304,7 +371,8 @@ def dedupe_one_reading_per_day(conn: sqlite3.Connection) -> int:
     """
     grouped: dict[tuple[str, str, str], list[sqlite3.Row]] = {}
     for raw in conn.execute(
-        "SELECT metric_name, grain, period_key, as_of, captured_at FROM kpi_observation"
+        "SELECT metric_name, grain, period_key, as_of, captured_at, override_value "
+        "FROM kpi_observation"
     ):
         day = _observation_calendar_day(
             as_of=raw["as_of"], period_key=raw["period_key"], grain=raw["grain"]
@@ -391,7 +459,24 @@ def period_key_now(grain: str, *, when: datetime | None = None) -> str:
     raise KPIStoreError(f"unsupported grain {g!r}")
 
 
-def upsert_manual_value(
+def _override_target_period(
+    conn: sqlite3.Connection,
+    *,
+    metric_name: str,
+    grain: str,
+    period_key: str | None,
+) -> tuple[str, StoredKPI | None]:
+    """Resolve which period an override applies to: explicit, latest stored, or now."""
+    if period_key and str(period_key).strip():
+        pk = validate_period_key(grain, str(period_key).strip())
+        return pk, get_kpi(conn, metric_name, grain, pk)
+    rows = list_kpis(conn, metric_name=metric_name, grain=grain, limit=1)
+    if rows:
+        return rows[0].period_key, rows[0]
+    return period_key_now(grain), None
+
+
+def set_manual_override(
     conn: sqlite3.Connection,
     *,
     metric_name: str,
@@ -402,43 +487,76 @@ def upsert_manual_value(
     generator: str | None = None,
     actor: str | None = None,
 ) -> StoredKPI:
-    """Write an explicit numeric observation, replacing the latest period if present."""
+    """Record a manual value for a period without touching the generated reading.
+
+    Targets the given period, else the latest stored one, else the current
+    period. When no row exists yet the reading stays empty and only the
+    override carries a number.
+    """
     name = (metric_name or "").strip()
     if not name:
         raise KPIStoreError("metric_name is required")
     g = validate_grain(grain)
-    existing: StoredKPI | None = None
-    if period_key and str(period_key).strip():
-        pk = validate_period_key(g, str(period_key).strip())
-        existing = get_kpi(conn, name, g, pk)
-    else:
-        rows = list_kpis(conn, metric_name=name, grain=g, limit=1)
-        existing = rows[0] if rows else None
-        pk = existing.period_key if existing else period_key_now(g)
-    meta = dict(existing.observation.meta) if existing else {}
-    if actor:
-        meta["edited_by"] = str(actor).strip()
-    obs = KPIObservation(
-        value=float(value),
-        as_of=_as_of_for_period(g, pk),
-        origin="stored",
-        source=("kpi-web",),
-        meta=meta,
-        window_days=existing.observation.window_days if existing else None,
+    pk, existing = _override_target_period(
+        conn, metric_name=name, grain=g, period_key=period_key
     )
-    row = stored_kpi_from_observation(
-        metric_name=name,
-        grain=g,
-        period_key=pk,
-        observation=obs,
-        generator=generator if generator is not None else (existing.generator if existing else None),
-        tags=tags if tags is not None else (existing.tags if existing else ()),
+    if existing is None:
+        upsert_kpi(
+            conn,
+            stored_kpi_from_observation(
+                metric_name=name,
+                grain=g,
+                period_key=pk,
+                observation=KPIObservation(
+                    origin="stored",
+                    warnings=("no generated reading for this period",),
+                ),
+                generator=generator,
+                tags=tags or (),
+            ),
+        )
+    conn.execute(
+        """
+        UPDATE kpi_observation
+        SET override_value = ?, override_by = ?, override_at = ?
+        WHERE metric_name = ? AND grain = ? AND period_key = ?
+        """,
+        (float(value), (actor or "").strip() or None, _utc_now_iso(), name, g, pk),
     )
-    upsert_kpi(conn, row)
+    conn.commit()
     written = get_kpi(conn, name, g, pk)
-    if written is None:
-        raise KPIStoreError(f"failed to persist value for {name!r} {g} {pk}")
+    if written is None or written.override is None:
+        raise KPIStoreError(f"failed to persist override for {name!r} {g} {pk}")
     return written
+
+
+def clear_manual_override(
+    conn: sqlite3.Connection,
+    *,
+    metric_name: str,
+    grain: str,
+    period_key: str | None = None,
+) -> StoredKPI | None:
+    """Drop the manual override so the generated reading shows again."""
+    name = (metric_name or "").strip()
+    if not name:
+        raise KPIStoreError("metric_name is required")
+    g = validate_grain(grain)
+    pk, existing = _override_target_period(
+        conn, metric_name=name, grain=g, period_key=period_key
+    )
+    if existing is None:
+        raise KPIStoreError(f"no stored reading to clear for {name!r} {g} {pk}")
+    conn.execute(
+        """
+        UPDATE kpi_observation
+        SET override_value = NULL, override_by = NULL, override_at = NULL
+        WHERE metric_name = ? AND grain = ? AND period_key = ?
+        """,
+        (name, g, pk),
+    )
+    conn.commit()
+    return get_kpi(conn, name, g, pk)
 
 
 def _as_of_for_period(grain: str, period_key: str) -> str:
@@ -459,10 +577,15 @@ def _as_of_for_period(grain: str, period_key: str) -> str:
 
 
 def upsert_kpi(conn: sqlite3.Connection, row: StoredKPI) -> None:
-    """Insert or replace one observation (unique metric_name + grain + period_key)."""
+    """Insert or replace one captured observation.
+
+    Unique on metric_name + grain + period_key. Any manual override on the row
+    is preserved: a generator re-run updates the reading, never the override.
+    """
     g = validate_grain(row.grain)
     pk = validate_period_key(g, row.period_key)
     obs = row.observation
+    meta = {k: v for k, v in obs.meta.items() if k != OVERRIDE_META_KEY}
     conn.execute(
         """
         INSERT INTO kpi_observation (
@@ -492,13 +615,26 @@ def upsert_kpi(conn: sqlite3.Connection, row: StoredKPI) -> None:
             _as_sql_float(obs.denominator),
             row.generator,
             _json_dumps(list(row.tags)),
-            _json_dumps(obs.meta),
+            _json_dumps(meta),
             obs.error,
             obs.as_of,
             obs.window_days,
         ),
     )
     conn.commit()
+
+
+def _row_override(raw: sqlite3.Row) -> ManualOverride | None:
+    if "override_value" not in raw.keys():
+        return None
+    value = raw["override_value"]
+    if value is None:
+        return None
+    return ManualOverride(
+        value=float(value),
+        by=raw["override_by"],
+        at=raw["override_at"],
+    )
 
 
 def _row_to_stored(raw: sqlite3.Row) -> StoredKPI:
@@ -525,6 +661,7 @@ def _row_to_stored(raw: sqlite3.Row) -> StoredKPI:
         observation=obs,
         generator=raw["generator"],
         tags=tags,
+        override=_row_override(raw),
     )
 
 

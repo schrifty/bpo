@@ -49,12 +49,21 @@ Permissions match CLI ownership rules (enforced server-side via
    mode. Tag chips stay on the page. Chips list tags on instrumented KPIs
    (those with a generator); if none are instrumented, chips fall back to the
    current filtered set. Counts are AND-faceted from chips already selected.
-4. Click a **Value** cell (owners and catalog admin) to edit the stored reading;
-   Enter saves, Escape cancels. Delete is the trash control at the left of each
-   row (confirmation dialog, then YAML delete).
-5. Select a KPI to read description, guidance, target, and history.
+4. Click a **Value** cell (owners and catalog admin) to override the reading;
+   Enter saves, Escape cancels, and an empty box drops the override. Overrides
+   never overwrite the generated number — both are stored, the override wins on
+   screen, and it renders on a **blue** background.
+5. Select a KPI to read description, guidance, target, and history. The pencil
+   in the detail header edits **name, tags, and target** (plus direction/unit,
+   which a target needs). Delete is the trash control at the left of each row
+   (confirmation dialog, then YAML delete).
 
-Leads see Edit/Delete only on KPIs they own; other owners are view-only.
+Description, grain, owner, metric ID, and `metric-generator` are set when a KPI
+is created and are immutable in the web app; `PATCH` rejects them with 400. Use
+the CLI (`cortex kpi edit`) if one of them genuinely has to change.
+
+Leads see the edit and delete controls only on KPIs they own; other owners are
+view-only.
 
 ### Via API (CLI parity)
 
@@ -144,9 +153,9 @@ error (no empty fake catalog).
 | GET | `/api/meta` | Owners, tags, topic packs |
 | GET | `/api/kpis?owner=&tag=&mode=stored\|live\|leandna&values=0\|1` | List/filter; UI always sends `values=1` |
 | GET | `/api/kpis/{name}?mode=&history=12` | Detail + observation + history |
-| PUT | `/api/kpis/{name}/value` | Write stored observation (`{"value": n}`) |
+| PUT | `/api/kpis/{name}/value` | Set (`{"value": n}`) or clear (`{"value": null}`) a manual override |
 | POST | `/api/kpis` | Add KPI (`?dry_run=1` or body `dry_run`) |
-| PATCH | `/api/kpis/{name}` | Edit / rename (`new_name`, field clears, dry-run) |
+| PATCH | `/api/kpis/{name}` | Edit name / tags / target (immutable fields → 400) |
 | DELETE | `/api/kpis/{name}` | Delete (`?dry_run=1`) |
 
 Errors and empty observations are returned as-is (`error` / `warnings` /

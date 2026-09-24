@@ -6,6 +6,7 @@ from typing import Any
 
 from src.kpi_observation import KPIObservation
 from src.kpi_service import KPIResolved
+from src.kpi_store import OVERRIDE_META_KEY
 from src.metrics_latest import DatapointValue
 from src.metrics_registry import (
     has_metric_generator,
@@ -24,9 +25,11 @@ from src.metrics_registry import (
 
 def observation_to_dict(obs: KPIObservation) -> dict[str, Any]:
     """JSON shape for one observation — preserves errors/warnings (fail loud)."""
+    override = obs.meta.get(OVERRIDE_META_KEY)
     return {
         "ok": obs.ok,
         "value": obs.display_value,
+        "override": dict(override) if isinstance(override, dict) else None,
         "raw_value": obs.value,
         "numerator": obs.numerator,
         "denominator": obs.denominator,

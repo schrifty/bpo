@@ -221,7 +221,7 @@ def history_points_for_metric(
     stored = list_kpis(conn, metric_name=name, grain=grain)
     points: list[HistoryPoint] = []
     for row in stored:
-        val = row.observation.value
+        val = row.effective_observation.display_value
         if val is None:
             continue
         points.append(HistoryPoint(period_key=row.period_key, value=float(val)))

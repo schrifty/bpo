@@ -19,7 +19,7 @@ from src.kpi_owners import (
     resolve_owner_cli_value,
 )
 from src.kpi_service import RESOLVE_MODES, ResolveMode, resolve_kpi, resolve_kpis
-from src.kpi_store import connect, list_kpis, upsert_manual_value
+from src.kpi_store import clear_manual_override, connect, list_kpis, set_manual_override
 from src.kpi_store_s3 import prepare_kpi_store_for_read
 from src.kpi_web.auth import (
     KPIWebAuthError,
@@ -41,6 +41,7 @@ from src.kpi_web.mutations import (
     delete_metric,
     edit_from_body,
     parse_dry_run,
+    reject_immutable_edits,
 )
 from src.kpi_web.serialize import catalog_entry_to_dict, history_to_list, resolved_to_dict
 from src.kpi_web.settings import KPIWebSettings
@@ -141,11 +142,12 @@ def _history_from_store(
     rows = list_kpis(conn, metric_name=metric_name, grain=grain, limit=max(1, limit))
     points: list[DatapointValue] = []
     for i, row in enumerate(rows):
-        if row.observation.ok or i == 0:
+        obs = row.effective_observation
+        if obs.ok or i == 0:
             points.append(
                 DatapointValue(
-                    date=(row.observation.as_of or row.period_key or "").strip(),
-                    value=row.observation.display_value,
+                    date=(obs.as_of or row.period_key or "").strip(),
+                    value=obs.display_value,
                 )
             )
     return history_to_list(tuple(points[:limit]))
@@ -429,6 +431,7 @@ async def api_kpi_edit(request: Request) -> Response:
         return JSONResponse({"ok": False, "error": "metric name required"}, status_code=400)
     try:
         body = await _json_body(request)
+        reject_immutable_edits(body)
         dry_run = parse_dry_run(body, request.query_params.get("dry_run"))
         change = edit_from_body(
             name,
@@ -461,8 +464,23 @@ def _parse_numeric_value(raw: Any) -> float:
         raise MetricsRegistryWriteError(f"value must be a number, got {raw!r}") from exc
 
 
+def _override_payload(stored: Any) -> dict[str, Any]:
+    obs = stored.effective_observation
+    return {
+        "value": obs.display_value,
+        "generated_value": stored.observation.display_value,
+        "overridden": stored.is_overridden,
+        "override_by": stored.override.by if stored.override else None,
+        "override_at": stored.override.at if stored.override else None,
+    }
+
+
 async def api_kpi_set_value(request: Request) -> Response:
-    """PUT /api/kpis/{name}/value — write a stored observation (fail loud)."""
+    """PUT /api/kpis/{name}/value — set or clear a manual override (fail loud).
+
+    The generated reading is never overwritten: ``{"value": n}`` shadows it and
+    ``{"value": null}`` restores it.
+    """
     try:
         user = require_user(request)
     except KPIWebAuthError as exc:
@@ -475,7 +493,9 @@ async def api_kpi_set_value(request: Request) -> Response:
         body = await _json_body(request)
         if "value" not in body:
             raise MetricsRegistryWriteError("value is required")
-        value = _parse_numeric_value(body.get("value"))
+        raw_value = body.get("value")
+        clearing = raw_value is None or (isinstance(raw_value, str) and not raw_value.strip())
+        value = None if clearing else _parse_numeric_value(raw_value)
         period_key = body.get("period_key")
         period = str(period_key).strip() if period_key not in (None, "") else None
         reg = _registry(request)
@@ -496,18 +516,30 @@ async def api_kpi_set_value(request: Request) -> Response:
         )
         store_conn = _open_store(settings)
         try:
-            stored = upsert_manual_value(
-                store_conn,
-                metric_name=metric_name,
-                grain=registry_metric_grain(entry),
-                value=value,
-                period_key=period,
-                tags=tuple(registry_metric_tags(entry)),
-                generator=str(entry.get("metric-generator") or "").strip() or None,
-                actor=user.email,
-            )
+            if clearing:
+                stored = clear_manual_override(
+                    store_conn,
+                    metric_name=metric_name,
+                    grain=registry_metric_grain(entry),
+                    period_key=period,
+                )
+            else:
+                stored = set_manual_override(
+                    store_conn,
+                    metric_name=metric_name,
+                    grain=registry_metric_grain(entry),
+                    value=value,
+                    period_key=period,
+                    tags=tuple(registry_metric_tags(entry)),
+                    generator=str(entry.get("metric-generator") or "").strip() or None,
+                    actor=user.email,
+                )
         finally:
             store_conn.close()
+        if stored is None:
+            raise MetricsRegistryWriteError(
+                f"no stored reading for {metric_name!r} — nothing to override"
+            )
     except KPIOwnershipError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=403)
     except MetricsRegistryWriteError as exc:
@@ -516,12 +548,13 @@ async def api_kpi_set_value(request: Request) -> Response:
         logger.exception("KPI value write failed for %s", name)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     logger.info(
-        "kpi_value_write name=%r grain=%s period=%s actor=%s value=%s",
+        "kpi_override_write name=%r grain=%s period=%s actor=%s value=%s cleared=%s",
         metric_name,
         stored.grain,
         stored.period_key,
         user.email,
-        stored.observation.display_value,
+        value,
+        clearing,
     )
     return JSONResponse(
         {
@@ -529,8 +562,8 @@ async def api_kpi_set_value(request: Request) -> Response:
             "name": metric_name,
             "grain": stored.grain,
             "period_key": stored.period_key,
-            "value": stored.observation.display_value,
             "actor": user.email,
+            **_override_payload(stored),
         }
     )
 

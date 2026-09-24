@@ -15,14 +15,15 @@ from src.kpi_store import (
     GRAIN_DAILY,
     GRAIN_MONTH,
     KPIStoreError,
+    clear_manual_override,
     connect,
     dedupe_one_reading_per_day,
     get_kpi,
     list_kpis,
     period_key_now,
+    set_manual_override,
     stored_kpi_from_observation,
     upsert_kpi,
-    upsert_manual_value,
 )
 from src.kpi_store_s3 import (
     KPIStoreS3Error,
@@ -53,7 +54,7 @@ def test_connect_creates_schema(tmp_path: Path) -> None:
     path = tmp_path / "kpi.sqlite"
     conn = connect(path)
     ver = conn.execute("SELECT value FROM kpi_store_meta WHERE key = 'schema_version'").fetchone()
-    assert ver["value"] == "2"
+    assert ver["value"] == "3"
     conn.close()
     assert path.is_file()
 
@@ -374,19 +375,8 @@ def test_period_key_now_by_grain() -> None:
     assert period_key_now("quarterly", when=when) == "2026-Q3"
 
 
-def test_upsert_manual_value_replaces_latest_period(tmp_path: Path) -> None:
+def test_manual_override_shadows_but_keeps_generated_value(tmp_path: Path) -> None:
     conn = connect(tmp_path / "kpi.sqlite")
-    upsert_kpi(
-        conn,
-        stored_kpi_from_observation(
-            metric_name="Issues Shipped",
-            grain=GRAIN_MONTH,
-            period_key="2026-07",
-            observation=_obs(value=200),
-            generator="get_issues_shipped",
-            tags=["engineering"],
-        ),
-    )
     upsert_kpi(
         conn,
         stored_kpi_from_observation(
@@ -399,7 +389,7 @@ def test_upsert_manual_value_replaces_latest_period(tmp_path: Path) -> None:
         ),
     )
 
-    written = upsert_manual_value(
+    written = set_manual_override(
         conn,
         metric_name="Issues Shipped",
         grain=GRAIN_MONTH,
@@ -407,32 +397,59 @@ def test_upsert_manual_value_replaces_latest_period(tmp_path: Path) -> None:
         actor="marc.schriftman@leandna.com",
     )
     assert written.period_key == "2026-08"
-    assert written.observation.value == 305
-    assert written.observation.origin == "stored"
-    assert written.observation.meta["edited_by"] == "marc.schriftman@leandna.com"
-    assert written.generator == "get_issues_shipped"
-    assert written.tags == ("engineering",)
-    rows = list_kpis(conn, metric_name="Issues Shipped", grain=GRAIN_MONTH)
-    assert [(r.period_key, r.observation.value) for r in rows] == [
-        ("2026-08", 305),
-        ("2026-07", 200),
-    ]
+    assert written.is_overridden is True
+    assert written.override is not None
+    assert written.override.value == 305
+    assert written.override.by == "marc.schriftman@leandna.com"
+    # The generated reading is untouched; only the effective value changes.
+    assert written.observation.value == 280
+    assert written.effective_observation.display_value == 305
+    override_meta = written.effective_observation.meta["override"]
+    assert override_meta["generated_value"] == 280
+    assert override_meta["by"] == "marc.schriftman@leandna.com"
+
+    # A later generator run updates the reading and leaves the override in place.
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="Issues Shipped",
+            grain=GRAIN_MONTH,
+            period_key="2026-08",
+            observation=_obs(value=291),
+            generator="get_issues_shipped",
+            tags=["engineering"],
+        ),
+    )
+    after = get_kpi(conn, "Issues Shipped", GRAIN_MONTH, "2026-08")
+    assert after is not None
+    assert after.observation.value == 291
+    assert after.effective_observation.display_value == 305
+
+    cleared = clear_manual_override(
+        conn, metric_name="Issues Shipped", grain=GRAIN_MONTH
+    )
+    assert cleared is not None
+    assert cleared.is_overridden is False
+    assert cleared.effective_observation.display_value == 291
     conn.close()
 
 
-def test_upsert_manual_value_inserts_current_period_and_validates(tmp_path: Path) -> None:
+def test_manual_override_targets_period_and_validates(tmp_path: Path) -> None:
     conn = connect(tmp_path / "kpi.sqlite")
-    written = upsert_manual_value(
+
+    # No stored reading yet: the override stands alone for the current period.
+    written = set_manual_override(
         conn,
         metric_name="Support FTE",
         grain=GRAIN_MONTH,
         value=7,
     )
     assert written.period_key == period_key_now(GRAIN_MONTH)
-    assert written.observation.value == 7
-    assert "edited_by" not in written.observation.meta
+    assert written.observation.display_value is None
+    assert written.effective_observation.display_value == 7
+    assert written.override is not None and written.override.by is None
 
-    explicit = upsert_manual_value(
+    explicit = set_manual_override(
         conn,
         metric_name="Support FTE",
         grain=GRAIN_MONTH,
@@ -442,15 +459,61 @@ def test_upsert_manual_value_inserts_current_period_and_validates(tmp_path: Path
     assert explicit.period_key == "2026-01"
 
     with pytest.raises(KPIStoreError, match="metric_name is required"):
-        upsert_manual_value(conn, metric_name="  ", grain=GRAIN_MONTH, value=1)
+        set_manual_override(conn, metric_name="  ", grain=GRAIN_MONTH, value=1)
     with pytest.raises(KPIStoreError, match="period_key"):
-        upsert_manual_value(
+        set_manual_override(
             conn,
             metric_name="Support FTE",
             grain=GRAIN_MONTH,
             value=1,
             period_key="2026-01-05",
         )
+    with pytest.raises(KPIStoreError, match="no stored reading to clear"):
+        clear_manual_override(conn, metric_name="Nothing Here", grain=GRAIN_MONTH)
+    conn.close()
+
+
+def test_override_columns_added_to_existing_v2_store(tmp_path: Path) -> None:
+    path = tmp_path / "kpi.sqlite"
+    legacy = sqlite3.connect(str(path))
+    legacy.executescript(
+        """
+        CREATE TABLE kpi_observation (
+            metric_name TEXT NOT NULL,
+            grain TEXT NOT NULL CHECK (
+                grain IN ('hourly', 'daily', 'weekly', 'monthly', 'quarterly')
+            ),
+            period_key TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            value REAL,
+            numerator REAL,
+            denominator REAL,
+            generator TEXT,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            meta_json TEXT NOT NULL DEFAULT '{}',
+            error TEXT,
+            as_of TEXT,
+            window_days INTEGER,
+            PRIMARY KEY (metric_name, grain, period_key)
+        );
+        INSERT INTO kpi_observation (
+            metric_name, grain, period_key, captured_at, value
+        ) VALUES ('PRs Merged', 'monthly', '2026-08', '2026-09-01T00:00:00Z', 42);
+        """
+    )
+    legacy.commit()
+    legacy.close()
+
+    conn = connect(path)
+    ver = conn.execute("SELECT value FROM kpi_store_meta WHERE key = 'schema_version'").fetchone()
+    assert ver["value"] == "3"
+    row = get_kpi(conn, "PRs Merged", GRAIN_MONTH, "2026-08")
+    assert row is not None
+    assert row.observation.value == 42
+    assert row.is_overridden is False
+    assert set_manual_override(
+        conn, metric_name="PRs Merged", grain=GRAIN_MONTH, value=50
+    ).effective_observation.display_value == 50
     conn.close()
 
 

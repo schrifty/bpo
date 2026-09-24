@@ -267,9 +267,27 @@
     return v <= t ? "made" : "missed";
   }
 
+  function overrideTip(ov) {
+    const generated =
+      ov.generated_value == null || ov.generated_value === ""
+        ? ov.generated_error
+          ? `error: ${ov.generated_error}`
+          : "none"
+        : fmtValue(ov.generated_value);
+    const who = ov.by ? ` by ${ov.by}` : "";
+    const when = ov.at ? ` on ${String(ov.at).slice(0, 10)}` : "";
+    return `Manual override${who}${when} — generated value: ${generated}`;
+  }
+
   function valueCell(kpi) {
     if (!kpi.observation) return '<span class="muted">—</span>';
     const obs = kpi.observation;
+    const ov = obs.override;
+    if (ov) {
+      return `<span class="value-override" title="${esc(overrideTip(ov))}">${esc(
+        fmtValue(obs.value)
+      )}</span>`;
+    }
     if (obs.error) {
       return `<span class="value-error" title="${esc(obs.error)}">error</span>`;
     }
@@ -354,7 +372,7 @@
     if (state.editingValue === kpi.name) return;
     state.editingValue = kpi.name;
     const prior = currentValue(kpi);
-    td.innerHTML = `<input class="value-input" type="text" inputmode="decimal" aria-label="Edit value for ${esc(kpi.name)}" />`;
+    td.innerHTML = `<input class="value-input" type="text" inputmode="decimal" aria-label="Override value for ${esc(kpi.name)}" title="Clear the box to drop the override and show the generated value" />`;
     const input = td.querySelector("input");
     input.value = prior;
     input.focus();
@@ -369,20 +387,17 @@
         td.innerHTML = valueCell(kpi);
         return;
       }
-      let n;
-      try {
-        n = optionalNumber(typed);
-      } catch (err) {
-        state.editingValue = null;
-        td.innerHTML = valueCell(kpi);
-        showMutateStatus(err.message || String(err), true);
-        return;
-      }
-      if (n === undefined) {
-        state.editingValue = null;
-        td.innerHTML = valueCell(kpi);
-        showMutateStatus("value must be a number", true);
-        return;
+      // Empty clears the override so the generated reading shows again.
+      let n = null;
+      if (typed) {
+        try {
+          n = optionalNumber(typed);
+        } catch (err) {
+          state.editingValue = null;
+          td.innerHTML = valueCell(kpi);
+          showMutateStatus(err.message || String(err), true);
+          return;
+        }
       }
       try {
         await api(`/api/kpis/${encodeURIComponent(kpi.name)}/value`, {
@@ -422,8 +437,17 @@
           .join("")
       : `<tr><td colspan="2" class="muted">No stored history</td></tr>`;
 
+    const editBtn = canEdit(kpi)
+      ? `<button type="button" id="btn-detail-edit" class="icon-btn" title="Edit name, tags, and target" aria-label="Edit ${esc(kpi.name)}">
+           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+         </button>`
+      : "";
+
     $("detail").innerHTML = `
-      <h2>${esc(kpi.name)}</h2>
+      <div class="detail-head">
+        <h2>${esc(kpi.name)}</h2>
+        ${editBtn}
+      </div>
       <p class="muted">${esc(fmtOwner(kpi.owner))}</p>
       <dl>
         <dt>Description</dt>
@@ -439,6 +463,8 @@
           ${kpi.unit ? ` · ${esc(kpi.unit)}` : ""}
           ${kpi.target_error ? `<div class="error">${esc(kpi.target_error)}</div>` : ""}
         </dd>
+        <dt>Value</dt>
+        <dd>${valueCell(kpi)}${overrideNote(kpi)}</dd>
         <dt>Recent history</dt>
         <dd>
           ${kpi.history_warning ? `<div class="value-empty">${esc(kpi.history_warning)}</div>` : ""}
@@ -446,6 +472,22 @@
           <tbody>${histRows}</tbody></table>
         </dd>
       </dl>`;
+
+    const detailEdit = $("btn-detail-edit");
+    if (detailEdit) detailEdit.addEventListener("click", () => openEditForm(kpi));
+  }
+
+  function overrideNote(kpi) {
+    const ov = kpi.observation && kpi.observation.override;
+    if (!ov) return "";
+    const generated =
+      ov.generated_value == null || ov.generated_value === ""
+        ? "none"
+        : fmtValue(ov.generated_value);
+    const who = ov.by ? ` by ${esc(ov.by)}` : "";
+    return `<div class="muted override-note">Manual override${who}; generated value ${esc(
+      generated
+    )}</div>`;
   }
 
   function showMutateStatus(msg, isError) {
@@ -471,7 +513,30 @@
   }
 
   function formPayload() {
+    // Edit only carries the mutable fields; description, guidance, owner,
+    // grain, metric ID, and generator are fixed once a KPI exists.
+    if (state.formMode === "edit") {
+      const payload = {
+        tags: parseTags($("f-tags").value),
+        dry_run: $("f-dry-run").checked,
+      };
+      const renamed = $("f-new-name").value.trim();
+      if (renamed && renamed !== state.editName) payload.new_name = renamed;
+      const target = optionalNumber($("f-target").value);
+      if (target !== undefined) payload.target = target;
+      const direction = $("f-direction").value;
+      if (direction) payload.direction = direction;
+      const unit = $("f-unit").value;
+      if (unit) payload.unit = unit;
+      if (!$("f-tags").value.trim()) payload.clear_tags = true;
+      if (!$("f-target").value.trim()) payload.clear_target = true;
+      if (!direction) payload.clear_direction = true;
+      if (!unit) payload.clear_unit = true;
+      return payload;
+    }
+
     const payload = {
+      name: $("f-name").value.trim(),
       description: $("f-description").value,
       mgmt_guidance: $("f-mgmt").value,
       tags: parseTags($("f-tags").value),
@@ -490,22 +555,14 @@
     if (metricId !== undefined) payload.metric_id = metricId;
     const gen = $("f-generator").value.trim();
     if (gen) payload.metric_generator = gen;
-    if (state.formMode === "add") {
-      payload.name = $("f-name").value.trim();
-    } else {
-      const renamed = $("f-new-name").value.trim();
-      if (renamed && renamed !== state.editName) payload.new_name = renamed;
-      // Explicit clears when fields emptied on edit.
-      if (!$("f-description").value.trim()) payload.clear_description = true;
-      if (!$("f-mgmt").value.trim()) payload.clear_mgmt_guidance = true;
-      if (!$("f-tags").value.trim()) payload.clear_tags = true;
-      if (!$("f-target").value.trim()) payload.clear_target = true;
-      if (!$("f-direction").value) payload.clear_direction = true;
-      if (!$("f-unit").value) payload.clear_unit = true;
-      if (!$("f-metric-id").value.trim()) payload.clear_metric_id = true;
-      if (!$("f-generator").value.trim()) payload.clear_generator = true;
-    }
     return payload;
+  }
+
+  function setCreateOnlyFieldsVisible(visible) {
+    for (const el of document.querySelectorAll("#kpi-form .create-only")) {
+      el.hidden = !visible;
+    }
+    $("f-edit-note").hidden = visible;
   }
 
   function fillFormFromKpi(kpi) {
@@ -537,6 +594,8 @@
     state.editName = null;
     resetForm();
     $("form-title").textContent = "Add KPI";
+    setCreateOnlyFieldsVisible(true);
+    $("f-name").parentElement.hidden = false;
     $("f-name").disabled = false;
     $("f-new-name-wrap").hidden = true;
     $("f-owner").value = state.me && state.me.email ? state.me.email : "";
@@ -551,9 +610,10 @@
     resetForm();
     fillFormFromKpi(kpi);
     $("form-title").textContent = `Edit: ${kpi.name}`;
+    setCreateOnlyFieldsVisible(false);
+    $("f-name").parentElement.hidden = true;
     $("f-name").disabled = true;
     $("f-new-name-wrap").hidden = false;
-    $("f-owner").disabled = !state.me?.is_catalog_admin;
     $("btn-form-submit").textContent = "Save changes";
     $("kpi-form-dialog").showModal();
   }

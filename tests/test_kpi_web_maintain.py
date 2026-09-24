@@ -8,8 +8,9 @@ import pytest
 import yaml
 from starlette.testclient import TestClient
 
+from src.kpi_observation import KPIObservation
 from src.kpi_owners import reset_for_tests
-from src.kpi_store import connect, list_kpis
+from src.kpi_store import connect, list_kpis, stored_kpi_from_observation, upsert_kpi
 from src.kpi_web.app import create_app
 from src.kpi_web.settings import load_kpi_web_settings
 from src.metrics_registry_write import public_metric_entry
@@ -138,7 +139,7 @@ def test_add_edit_delete_happy_path_yaml_shape(tmp_path: Path) -> None:
 
     edited = client.patch(
         "/api/kpis/Web%20Added%20KPI",
-        json={"description": "Updated from web", "new_name": "Web Updated KPI"},
+        json={"target": 43, "new_name": "Web Updated KPI"},
     )
     assert edited.status_code == 200, edited.text
     assert edited.json()["change"]["name"] == "Web Updated KPI"
@@ -146,7 +147,9 @@ def test_add_edit_delete_happy_path_yaml_shape(tmp_path: Path) -> None:
     doc = yaml.safe_load(registry.read_text(encoding="utf-8"))
     assert "Web Updated KPI" in doc["metrics"]
     assert "Web Added KPI" not in doc["metrics"]
-    assert doc["metrics"]["Web Updated KPI"]["description"] == "Updated from web"
+    assert doc["metrics"]["Web Updated KPI"]["target"] == 43
+    # Immutable fields survive a rename untouched.
+    assert doc["metrics"]["Web Updated KPI"]["description"] == "From web"
 
     deleted = client.delete("/api/kpis/Web%20Updated%20KPI")
     assert deleted.status_code == 200, deleted.text
@@ -176,7 +179,7 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
 
     patch = client.patch(
         "/api/kpis/Alpha%20Eng",
-        json={"description": "Would change", "dry_run": True},
+        json={"target": 99, "dry_run": True},
     )
     assert patch.status_code == 200
     assert patch.json()["change"]["dry_run"] is True
@@ -196,7 +199,7 @@ def test_unauthorized_mutate_fails_loud(tmp_path: Path) -> None:
     # Lead may not edit Marc's KPI.
     edit = client.patch(
         "/api/kpis/Alpha%20Eng",
-        json={"description": "Nope"},
+        json={"tags": ["engineering", "nope"]},
     )
     assert edit.status_code == 403
     assert "may not edit" in edit.json()["error"]
@@ -221,26 +224,35 @@ def test_unauthorized_mutate_fails_loud(tmp_path: Path) -> None:
     assert registry.read_text(encoding="utf-8") == before
 
 
-def test_lead_edit_own_and_set_generator(tmp_path: Path) -> None:
+def test_lead_edit_own_kpi(tmp_path: Path) -> None:
     client, registry = _maintain_client(tmp_path, actor="lead.eng@leandna.com")
     _login(client)
 
     res = client.patch(
         "/api/kpis/Gamma%20Eng%20Lead",
         json={
-            "metric_generator": "get_open_help",
             "metric_id": 55,
-            "description": "Lead updated",
+            "tags": ["engineering", "ai"],
+            "target": 12,
+            "direction": "lower",
         },
     )
     assert res.status_code == 200, res.text
     entry = res.json()["change"]["entry"]
-    assert entry["metric-generator"] == "get_open_help"
     assert entry["metric-id"] == 55
+    assert entry["tags"] == ["engineering", "ai"]
     assert entry["owner"] == "lead.eng@leandna.com"
     doc = yaml.safe_load(registry.read_text(encoding="utf-8"))
-    assert doc["metrics"]["Gamma Eng Lead"]["metric-generator"] == "get_open_help"
+    assert doc["metrics"]["Gamma Eng Lead"]["target"] == 12
     assert doc["metrics"]["Gamma Eng Lead"]["metric-id"] == 55
+
+    # A generator is chosen at creation, not bolted on later through the web app.
+    blocked = client.patch(
+        "/api/kpis/Gamma%20Eng%20Lead",
+        json={"metric_generator": "get_open_help"},
+    )
+    assert blocked.status_code == 400
+    assert "immutable" in blocked.json()["error"]
 
 
 def _value_client(
@@ -258,11 +270,27 @@ def _value_client(
     return client, store
 
 
-def test_set_value_writes_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_set_value_overrides_without_losing_generated_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, store = _value_client(
         tmp_path, actor="marc.schriftman@leandna.com", monkeypatch=monkeypatch
     )
     _login(client)
+
+    conn = connect(store)
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="Alpha Eng",
+            grain="daily",
+            period_key="2026-09-24",
+            observation=KPIObservation(value=9.0, origin="live"),
+            generator="get_alpha",
+            tags=["engineering"],
+        ),
+    )
+    conn.close()
 
     res = client.put("/api/kpis/Alpha%20Eng/value", json={"value": "12.5"})
     assert res.status_code == 200, res.text
@@ -270,24 +298,55 @@ def test_set_value_writes_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert body["name"] == "Alpha Eng"
     assert body["grain"] == "daily"
     assert body["value"] == 12.5
-    assert body["actor"] == "marc.schriftman@leandna.com"
+    assert body["generated_value"] == 9.0
+    assert body["overridden"] is True
+    assert body["override_by"] == "marc.schriftman@leandna.com"
 
     conn = connect(store)
     rows = list_kpis(conn, metric_name="Alpha Eng")
     conn.close()
     assert len(rows) == 1
-    assert rows[0].observation.value == 12.5
-    assert rows[0].observation.origin == "stored"
-    assert rows[0].observation.meta["edited_by"] == "marc.schriftman@leandna.com"
-    assert rows[0].tags == ("engineering",)
+    assert rows[0].observation.value == 9.0
+    assert rows[0].effective_observation.display_value == 12.5
 
-    # A second write replaces the same period rather than appending a reading.
-    again = client.put("/api/kpis/Alpha%20Eng/value", json={"value": 13})
-    assert again.status_code == 200
+    cleared = client.put("/api/kpis/Alpha%20Eng/value", json={"value": None})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["overridden"] is False
+    assert cleared.json()["value"] == 9.0
+
     conn = connect(store)
     rows = list_kpis(conn, metric_name="Alpha Eng")
     conn.close()
-    assert [r.observation.value for r in rows] == [13.0]
+    assert [r.effective_observation.display_value for r in rows] == [9.0]
+
+
+def test_edit_rejects_immutable_fields(tmp_path: Path) -> None:
+    client, registry = _maintain_client(tmp_path, actor="marc.schriftman@leandna.com")
+    _login(client)
+    before = registry.read_text(encoding="utf-8")
+
+    for payload in (
+        {"description": "new"},
+        {"grain": "weekly"},
+        {"metric_generator": "get_open_help"},
+        {"owner": "lead.eng@leandna.com"},
+        {"clear_owner": True},
+    ):
+        res = client.patch("/api/kpis/Alpha%20Eng", json=payload)
+        assert res.status_code == 400, (payload, res.text)
+        assert "immutable" in res.json()["error"]
+    assert registry.read_text(encoding="utf-8") == before
+
+    allowed = client.patch(
+        "/api/kpis/Alpha%20Eng",
+        json={"new_name": "Alpha Engineering", "tags": ["engineering", "ai"], "target": 25},
+    )
+    assert allowed.status_code == 200, allowed.text
+    entry = allowed.json()["change"]["entry"]
+    assert entry["tags"] == ["engineering", "ai"]
+    assert entry["target"] == 25
+    doc = yaml.safe_load(registry.read_text(encoding="utf-8"))
+    assert "Alpha Engineering" in doc["metrics"]
 
 
 def test_set_value_rejects_bad_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

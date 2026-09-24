@@ -10,6 +10,8 @@
   --danger-bg: #f8e8e8;
   --warn: #7a5a00;
   --warn-bg: #fff6d9;
+  --override: #14457f;
+  --override-bg: #dbe8fb;
   --ok: #0f5c4c;
   --font: "IBM Plex Sans", "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -353,6 +355,9 @@ dialog::backdrop {
   gap: 0.45rem;
 }
 
+/* `display: flex` above would otherwise defeat the hidden attribute. */
+.form-grid [hidden] { display: none; }
+
 .form-grid input,
 .form-grid textarea,
 .form-grid select {
@@ -637,6 +642,29 @@ dialog::backdrop {
 .value-missed { color: var(--danger); font-family: var(--mono); font-weight: 600; }
 .value-empty { color: var(--warn); background: var(--warn-bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
 .value-error { color: var(--danger); font-family: var(--mono); white-space: pre-wrap; }
+
+/* Manually overridden readings read blue so they are never mistaken for generated numbers. */
+.value-override {
+  color: var(--override);
+  background: var(--override-bg);
+  font-family: var(--mono);
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.override-note { font-size: 0.78rem; margin-top: 0.25rem; }
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.detail-head h2 { margin: 0; }
+
+.form-note { font-size: 0.78rem; margin: 0; }
 
 .detail-pane h2 { margin: 0 0 0.35rem; font-size: 1.2rem; }
 .detail-pane dl { margin: 0.75rem 0; }

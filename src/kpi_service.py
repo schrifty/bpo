@@ -141,7 +141,7 @@ def generate_live_observation(
 
 def _datapoint_from_stored_row(row: Any) -> DatapointValue:
     date_s = (row.observation.as_of or row.period_key or "").strip()
-    return DatapointValue(date=date_s, value=row.observation.display_value)
+    return DatapointValue(date=date_s, value=row.effective_observation.display_value)
 
 
 def observations_from_kpi_store(
@@ -170,11 +170,11 @@ def observations_from_kpi_store(
             else "no metric-generator — nothing stored by kpi-snapshot"
         )
         return _empty_observation(warning=warning), ()
-    current = rows[0].observation
+    current = rows[0].effective_observation
     recent = tuple(
         _datapoint_from_stored_row(row)
         for i, row in enumerate(rows)
-        if row.observation.ok or i == 0
+        if row.effective_observation.ok or i == 0
     )
     return current, recent
 
