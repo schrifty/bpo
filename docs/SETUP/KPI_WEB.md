@@ -62,9 +62,11 @@ Permissions match CLI ownership rules (enforced server-side via
    drops the override so the number already in SQLite shows again. It does not
    re-run the generator.
 5. With no row selected, the right pane is the Claude week/month situation
-   briefing (`GET /api/situation`). It is exactly six bullets: three for the
-   signed-in reader's team (owned KPIs and topic packs), then three covering
-   the most important trends across the rest of the catalog. Facts come only
+   briefing (`GET /api/situation`). It is exactly six unlabeled bullets: three
+   for the signed-in reader's team (owned KPIs and topic packs), then three
+   covering the most important trends across the rest of the catalog. Team
+   names appear in a sentence only when a KPI name would not already make
+   ownership obvious. Facts come only
    from the store digest
    (`src/kpi_web/situation.py`); rows are aged by `period_key`, not `as_of`,
    so pre-fix rows with stale keys cannot masquerade as the current close.

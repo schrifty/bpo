@@ -42,12 +42,12 @@ from tests.test_kpi_web_api import _OWNERS_YAML, _login
 
 _SIX_BULLETS = "\n".join(
     [
-        "- Your team — Support tickets are down vs last month.",
-        "- Your team — SLA is improving.",
-        "- Your team — Reopens need attention.",
-        "- Across the company — Engineering output is down.",
-        "- Across the company — AI adoption is steady.",
-        "- Across the company — Automation coverage is low.",
+        "- Support tickets are down vs last month.",
+        "- SLA is improving.",
+        "- Reopens need attention.",
+        "- Engineering output is down.",
+        "- AI adoption is steady.",
+        "- Automation coverage is low.",
     ]
 )
 
@@ -305,6 +305,8 @@ def test_generate_situation_uses_invoke_with_reader_prompt() -> None:
     assert "Support tickets" in text
     assert "How is my team doing?" in seen["system"]
     assert "exactly six bullets" in seen["system"]
+    assert "Do not prefix bullets" in seen["system"]
+    assert "Name a team inside the sentence" in seen["system"]
     assert "first three bullets" in seen["system"]
     assert "final three bullets" in seen["system"]
     assert "mgmt_guidance" in seen["system"]
@@ -320,12 +322,14 @@ def test_generate_situation_empty_llm_fails() -> None:
         )
 
 
-def test_validate_situation_analysis_rejects_wrong_team_split() -> None:
-    with pytest.raises(KpiSituationError, match="first 3"):
+def test_validate_situation_analysis_rejects_section_headers() -> None:
+    with pytest.raises(KpiSituationError, match="section headers"):
+        validate_situation_analysis("Your team\n" + _SIX_BULLETS)
+    with pytest.raises(KpiSituationError, match="section headers"):
         validate_situation_analysis(
             _SIX_BULLETS.replace(
-                "- Your team — Reopens need attention.",
-                "- Across the company — Reopens need attention.",
+                "- Support tickets are down vs last month.",
+                "- Your team — Support tickets are down vs last month.",
             )
         )
 
@@ -490,8 +494,8 @@ metrics:
 def test_iter_situation_analysis_cleans_markdown_across_chunks() -> None:
     # Markdown arrives split mid-token, so cleaning has to buffer whole lines.
     raw = _SIX_BULLETS.replace(
-        "- Your team — Support",
-        "# - Your team — **Support**",
+        "- Support tickets",
+        "# - **Support** tickets",
     )
     chunks = [raw[:20], raw[20:47], raw[47:]]
     out = "".join(

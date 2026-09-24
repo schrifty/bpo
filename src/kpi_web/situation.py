@@ -88,10 +88,14 @@ punctuation, %, slashes, and capitalization. The catalog turns those strings int
 links. Do not paraphrase ("PRs" for "PRs Merged", "AI spend" for "Monthly AI Spend").
 
 Format: exactly six bullets and nothing else. Plain text only. No section labels, \
-intro, summary, markdown emphasis, headings, rules, or tables. The first three bullets \
-must start with "- Your team — ". The final three must start with \
-"- Across the company — ". Each bullet is one to three concise sentences and includes \
-the action when one is warranted.
+intro, summary, markdown emphasis, headings, rules, or tables. Do not prefix bullets \
+with "Your team", "Across the company", or any other header. Each bullet starts with \
+"- " and is one to three concise sentences; include the action when one is warranted.
+
+Readers already know which KPI belongs to which team. Name a team inside the sentence \
+only when that adds context a KPI name would not — for example a peer team's trend \
+that will land on the reader's desk, or a catalog-admin view covering more than one \
+team. Never write a standalone header line.
 
 The first three bullets must discuss only the reader's team (`viewer.teams`), or, for \
 the catalog admin, the team with the most missed targets. Do not spend any part of \
@@ -583,22 +587,29 @@ def iter_situation_analysis(
     validate_situation_analysis("".join(rendered))
 
 
+_SECTION_HEADER = re.compile(
+    r"^(?:your team|peer teams?|company|watch this week|across the company)\s*[:—-]?\s*$",
+    re.I,
+)
+_SECTION_PREFIX = re.compile(
+    r"^-\s+(?:your team|peer teams?|company|watch this week|across the company)\s*[—:-]\s+",
+    re.I,
+)
+
+
 def validate_situation_analysis(text: str) -> None:
-    """Reject briefings that violate the six-bullet reader/company contract."""
+    """Reject briefings that are not six unlabeled bullets."""
     bullets = [line.strip() for line in text.splitlines() if line.strip().startswith("- ")]
     if len(bullets) != 6:
         raise KpiSituationError(
             f"Claude KPI situation briefing must contain exactly 6 bullets; got {len(bullets)}"
         )
-    if any(not line.startswith("- Your team — ") for line in bullets[:3]):
-        raise KpiSituationError(
-            "Claude KPI situation briefing must start its first 3 bullets with 'Your team'"
-        )
-    if any(not line.startswith("- Across the company — ") for line in bullets[3:]):
-        raise KpiSituationError(
-            "Claude KPI situation briefing must start its final 3 bullets with "
-            "'Across the company'"
-        )
+    for line in text.splitlines():
+        stripped = line.strip()
+        if _SECTION_HEADER.match(stripped) or _SECTION_PREFIX.match(stripped):
+            raise KpiSituationError(
+                "Claude KPI situation briefing must not use section headers on bullets"
+            )
 
 
 def generate_situation_analysis(
