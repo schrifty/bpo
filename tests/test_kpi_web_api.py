@@ -223,6 +223,7 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     html = res.text
     assert "Cortex KPIs" in html
     assert 'id="filter-tags"' in html
+    assert "tag-filter-heading" not in html
     assert "<select id=\"filter-tag\"" not in html
     assert 'id="user-badge"' in html
     assert 'id="btn-add"' in html
@@ -237,6 +238,7 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     assert 'id="btn-filters-tip"' in html
     assert 'class="table-scroll"' in html
     assert "<th>Owner</th>" in html
+    assert "col-delete" in html
     assert 'id="confirm-delete-dialog"' in html
     assert 'id="btn-delete-confirm"' in html
 

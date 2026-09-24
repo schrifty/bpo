@@ -107,17 +107,39 @@ def entry_has_tag(entry: Any, tag: str) -> bool:
     return target in registry_metric_tags(entry)
 
 
+def facet_tag_counts(
+    row_tags: Sequence[Sequence[str]],
+    *,
+    selected: Sequence[str] = (),
+) -> list[tuple[str, int]]:
+    """AND-facet tag counts: only rows that already have every *selected* tag.
+
+    Counts are how many of those rows carry each tag. Selected tags with no
+    remaining rows are kept at count 0 so the UI can still unselect them.
+    """
+    wanted = set(_normalized_tag_set(selected))
+    counts: dict[str, int] = {}
+    for raw in row_tags:
+        tags = [normalize_tag(t) for t in raw]
+        tags = [t for t in dict.fromkeys(tags) if t]
+        if wanted and not wanted.issubset(set(tags)):
+            continue
+        for tag in tags:
+            counts[tag] = counts.get(tag, 0) + 1
+    for tag in wanted:
+        counts.setdefault(tag, 0)
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
 def all_registry_tags(*, registry: dict[str, Any] | None = None) -> list[tuple[str, int]]:
     """Sorted ``(tag, count)`` pairs across the registry, most-used first then alphabetical."""
     reg = registry if registry is not None else load_metrics_registry()
     metrics = reg.get("metrics")
     if not isinstance(metrics, dict):
         return []
-    counts: dict[str, int] = {}
-    for entry in metrics.values():
-        for tag in registry_metric_tags(entry):
-            counts[tag] = counts.get(tag, 0) + 1
-    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    return facet_tag_counts(
+        [registry_metric_tags(entry) for entry in metrics.values()],
+    )
 
 
 def iter_all_metrics(

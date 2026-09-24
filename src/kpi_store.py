@@ -371,6 +371,76 @@ def stored_kpi_from_observation(
     )
 
 
+def period_key_now(grain: str, *, when: datetime | None = None) -> str:
+    """Calendar period key for *grain* at *when* (UTC now if omitted)."""
+    stamp = when if when is not None else datetime.now(timezone.utc)
+    g = validate_grain(grain)
+    if g == GRAIN_HOURLY:
+        return stamp.strftime("%Y-%m-%dT%H")
+    day = stamp.date()
+    if g == GRAIN_DAILY:
+        return day.isoformat()
+    if g == GRAIN_WEEKLY:
+        iso = day.isocalendar()
+        return f"{iso.year:04d}-W{iso.week:02d}"
+    if g == GRAIN_MONTHLY:
+        return f"{day.year:04d}-{day.month:02d}"
+    if g == GRAIN_QUARTERLY:
+        quarter = (day.month - 1) // 3 + 1
+        return f"{day.year:04d}-Q{quarter}"
+    raise KPIStoreError(f"unsupported grain {g!r}")
+
+
+def upsert_manual_value(
+    conn: sqlite3.Connection,
+    *,
+    metric_name: str,
+    grain: str,
+    value: float,
+    period_key: str | None = None,
+    tags: Iterable[str] | None = None,
+    generator: str | None = None,
+    actor: str | None = None,
+) -> StoredKPI:
+    """Write an explicit numeric observation, replacing the latest period if present."""
+    name = (metric_name or "").strip()
+    if not name:
+        raise KPIStoreError("metric_name is required")
+    g = validate_grain(grain)
+    existing: StoredKPI | None = None
+    if period_key and str(period_key).strip():
+        pk = validate_period_key(g, str(period_key).strip())
+        existing = get_kpi(conn, name, g, pk)
+    else:
+        rows = list_kpis(conn, metric_name=name, grain=g, limit=1)
+        existing = rows[0] if rows else None
+        pk = existing.period_key if existing else period_key_now(g)
+    meta = dict(existing.observation.meta) if existing else {}
+    if actor:
+        meta["edited_by"] = str(actor).strip()
+    obs = KPIObservation(
+        value=float(value),
+        as_of=_as_of_for_period(g, pk),
+        origin="stored",
+        source=("kpi-web",),
+        meta=meta,
+        window_days=existing.observation.window_days if existing else None,
+    )
+    row = stored_kpi_from_observation(
+        metric_name=name,
+        grain=g,
+        period_key=pk,
+        observation=obs,
+        generator=generator if generator is not None else (existing.generator if existing else None),
+        tags=tags if tags is not None else (existing.tags if existing else ()),
+    )
+    upsert_kpi(conn, row)
+    written = get_kpi(conn, name, g, pk)
+    if written is None:
+        raise KPIStoreError(f"failed to persist value for {name!r} {g} {pk}")
+    return written
+
+
 def _as_of_for_period(grain: str, period_key: str) -> str:
     """Canonical date/time representing a persisted grain period."""
     if grain == GRAIN_HOURLY:

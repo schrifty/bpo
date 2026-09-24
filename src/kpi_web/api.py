@@ -12,9 +12,14 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 from starlette.staticfiles import StaticFiles
 
-from src.kpi_owners import load_kpi_owners_config, resolve_owner_cli_value
+from src.kpi_owners import (
+    assert_actor_may_mutate_metric,
+    KPIOwnershipError,
+    load_kpi_owners_config,
+    resolve_owner_cli_value,
+)
 from src.kpi_service import RESOLVE_MODES, ResolveMode, resolve_kpi, resolve_kpis
-from src.kpi_store import connect, list_kpis
+from src.kpi_store import connect, list_kpis, upsert_manual_value
 from src.kpi_store_s3 import prepare_kpi_store_for_read
 from src.kpi_web.auth import (
     KPIWebAuthError,
@@ -50,6 +55,7 @@ from src.metrics_registry import (
     load_metrics_registry,
     normalize_tag,
     registry_metric_grain,
+    registry_metric_owner,
     registry_metric_tags,
 )
 from src.metrics_registry_write import MetricsRegistryWriteError
@@ -439,6 +445,94 @@ async def api_kpi_edit(request: Request) -> Response:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     audit_catalog_change(change, actor=user.email)
     return JSONResponse({"ok": True, "change": change_to_dict(change, actor=user.email)})
+
+
+def _parse_numeric_value(raw: Any) -> float:
+    if isinstance(raw, bool) or raw is None:
+        raise MetricsRegistryWriteError("value must be a number")
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    text = str(raw).strip()
+    if not text:
+        raise MetricsRegistryWriteError("value must be a number")
+    try:
+        return float(text)
+    except ValueError as exc:
+        raise MetricsRegistryWriteError(f"value must be a number, got {raw!r}") from exc
+
+
+async def api_kpi_set_value(request: Request) -> Response:
+    """PUT /api/kpis/{name}/value — write a stored observation (fail loud)."""
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    settings = _settings(request)
+    name = unquote(request.path_params.get("name") or "").strip()
+    if not name:
+        return JSONResponse({"ok": False, "error": "metric name required"}, status_code=400)
+    try:
+        body = await _json_body(request)
+        if "value" not in body:
+            raise MetricsRegistryWriteError("value is required")
+        value = _parse_numeric_value(body.get("value"))
+        period_key = body.get("period_key")
+        period = str(period_key).strip() if period_key not in (None, "") else None
+        reg = _registry(request)
+        found = get_registry_metric(name, registry=reg)
+        if found is None:
+            return JSONResponse(
+                {"ok": False, "error": f"KPI not found: {name!r}"},
+                status_code=404,
+            )
+        metric_name, entry = found
+        owners = load_kpi_owners_config(path=settings.owners_path)
+        assert_actor_may_mutate_metric(
+            user.email,
+            existing_owner=registry_metric_owner(entry),
+            new_owner=registry_metric_owner(entry),
+            action="edit",
+            owners=owners,
+        )
+        store_conn = _open_store(settings)
+        try:
+            stored = upsert_manual_value(
+                store_conn,
+                metric_name=metric_name,
+                grain=registry_metric_grain(entry),
+                value=value,
+                period_key=period,
+                tags=tuple(registry_metric_tags(entry)),
+                generator=str(entry.get("metric-generator") or "").strip() or None,
+                actor=user.email,
+            )
+        finally:
+            store_conn.close()
+    except KPIOwnershipError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=403)
+    except MetricsRegistryWriteError as exc:
+        return _write_error_response(exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("KPI value write failed for %s", name)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    logger.info(
+        "kpi_value_write name=%r grain=%s period=%s actor=%s value=%s",
+        metric_name,
+        stored.grain,
+        stored.period_key,
+        user.email,
+        stored.observation.display_value,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "name": metric_name,
+            "grain": stored.grain,
+            "period_key": stored.period_key,
+            "value": stored.observation.display_value,
+            "actor": user.email,
+        }
+    )
 
 
 async def api_kpi_delete(request: Request) -> Response:

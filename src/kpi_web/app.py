@@ -29,6 +29,7 @@ def create_app(
         Route("/api/meta", api.api_meta, methods=["GET"]),
         Route("/api/kpis", api.api_list_kpis, methods=["GET"]),
         Route("/api/kpis", api.api_kpi_add, methods=["POST"]),
+        Route("/api/kpis/{name:path}/value", api.api_kpi_set_value, methods=["PUT"]),
         Route("/api/kpis/{name:path}", api.api_kpi_detail, methods=["GET"]),
         Route("/api/kpis/{name:path}", api.api_kpi_edit, methods=["PATCH"]),
         Route("/api/kpis/{name:path}", api.api_kpi_delete, methods=["DELETE"]),
@@ -44,7 +45,7 @@ def create_app(
             CORSMiddleware,
             allow_origins=[cfg.base_url],
             allow_credentials=True,
-            allow_methods=["GET", "POST", "PATCH", "DELETE"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
             allow_headers=["*"],
         ),
     ]

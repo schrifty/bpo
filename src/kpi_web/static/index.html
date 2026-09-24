@@ -47,14 +47,11 @@
 
     <section id="app-panel" class="hidden">
       <div class="tag-filter-wrap">
-        <div class="tag-filter-heading">
-          <span>Tags</span>
-          <button type="button" id="btn-clear-tags" class="linkish hidden">Clear</button>
-        </div>
         <div id="filter-tags" class="tag-filter" role="group" aria-label="Filter by tags"></div>
+        <button type="button" id="btn-clear-tags" class="linkish hidden">Clear</button>
       </div>
 
-      <p id="list-status" class="muted"></p>
+      <p id="list-status" class="muted hidden"></p>
       <p id="list-error" class="error" hidden></p>
       <p id="mutate-status" class="ok-banner hidden"></p>
 
@@ -118,6 +115,7 @@
             <table id="kpi-table">
               <thead>
                 <tr>
+                  <th class="col-delete"><span class="visually-hidden">Delete</span></th>
                   <th>Name</th>
                   <th>Grain</th>
                   <th>Owner</th>

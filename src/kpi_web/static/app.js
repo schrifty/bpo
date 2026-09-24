@@ -10,6 +10,7 @@
     formMode: "add", // add | edit
     editName: null,
     pendingDelete: null,
+    editingValue: null,
   };
 
   function esc(s) {
@@ -178,18 +179,49 @@
       ownerSel.appendChild(opt);
     }
     if (prevOwner) ownerSel.value = prevOwner;
-    renderTagFilter(meta.tags || []);
+  }
+
+  function isImplementedKpi(kpi) {
+    return Boolean(kpi.metric_generator || kpi.automated);
+  }
+
+  function kpiHasAllTags(kpi, tags) {
+    if (!tags.length) return true;
+    const have = new Set(kpi.tags || []);
+    return tags.every((t) => have.has(t));
+  }
+
+  function facetTagsFromKpis(items, selected) {
+    const matching = selected.length
+      ? items.filter((k) => kpiHasAllTags(k, selected))
+      : items;
+    const counts = new Map();
+    for (const kpi of matching) {
+      const seen = new Set();
+      for (const raw of kpi.tags || []) {
+        const tag = String(raw || "").trim();
+        if (!tag || seen.has(tag)) continue;
+        seen.add(tag);
+        counts.set(tag, (counts.get(tag) || 0) + 1);
+      }
+    }
+    for (const tag of selected) {
+      if (!counts.has(tag)) counts.set(tag, 0);
+    }
+    return [...counts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => {
+        const byCount = (b.count || 0) - (a.count || 0);
+        if (byCount !== 0) return byCount;
+        return String(a.tag).localeCompare(String(b.tag));
+      });
   }
 
   function renderTagFilter(tags) {
     const host = $("filter-tags");
-    const known = new Set((tags || []).map((t) => t.tag));
+    const ordered = tags || [];
+    const known = new Set(ordered.map((t) => t.tag));
     state.selectedTags = state.selectedTags.filter((t) => known.has(t));
-    const ordered = [...(tags || [])].sort((a, b) => {
-      const byCount = (b.count || 0) - (a.count || 0);
-      if (byCount !== 0) return byCount;
-      return String(a.tag).localeCompare(String(b.tag));
-    });
     host.innerHTML = "";
     if (!ordered.length) {
       const empty = document.createElement("span");
@@ -214,14 +246,12 @@
     const i = state.selectedTags.indexOf(tag);
     if (i >= 0) state.selectedTags.splice(i, 1);
     else state.selectedTags.push(tag);
-    renderTagFilter((state.meta && state.meta.tags) || []);
     refreshList();
   }
 
   function clearTags() {
     if (!state.selectedTags.length) return;
     state.selectedTags = [];
-    renderTagFilter((state.meta && state.meta.tags) || []);
     refreshList();
   }
 
@@ -260,37 +290,124 @@
     return (kpi.owner || "").toLowerCase() === (me.email || "").toLowerCase();
   }
 
+  function setListStatus(msg) {
+    const el = $("list-status");
+    const text = msg || "";
+    el.textContent = text;
+    el.classList.toggle("hidden", !text);
+  }
+
+  function currentValue(kpi) {
+    const obs = kpi.observation;
+    if (!obs || !obs.ok || obs.value == null || obs.value === "") return "";
+    return String(obs.value);
+  }
+
   function renderList(payload) {
     const tbody = $("kpi-table").querySelector("tbody");
     tbody.innerHTML = "";
     const items = payload.kpis || [];
     $("empty-state").classList.toggle("hidden", items.length > 0);
-    const extras = [];
-    if (payload.filters && payload.filters.owner) extras.push(`owner=${fmtOwner(payload.filters.owner)}`);
-    if (payload.filters && payload.filters.grain) extras.push(`grain=${payload.filters.grain}`);
-    if (payload.filters && payload.filters.target) extras.push(`target=${payload.filters.target}`);
-    if (payload.filters && payload.filters.tags && payload.filters.tags.length) {
-      extras.push(`tags=${payload.filters.tags.join(",")}`);
-    }
-    $("list-status").textContent =
-      `${items.length} KPI(s)` +
-      (extras.length ? ` · ${extras.join(" · ")}` : "");
+    setListStatus("");
+    state.editingValue = null;
 
     for (const kpi of items) {
       const tr = document.createElement("tr");
+      tr.dataset.name = kpi.name;
       if (state.selected === kpi.name) tr.classList.add("active");
       const ownerLabel = fmtOwner(kpi.owner);
       const ownerTitle = kpi.owner ? ` title="${esc(kpi.owner)}"` : "";
+      const editable = canEdit(kpi);
+      const del = editable
+        ? `<button type="button" class="row-delete" title="Delete ${esc(kpi.name)}" aria-label="Delete ${esc(kpi.name)}">
+             <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM7 9h2v9H7V9z"/></svg>
+           </button>`
+        : "";
       tr.innerHTML = `
+        <td class="col-delete">${del}</td>
         <td>${esc(kpi.name)}</td>
         <td class="col-grain">${esc(kpi.grain || "daily")}</td>
         <td class="col-owner"${ownerTitle}>${esc(ownerLabel)}</td>
         <td>${(kpi.tags || []).map((t) => `<span class="pill">${esc(t)}</span>`).join("") || "—"}</td>
         <td>${esc(fmtTarget(kpi))}</td>
-        <td>${valueCell(kpi)}</td>`;
+        <td class="value-cell${editable ? " editable" : ""}">${valueCell(kpi)}</td>`;
+      const delBtn = tr.querySelector(".row-delete");
+      if (delBtn) {
+        delBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          deleteKpi(kpi);
+        });
+      }
+      const valueTd = tr.querySelector(".value-cell");
+      if (editable) {
+        valueTd.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          beginValueEdit(valueTd, kpi);
+        });
+      }
       tr.addEventListener("click", () => selectKpi(kpi.name));
       tbody.appendChild(tr);
     }
+  }
+
+  function beginValueEdit(td, kpi) {
+    if (state.editingValue === kpi.name) return;
+    state.editingValue = kpi.name;
+    const prior = currentValue(kpi);
+    td.innerHTML = `<input class="value-input" type="text" inputmode="decimal" aria-label="Edit value for ${esc(kpi.name)}" />`;
+    const input = td.querySelector("input");
+    input.value = prior;
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      const typed = input.value.trim();
+      if (!save || typed === prior) {
+        state.editingValue = null;
+        td.innerHTML = valueCell(kpi);
+        return;
+      }
+      let n;
+      try {
+        n = optionalNumber(typed);
+      } catch (err) {
+        state.editingValue = null;
+        td.innerHTML = valueCell(kpi);
+        showMutateStatus(err.message || String(err), true);
+        return;
+      }
+      if (n === undefined) {
+        state.editingValue = null;
+        td.innerHTML = valueCell(kpi);
+        showMutateStatus("value must be a number", true);
+        return;
+      }
+      try {
+        await api(`/api/kpis/${encodeURIComponent(kpi.name)}/value`, {
+          method: "PUT",
+          body: JSON.stringify({ value: n }),
+        });
+        state.editingValue = null;
+        await refreshList();
+        if (state.selected === kpi.name) await selectKpi(kpi.name);
+      } catch (err) {
+        state.editingValue = null;
+        td.innerHTML = valueCell(kpi);
+        showMutateStatus(err.message || String(err), true);
+      }
+    };
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        finish(true);
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
   }
 
   function renderDetail(payload) {
@@ -305,17 +422,9 @@
           .join("")
       : `<tr><td colspan="2" class="muted">No stored history</td></tr>`;
 
-    const actions = canEdit(kpi)
-      ? `<div class="detail-actions">
-           <button type="button" id="btn-edit" class="secondary">Edit</button>
-           <button type="button" id="btn-delete" class="danger">Delete</button>
-         </div>`
-      : `<p class="muted">You can view this KPI but only its owner (or the catalog admin) may edit it.</p>`;
-
     $("detail").innerHTML = `
       <h2>${esc(kpi.name)}</h2>
       <p class="muted">${esc(fmtOwner(kpi.owner))}</p>
-      ${actions}
       <dl>
         <dt>Description</dt>
         <dd>${esc(kpi.description || "—")}</dd>
@@ -337,11 +446,6 @@
           <tbody>${histRows}</tbody></table>
         </dd>
       </dl>`;
-
-    const editBtn = $("btn-edit");
-    const delBtn = $("btn-delete");
-    if (editBtn) editBtn.addEventListener("click", () => openEditForm(kpi));
-    if (delBtn) delBtn.addEventListener("click", () => deleteKpi(kpi));
   }
 
   function showMutateStatus(msg, isError) {
@@ -589,19 +693,21 @@
     if (owner) qs.set("owner", owner);
     qs.set("mode", mode);
     qs.set("values", "1");
-    $("list-status").textContent = "Loading…";
+    setListStatus("Loading…");
     try {
       const data = await api(`/api/kpis?${qs.toString()}`);
       let items = data.kpis || [];
-      if (tags.length) {
-        const want = new Set(tags);
-        items = items.filter((k) => (k.tags || []).some((t) => want.has(t)));
-      }
       if (grain) {
         items = items.filter((k) => (k.grain || "daily") === grain);
       }
       if (targetFilter) {
         items = items.filter((k) => targetOutcome(k) === targetFilter);
+      }
+      const implemented = items.filter(isImplementedKpi);
+      const tagUniverse = implemented.length ? implemented : items;
+      renderTagFilter(facetTagsFromKpis(tagUniverse, tags));
+      if (tags.length) {
+        items = tagUniverse.filter((k) => kpiHasAllTags(k, tags));
       }
       data.kpis = items;
       data.count = items.length;
@@ -615,22 +721,20 @@
       syncFilterBadge();
       if (state.selected) {
         for (const tr of $("kpi-table").querySelectorAll("tbody tr")) {
-          if (tr.children[0] && tr.children[0].textContent === state.selected) {
-            tr.classList.add("active");
-          }
+          if (tr.dataset.name === state.selected) tr.classList.add("active");
         }
       }
     } catch (err) {
       errEl.hidden = false;
       errEl.textContent = err.message || String(err);
-      $("list-status").textContent = "Failed to load KPIs";
+      setListStatus("");
     }
   }
 
   async function selectKpi(name) {
     state.selected = name;
     for (const tr of $("kpi-table").querySelectorAll("tbody tr")) {
-      tr.classList.toggle("active", tr.children[0] && tr.children[0].textContent === name);
+      tr.classList.toggle("active", tr.dataset.name === name);
     }
     $("detail").innerHTML = `<p class="muted">Loading ${esc(name)}…</p>`;
     try {

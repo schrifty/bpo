@@ -175,6 +175,18 @@ main {
 
 .hidden { display: none !important; }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -198,16 +210,11 @@ main {
 }
 
 .tag-filter-wrap {
-  margin: 0 0 0.85rem;
-}
-
-.tag-filter-heading {
   display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin-bottom: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  margin: 0 0 0.85rem;
 }
 
 button.linkish {
@@ -556,6 +563,51 @@ dialog::backdrop {
 }
 
 .col-grain, .col-owner { white-space: nowrap; }
+
+.col-delete {
+  width: 2.4rem;
+  padding-left: 0.2rem;
+  padding-right: 0.15rem;
+}
+
+.row-delete {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.row-delete svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.row-delete:hover {
+  color: var(--danger);
+  background: var(--danger-bg);
+  filter: none;
+}
+
+.value-cell.editable { cursor: text; }
+
+.value-input {
+  width: 100%;
+  max-width: 8rem;
+  font-family: var(--mono);
+  font-size: 0.92rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ink);
+}
 
 #kpi-table tbody tr { cursor: pointer; }
 #kpi-table tbody tr:hover,

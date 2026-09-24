@@ -15,6 +15,7 @@ from src.metrics_latest import (
 from src.metrics_registry import (
     all_registry_tags,
     entry_has_tag,
+    facet_tag_counts,
     iter_metrics_by_tag,
     load_metrics_registry,
     normalize_tag,
@@ -100,6 +101,30 @@ def test_all_registry_tags_counts_sorted(tmp_path: Path) -> None:
         ("data-integration", 1),
         ("support", 1),
     ]
+
+
+def test_facet_tag_counts_and_selected() -> None:
+    rows = [
+        ["engineering", "ai"],
+        ["engineering"],
+        ["support"],
+        ["engineering", "ai"],
+    ]
+    assert facet_tag_counts(rows) == [
+        ("engineering", 3),
+        ("ai", 2),
+        ("support", 1),
+    ]
+    assert facet_tag_counts(rows, selected=["engineering"]) == [
+        ("engineering", 3),
+        ("ai", 2),
+    ]
+    assert facet_tag_counts(rows, selected=["engineering", "ai"]) == [
+        ("ai", 2),
+        ("engineering", 2),
+    ]
+    assert facet_tag_counts(rows, selected=["support"]) == [("support", 1)]
+    assert facet_tag_counts(rows, selected=["missing"]) == [("missing", 0)]
 
 
 def test_repo_registry_has_tags() -> None:

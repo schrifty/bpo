@@ -46,9 +46,13 @@ Permissions match CLI ownership rules (enforced server-side via
 3. Filter the list from the funnel icon at the top-right of the table (hover
    label **Filters**): owner, grain, mode (stored / live / leandna), and target
    made (green) / missed (red). The list always loads values using the selected
-   mode. Tag chips stay on the page.
-4. Select a KPI you may edit → **Edit** / **Delete** in the detail pane.
-5. Delete opens a confirmation dialog, dry-runs, then writes the YAML delete.
+   mode. Tag chips stay on the page. Chips list tags on instrumented KPIs
+   (those with a generator); if none are instrumented, chips fall back to the
+   current filtered set. Counts are AND-faceted from chips already selected.
+4. Click a **Value** cell (owners and catalog admin) to edit the stored reading;
+   Enter saves, Escape cancels. Delete is the trash control at the left of each
+   row (confirmation dialog, then YAML delete).
+5. Select a KPI to read description, guidance, target, and history.
 
 Leads see Edit/Delete only on KPIs they own; other owners are view-only.
 
@@ -140,6 +144,7 @@ error (no empty fake catalog).
 | GET | `/api/meta` | Owners, tags, topic packs |
 | GET | `/api/kpis?owner=&tag=&mode=stored\|live\|leandna&values=0\|1` | List/filter; UI always sends `values=1` |
 | GET | `/api/kpis/{name}?mode=&history=12` | Detail + observation + history |
+| PUT | `/api/kpis/{name}/value` | Write stored observation (`{"value": n}`) |
 | POST | `/api/kpis` | Add KPI (`?dry_run=1` or body `dry_run`) |
 | PATCH | `/api/kpis/{name}` | Edit / rename (`new_name`, field clears, dry-run) |
 | DELETE | `/api/kpis/{name}` | Delete (`?dry_run=1`) |
