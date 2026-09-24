@@ -779,6 +779,81 @@
     input.addEventListener("blur", () => finish(true));
   }
 
+  function numericHistory(hist) {
+    return (hist || [])
+      .map((h) => ({ date: String(h.date || "").trim(), value: Number(h.value) }))
+      .filter((h) => h.date && Number.isFinite(h.value))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  function historyChart(kpi, hist) {
+    const points = numericHistory(hist);
+    if (points.length < 2) return "";
+    const w = 320;
+    const h = 132;
+    const pad = { l: 44, r: 8, t: 10, b: 26 };
+    const innerW = w - pad.l - pad.r;
+    const innerH = h - pad.t - pad.b;
+    const vals = points.map((p) => p.value);
+    const target = kpi.target == null || kpi.target === "" ? null : Number(kpi.target);
+    let vmin = Math.min(...vals);
+    let vmax = Math.max(...vals);
+    if (Number.isFinite(target)) {
+      vmin = Math.min(vmin, target);
+      vmax = Math.max(vmax, target);
+    }
+    if (vmin === vmax) {
+      vmin -= 1;
+      vmax += 1;
+    }
+    const span = vmax - vmin;
+    const xAt = (i) => pad.l + (i / (points.length - 1)) * innerW;
+    const yAt = (v) => pad.t + (1 - (v - vmin) / span) * innerH;
+    const line = points.map((p, i) => `${xAt(i).toFixed(1)},${yAt(p.value).toFixed(1)}`).join(" ");
+    const baseY = (pad.t + innerH).toFixed(1);
+    const area = `${pad.l.toFixed(1)},${baseY} ${line} ${xAt(points.length - 1).toFixed(1)},${baseY}`;
+    const last = points[points.length - 1];
+    const outcome = targetOutcome({
+      ...kpi,
+      observation: { ok: true, value: last.value },
+    });
+    const lastFill =
+      outcome === "made" ? "var(--ok)" : outcome === "missed" ? "var(--danger)" : "var(--accent)";
+    const targetLine = Number.isFinite(target)
+      ? `<line class="chart-target" x1="${pad.l}" x2="${w - pad.r}" y1="${yAt(target).toFixed(1)}" y2="${yAt(target).toFixed(1)}" />`
+      : "";
+    const dots = points
+      .map((p, i) => {
+        const fill = i === points.length - 1 ? lastFill : "var(--accent)";
+        const r = i === points.length - 1 ? 4 : 2.75;
+        return `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.value).toFixed(1)}" r="${r}" fill="${fill}"><title>${esc(p.date)}: ${esc(fmtValue(p.value))}</title></circle>`;
+      })
+      .join("");
+    const yLabels = [vmax, vmin]
+      .map(
+        (v) =>
+          `<text class="chart-label" x="${pad.l - 6}" y="${yAt(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle">${esc(fmtValue(v))}</text>`
+      )
+      .join("");
+    const xLabels = [0, points.length - 1]
+      .map((i) => {
+        const anchor = i === 0 ? "start" : "end";
+        return `<text class="chart-label" x="${xAt(i).toFixed(1)}" y="${h - 6}" text-anchor="${anchor}">${esc(points[i].date)}</text>`;
+      })
+      .join("");
+    const label = `${points.length} readings from ${points[0].date} to ${last.date}`;
+    return `<figure class="history-chart-wrap">
+      <svg class="history-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label)}">
+        ${targetLine}
+        <polyline class="chart-area" points="${area}"></polyline>
+        <polyline class="chart-line" points="${line}"></polyline>
+        ${dots}
+        ${yLabels}
+        ${xLabels}
+      </svg>
+    </figure>`;
+  }
+
   function renderDetail(payload) {
     const kpi = payload.kpi;
     const hist = kpi.history || [];
@@ -817,8 +892,9 @@
           ${kpi.unit ? ` · ${esc(kpi.unit)}` : ""}
           ${kpi.target_error ? `<div class="error">${esc(kpi.target_error)}</div>` : ""}
         </dd>
-        <dt>Value</dt>
-        <dd>${valueCell(kpi)}${overrideNote(kpi)}</dd>
+      </dl>
+      ${historyChart(kpi, hist)}
+      <dl>
         <dt>Recent history</dt>
         <dd>
           ${kpi.history_warning ? `<div class="value-empty">${esc(kpi.history_warning)}</div>` : ""}
@@ -829,10 +905,6 @@
 
     const detailEdit = $("btn-detail-edit");
     if (detailEdit) detailEdit.addEventListener("click", () => openEditForm(kpi));
-    const restoreBtn = $("btn-restore-value");
-    if (restoreBtn) {
-      restoreBtn.addEventListener("click", () => restoreOverride(kpi));
-    }
   }
 
   async function restoreOverride(kpi) {
@@ -846,22 +918,6 @@
     } catch (err) {
       showMutateStatus(err.message || String(err), true);
     }
-  }
-
-  function overrideNote(kpi) {
-    const ov = kpi.observation && kpi.observation.override;
-    if (!ov) return "";
-    const generated =
-      ov.generated_value == null || ov.generated_value === ""
-        ? "none"
-        : fmtValue(ov.generated_value);
-    const who = ov.by ? ` by ${esc(ov.by)}` : "";
-    const restore = canEdit(kpi)
-      ? ` <button type="button" id="btn-restore-value" class="linkish">Restore stored value</button>`
-      : "";
-    return `<div class="muted override-note">Manual override${who}; generated value ${esc(
-      generated
-    )}.${restore}</div>`;
   }
 
   function showMutateStatus(msg, isError) {

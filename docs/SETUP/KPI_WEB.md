@@ -85,7 +85,8 @@ Permissions match CLI ownership rules (enforced server-side via
    The message bar at the bottom calls `POST /api/situation/chat`; each answer
    is grounded in the same current digest and the last 12 turns. KPI names in
    the briefing and chat answers link to their detail panels.
-   Select a KPI to read description, guidance, target, and history.
+   Select a KPI to read description, guidance, target, a trend chart when
+   two or more readings exist, and history.
    The pencil in the detail header edits **name, tags, and target** (plus
    direction/unit, which a target needs). Delete is the trash control at the
    left of each row (confirmation dialog, then YAML delete).

@@ -916,6 +916,41 @@ button.value-restore:hover {
   border-collapse: collapse;
 }
 
+.history-chart-wrap {
+  margin: 0.15rem 0 0.85rem;
+}
+
+.history-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-area {
+  fill: var(--accent-soft);
+  stroke: none;
+}
+
+.chart-target {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.chart-label {
+  fill: var(--muted);
+  font-size: 8px;
+  font-family: var(--mono);
+}
+
 .history th,
 .history td {
   text-align: left;

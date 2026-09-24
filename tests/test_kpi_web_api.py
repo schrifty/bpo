@@ -281,6 +281,9 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     assert 'data-sort="value"' in html
     assert "function setSort" in js.text
     assert 'sortKey: "name"' in js.text
+    assert "function historyChart" in js.text
+    assert "history-chart" in js.text
+    assert "<dt>Value</dt>" not in js.text
     logo = client.get("/static/logo.svg")
     assert logo.status_code == 200
     assert "<svg" in logo.text and "Cortex" in logo.text
