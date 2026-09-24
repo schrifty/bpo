@@ -166,15 +166,22 @@ _MD_RULE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
 _MD_HEADING = re.compile(r"^\s*#{1,6}\s+")
 
 
+def _clean_md_line(line: str) -> str | None:
+    """Clean one line, or return None when the whole line is markdown chrome."""
+    if _MD_RULE.match(line):
+        return None
+    line = _MD_HEADING.sub("", line)
+    line = _MD_BOLD.sub(r"\1", line)
+    return line.rstrip()
+
+
 def strip_markdown_chrome(text: str) -> str:
     """Drop bold markers, horizontal rules, and heading hashes; keep bullets."""
-    out: list[str] = []
-    for line in (text or "").splitlines():
-        if _MD_RULE.match(line):
-            continue
-        line = _MD_HEADING.sub("", line)
-        line = _MD_BOLD.sub(r"\1", line)
-        out.append(line.rstrip())
+    out = [
+        cleaned
+        for cleaned in (_clean_md_line(line) for line in (text or "").splitlines())
+        if cleaned is not None
+    ]
     cleaned = "\n".join(out)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
@@ -465,12 +472,7 @@ def build_situation_digest(
     }
 
 
-def generate_situation_analysis(
-    digest: dict[str, Any],
-    *,
-    invoke=None,
-) -> str:
-    """Ask Claude for a landing-pane briefing. Fail loud on empty or unusable output."""
+def _situation_prompt(digest: dict[str, Any]) -> tuple[str, str]:
     if int(digest.get("kpi_count") or 0) < 1:
         raise KpiSituationError(
             "no stored generator KPI readings to compare with a week ago or a month ago"
@@ -478,12 +480,55 @@ def generate_situation_analysis(
     payload = json.dumps(digest, default=str, separators=(",", ":"))
     if len(payload) > _MAX_DIGEST_CHARS:
         payload = payload[:_MAX_DIGEST_CHARS] + "…"
-    system = SITUATION_SYSTEM_PROMPT
     user = (
         "Write the Situation briefing for the reader described in `viewer` "
         "(if viewer is null, write for the whole leadership team). Use only this digest.\n\n"
         f"{payload}"
     )
+    return SITUATION_SYSTEM_PROMPT, user
+
+
+def iter_situation_analysis(
+    digest: dict[str, Any],
+    *,
+    stream=None,
+) -> Iterable[str]:
+    """Yield the briefing a line at a time as Claude writes it.
+
+    Cleaning is line-buffered because every markdown construct we strip (rules,
+    heading hashes, bold spans) is contained within a single line, so a line is
+    the smallest unit we can clean without risking a half-written ``**`` pair
+    reaching the reader.
+    """
+    system, user = _situation_prompt(digest)
+    source = stream if stream is not None else _claude_stream
+    buffer = ""
+    produced = False
+    for delta in source(system=system, user=user):
+        buffer += str(delta or "")
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            cleaned = _clean_md_line(line)
+            if cleaned is None:
+                continue
+            if cleaned.strip():
+                produced = True
+            yield cleaned + "\n"
+    tail = _clean_md_line(buffer)
+    if tail and tail.strip():
+        produced = True
+        yield tail
+    if not produced:
+        raise KpiSituationError("Claude returned an empty KPI situation briefing")
+
+
+def generate_situation_analysis(
+    digest: dict[str, Any],
+    *,
+    invoke=None,
+) -> str:
+    """Ask Claude for a landing-pane briefing. Fail loud on empty or unusable output."""
+    system, user = _situation_prompt(digest)
     call = invoke if invoke is not None else _claude_complete
     text = call(system=system, user=user)
     cleaned = strip_markdown_chrome(text or "")
@@ -516,12 +561,47 @@ def _message_text(resp: Any) -> str:
     return str(content or "").strip()
 
 
-def _claude_complete(*, system: str, user: str) -> str:
+def _claude_client_and_model():
     try:
         client = anthropic_llm_client()
     except RuntimeError as exc:
         raise KpiSituationError(str(exc)) from exc
     model = (LLM_MODEL if str(LLM_MODEL).startswith("claude") else "") or "claude-sonnet-4-6"
+    return client, model
+
+
+def _claude_stream(*, system: str, user: str) -> Iterable[str]:
+    client, model = _claude_client_and_model()
+    try:
+        resp = _llm_create_with_retry(
+            client,
+            model=model,
+            max_tokens=3000,
+            stream=True,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("KPI situation Claude stream failed")
+        raise KpiSituationError(f"Claude KPI situation call failed: {exc}") from exc
+    try:
+        for chunk in resp:
+            try:
+                delta = chunk.choices[0].delta
+            except (AttributeError, IndexError, TypeError):
+                continue
+            text = getattr(delta, "content", None)
+            if text:
+                yield str(text)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("KPI situation Claude stream broke mid-response")
+        raise KpiSituationError(f"Claude KPI situation stream failed: {exc}") from exc
+
+
+def _claude_complete(*, system: str, user: str) -> str:
+    client, model = _claude_client_and_model()
     try:
         resp = _llm_create_with_retry(
             client,

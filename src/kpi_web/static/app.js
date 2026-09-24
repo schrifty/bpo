@@ -498,10 +498,55 @@
       err.textContent = cached.error;
       return;
     }
-    status.hidden = true;
-    err.hidden = true;
     body.hidden = false;
     body.textContent = cached.analysis || "";
+    body.classList.toggle("streaming", !!cached.streaming);
+    status.hidden = !cached.streaming;
+    if (cached.streaming) status.textContent = "Claude is writing the briefing…";
+    err.hidden = true;
+  }
+
+  async function streamSituation() {
+    const res = await fetch("/api/situation/stream", { credentials: "same-origin" });
+    if (!res.ok || !res.body) {
+      let message = `${res.status} ${res.statusText}`;
+      try {
+        const body = await res.json();
+        if (body && body.error) message = body.error;
+      } catch (_) {
+        /* non-JSON error body */
+      }
+      throw new Error(message);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = "";
+    let text = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = pending.indexOf("\n")) >= 0) {
+        const line = pending.slice(0, nl).trim();
+        pending = pending.slice(nl + 1);
+        if (!line) continue;
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch (_) {
+          continue;
+        }
+        if (event.type === "error") throw new Error(event.error || "situation briefing failed");
+        if (event.type !== "delta") continue;
+        text += event.text || "";
+        state.situation = { analysis: text.replace(/^\n+/, ""), streaming: true };
+        if (!state.selected) applySituationView();
+      }
+    }
+    const analysis = text.trim();
+    if (!analysis) throw new Error("Claude returned an empty KPI situation briefing");
+    return analysis;
   }
 
   function showSituationPane() {
@@ -518,22 +563,20 @@
   }
 
   async function loadSituation() {
-    if (state.situation && state.situation.analysis) {
+    if (state.situation && state.situation.analysis && !state.situation.streaming) {
       applySituationView();
       return;
-    }
-    if (state.situation && state.situation.error) {
-      state.situation = null;
     }
     if (state.situationPromise) {
       await state.situationPromise;
       if (!state.selected) applySituationView();
       return;
     }
+    state.situation = null;
     applySituationView();
-    state.situationPromise = api("/api/situation")
-      .then((data) => {
-        state.situation = { analysis: data.analysis, as_of: data.as_of };
+    state.situationPromise = streamSituation()
+      .then((analysis) => {
+        state.situation = { analysis };
       })
       .catch((err) => {
         state.situation = { error: err.message || String(err) };

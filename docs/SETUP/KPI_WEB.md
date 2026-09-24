@@ -68,6 +68,13 @@ Permissions match CLI ownership rules (enforced server-side via
    guidance and target gaps. Facts come only from the store digest
    (`src/kpi_web/situation.py`); rows are aged by `period_key`, not `as_of`,
    so pre-fix rows with stale keys cannot masquerade as the current close.
+   The pane reads `GET /api/situation/stream`, an NDJSON stream of
+   `start` / `delta` / `error` / `done` events, so the briefing appears a line
+   at a time instead of after the ~30s Claude needs to finish it. Failures
+   before the first byte are a 500; after that they arrive as an `error` event
+   and the pane shows the message instead of a truncated briefing.
+   `GET /api/situation` still returns the whole briefing as one JSON response
+   for scripts.
    Select a KPI to read description, guidance, target, and history.
    The pencil in the detail header edits **name, tags, and target** (plus
    direction/unit, which a target needs). Delete is the trash control at the

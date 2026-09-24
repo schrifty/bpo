@@ -788,6 +788,18 @@ button.value-restore:hover {
   font-size: 0.95rem;
 }
 
+.situation-body.streaming::after {
+  content: "▍";
+  margin-left: 1px;
+  animation: situation-caret 1s steps(1) infinite;
+}
+
+@keyframes situation-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
 .history {
   width: 100%;
   margin-top: 0.5rem;

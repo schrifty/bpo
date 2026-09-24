@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from pathlib import Path
@@ -9,7 +10,12 @@ from typing import Any
 from urllib.parse import unquote
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.responses import (
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from starlette.staticfiles import StaticFiles
 
 from src.kpi_owners import (
@@ -34,7 +40,12 @@ from src.kpi_web.auth import (
     user_from_dev_login,
     user_from_google_info,
 )
-from src.kpi_web.situation import KpiSituationError, build_situation_digest, generate_situation_analysis
+from src.kpi_web.situation import (
+    KpiSituationError,
+    build_situation_digest,
+    generate_situation_analysis,
+    iter_situation_analysis,
+)
 from src.kpi_web.mutations import (
     add_from_body,
     audit_catalog_change,
@@ -303,34 +314,39 @@ async def api_list_kpis(request: Request) -> Response:
     )
 
 
+def _situation_digest(request: Request, user: Any) -> dict[str, Any]:
+    settings = _settings(request)
+    owners = load_kpi_owners_config(path=settings.owners_path)
+    lead = owners.lead_for(user.email)
+    viewer = {
+        "email": user.email,
+        "name": user.name,
+        "is_catalog_admin": user.is_catalog_admin,
+        "packs": list(lead.packs) if lead else [],
+    }
+    store_conn: sqlite3.Connection | None = None
+    try:
+        store_conn = _open_store(settings)
+        return build_situation_digest(store_conn, _registry(request), viewer=viewer)
+    finally:
+        if store_conn is not None:
+            store_conn.close()
+
+
 async def api_kpi_situation(request: Request) -> Response:
     """GET /api/situation — Claude briefing vs week-ago and month-ago stored readings."""
     try:
         user = require_user(request)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
-    settings = _settings(request)
-    store_conn: sqlite3.Connection | None = None
     try:
-        owners = load_kpi_owners_config(path=settings.owners_path)
-        lead = owners.lead_for(user.email)
-        viewer = {
-            "email": user.email,
-            "name": user.name,
-            "is_catalog_admin": user.is_catalog_admin,
-            "packs": list(lead.packs) if lead else [],
-        }
-        store_conn = _open_store(settings)
-        digest = build_situation_digest(store_conn, _registry(request), viewer=viewer)
+        digest = _situation_digest(request, user)
         analysis = generate_situation_analysis(digest)
     except KpiSituationError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     except Exception as exc:  # noqa: BLE001
         logger.exception("KPI situation briefing failed")
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        if store_conn is not None:
-            store_conn.close()
     return JSONResponse(
         {
             "ok": True,
@@ -338,6 +354,55 @@ async def api_kpi_situation(request: Request) -> Response:
             "as_of": digest.get("as_of"),
             "kpi_count": digest.get("kpi_count"),
         }
+    )
+
+
+async def api_kpi_situation_stream(request: Request) -> Response:
+    """GET /api/situation/stream — same briefing as NDJSON, emitted as Claude writes it.
+
+    The briefing takes ~30s to finish, so the UI reads this instead of waiting on
+    the JSON endpoint. Setup errors still fail loud as a 500; once the body has
+    started the only way to report a failure is an in-band ``error`` event.
+    """
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    try:
+        digest = _situation_digest(request, user)
+    except KpiSituationError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("KPI situation digest failed")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+    def events():
+        def event(payload: dict[str, Any]) -> str:
+            return json.dumps(payload, default=str) + "\n"
+
+        yield event(
+            {
+                "type": "start",
+                "as_of": digest.get("as_of"),
+                "kpi_count": digest.get("kpi_count"),
+            }
+        )
+        try:
+            for chunk in iter_situation_analysis(digest):
+                yield event({"type": "delta", "text": chunk})
+        except KpiSituationError as exc:
+            yield event({"type": "error", "error": str(exc)})
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("KPI situation stream failed")
+            yield event({"type": "error", "error": str(exc)})
+            return
+        yield event({"type": "done"})
+
+    return StreamingResponse(
+        events(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
 
 

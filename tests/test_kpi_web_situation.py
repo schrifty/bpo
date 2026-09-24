@@ -26,6 +26,7 @@ from src.kpi_web.situation import (
     build_situation_digest,
     compare_series,
     generate_situation_analysis,
+    iter_situation_analysis,
     period_as_date,
     _Point,
 )
@@ -400,4 +401,127 @@ metrics:
     res = client.get("/api/situation")
     assert res.status_code == 500
     assert "ANTHROPIC_API_KEY" in res.json()["error"]
+    assert res.json()["ok"] is False
+
+
+def test_iter_situation_analysis_cleans_markdown_across_chunks() -> None:
+    # Markdown arrives split mid-token, so cleaning has to buffer whole lines.
+    chunks = ["# Your te", "am\n\n**Supp", "ort** is up.\n---\nDone."]
+    out = "".join(
+        iter_situation_analysis(
+            {"kpi_count": 1, "kpis": [{"name": "X"}]},
+            stream=lambda **_: iter(chunks),
+        )
+    )
+    assert out == "Your team\n\nSupport is up.\nDone."
+
+
+def test_iter_situation_analysis_empty_stream_fails() -> None:
+    with pytest.raises(KpiSituationError, match="empty"):
+        list(
+            iter_situation_analysis(
+                {"kpi_count": 1, "kpis": [{"name": "X"}]},
+                stream=lambda **_: iter(["   ", "\n"]),
+            )
+        )
+
+
+def test_iter_situation_analysis_fails_loud_without_readings() -> None:
+    with pytest.raises(KpiSituationError, match="no stored generator"):
+        list(iter_situation_analysis({"kpi_count": 0, "kpis": []}))
+
+
+def _situation_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    owners = tmp_path / "kpi_owners.yaml"
+    owners.write_text(_OWNERS_YAML.strip() + "\n", encoding="utf-8")
+    registry = tmp_path / "my-metrics.yaml"
+    registry.write_text(
+        """
+metrics:
+  "Wired Daily":
+    owner: marc.schriftman@leandna.com
+    metric-generator: get_wired
+    grain: daily
+""",
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache"
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", cache_root)
+    conn = connect(cache_root / "kpi" / "observations.sqlite")
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="Wired Daily",
+            grain=GRAIN_DAILY,
+            period_key="2026-09-24",
+            observation=KPIObservation(value=12.0, origin="live"),
+            generator="get_wired",
+        ),
+    )
+    conn.close()
+    env = {
+        "CORTEX_KPI_WEB_ALLOW_DEV_AUTH": "true",
+        "CORTEX_KPI_WEB_DEV_USER": "marc.schriftman@leandna.com",
+        "CORTEX_KPI_WEB_BASE_URL": "http://testserver",
+        "CORTEX_KPI_WEB_SESSION_SECRET": "test-session-secret",
+        "CORTEX_KPI_WEB_ALLOWED_DOMAINS": "leandna.com",
+        "CORTEX_KPI_WEB_REGISTRY": str(registry),
+        "CORTEX_KPI_WEB_OWNERS": str(owners),
+        "CORTEX_KPI_WEB_SKIP_S3": "true",
+    }
+    client = TestClient(create_app(settings=load_kpi_web_settings(environ=env)))
+    _login(client)
+    return client
+
+
+def _ndjson(text: str) -> list[dict]:
+    import json as _json
+
+    return [_json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def test_situation_stream_api_emits_ndjson_deltas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_iter(digest, **_):
+        yield "Your team\n"
+        yield "Support is up.\n"
+
+    monkeypatch.setattr("src.kpi_web.api.iter_situation_analysis", fake_iter)
+    res = _situation_client(tmp_path, monkeypatch).get("/api/situation/stream")
+    assert res.status_code == 200, res.text
+    events = _ndjson(res.text)
+    assert events[0]["type"] == "start"
+    assert events[0]["kpi_count"] == 1
+    assert "".join(e["text"] for e in events if e["type"] == "delta") == (
+        "Your team\nSupport is up.\n"
+    )
+    assert events[-1]["type"] == "done"
+
+
+def test_situation_stream_api_reports_error_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The 200 header is already sent when Claude dies, so the failure has to
+    # ride in-band rather than silently truncating the briefing.
+    def fake_iter(digest, **_):
+        yield "Your team\n"
+        raise KpiSituationError("Claude KPI situation stream failed: boom")
+
+    monkeypatch.setattr("src.kpi_web.api.iter_situation_analysis", fake_iter)
+    res = _situation_client(tmp_path, monkeypatch).get("/api/situation/stream")
+    assert res.status_code == 200
+    events = _ndjson(res.text)
+    assert events[-1]["type"] == "error"
+    assert "boom" in events[-1]["error"]
+    assert not any(e["type"] == "done" for e in events)
+
+
+def test_situation_stream_api_fails_loud_when_store_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _situation_client(tmp_path, monkeypatch)
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path / "missing-cache")
+    res = client.get("/api/situation/stream")
+    assert res.status_code == 500
     assert res.json()["ok"] is False
