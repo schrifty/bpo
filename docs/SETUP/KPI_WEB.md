@@ -18,8 +18,10 @@ CORTEX_KPI_WEB_SKIP_S3=true \
 python3 -m src.kpi_web
 ```
 
-Open http://127.0.0.1:8080 — use **Dev login**. The table is alphabetical by KPI
-name. With no row selected, the right pane is a Claude briefing of stored
+Open http://127.0.0.1:8080 — use **Dev login**. The table defaults to name
+ascending; click Name, Grain, Owner, Target, or Value to sort, and click
+again to flip descending. Grain sorts by cadence (hourly → quarterly), not
+A–Z. With no row selected, the right pane is a Claude briefing of stored
 readings vs about a week ago and a month ago (fail-loud if Anthropic or the
 store cannot produce it). Click a row for description, guidance, target, and
 history; the **Cortex KPIs** title returns to the briefing. Filter by owner/tag

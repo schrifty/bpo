@@ -13,6 +13,17 @@
     editingValue: null,
     situation: null,
     situationPromise: null,
+    rows: [],
+    sortKey: "name",
+    sortDir: "asc",
+  };
+
+  const GRAIN_RANK = {
+    hourly: 0,
+    daily: 1,
+    weekly: 2,
+    monthly: 3,
+    quarterly: 4,
   };
 
   function esc(s) {
@@ -319,12 +330,94 @@
     return String(obs.value);
   }
 
+  function cmpText(a, b, dir) {
+    const as = String(a || "").trim();
+    const bs = String(b || "").trim();
+    if (!as && !bs) return 0;
+    if (!as) return 1;
+    if (!bs) return -1;
+    const c = as.localeCompare(bs, undefined, { sensitivity: "base", numeric: true });
+    return dir === "desc" ? -c : c;
+  }
+
+  function cmpNum(a, b, dir) {
+    const an = a == null || a === "" || !Number.isFinite(Number(a));
+    const bn = b == null || b === "" || !Number.isFinite(Number(b));
+    if (an && bn) return 0;
+    if (an) return 1;
+    if (bn) return -1;
+    const c = Number(a) - Number(b);
+    return dir === "desc" ? -c : c;
+  }
+
+  function sortValue(kpi) {
+    const obs = kpi.observation;
+    if (!obs || !obs.ok || obs.value == null || obs.value === "") return null;
+    const n = Number(obs.value);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function sortKpis(items) {
+    const key = state.sortKey;
+    const dir = state.sortDir;
+    return [...items].sort((a, b) => {
+      let c = 0;
+      if (key === "grain") {
+        const ga = GRAIN_RANK[a.grain] ?? 50;
+        const gb = GRAIN_RANK[b.grain] ?? 50;
+        c = dir === "desc" ? gb - ga : ga - gb;
+      } else if (key === "owner") {
+        c = cmpText(fmtOwner(a.owner), fmtOwner(b.owner), dir);
+      } else if (key === "target") {
+        c = cmpNum(a.target, b.target, dir);
+      } else if (key === "value") {
+        c = cmpNum(sortValue(a), sortValue(b), dir);
+      } else {
+        c = cmpText(a.name, b.name, dir);
+      }
+      if (c !== 0) return c;
+      return String(a.name || "").localeCompare(String(b.name || ""), undefined, {
+        sensitivity: "base",
+      });
+    });
+  }
+
+  function syncSortHeaders() {
+    const table = $("kpi-table");
+    if (!table) return;
+    for (const th of table.querySelectorAll("thead th")) {
+      const btn = th.querySelector(".sort-btn");
+      if (!btn) {
+        th.removeAttribute("aria-sort");
+        continue;
+      }
+      const key = btn.dataset.sort;
+      const active = key === state.sortKey;
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+      if (active) {
+        th.setAttribute("aria-sort", state.sortDir === "desc" ? "descending" : "ascending");
+      } else {
+        th.removeAttribute("aria-sort");
+      }
+    }
+  }
+
+  function setSort(key) {
+    if (state.sortKey === key) {
+      state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+    } else {
+      state.sortKey = key;
+      state.sortDir = "asc";
+    }
+    renderList({ kpis: state.rows });
+  }
+
   function renderList(payload) {
     const tbody = $("kpi-table").querySelector("tbody");
     tbody.innerHTML = "";
-    const items = [...(payload.kpis || [])].sort((a, b) =>
-      String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" })
-    );
+    state.rows = payload.kpis || [];
+    const items = sortKpis(state.rows);
+    syncSortHeaders();
     $("empty-state").classList.toggle("hidden", items.length > 0);
     setListStatus("");
     state.editingValue = null;
@@ -985,6 +1078,12 @@
     syncFilterBadge();
     if (state.selected) selectKpi(state.selected);
     refreshList();
+  });
+  $("kpi-table").querySelector("thead").addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".sort-btn");
+    if (!btn) return;
+    ev.stopPropagation();
+    setSort(btn.dataset.sort);
   });
 
   boot();

@@ -247,7 +247,6 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     assert 'id="filter-mode"' in html
     assert 'id="btn-filters-tip"' in html
     assert 'class="table-scroll"' in html
-    assert "<th>Owner</th>" in html
     assert "col-delete" in html
     assert "create-only" in html
     assert 'id="f-edit-note"' in html
@@ -268,6 +267,13 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     assert 'id="situation-root"' in html
     assert 'href="/static/logo.svg"' in html
     assert 'class="brand-mark"' in html
+    assert 'data-sort="name"' in html
+    assert 'data-sort="grain"' in html
+    assert 'data-sort="owner"' in html
+    assert 'data-sort="target"' in html
+    assert 'data-sort="value"' in html
+    assert "function setSort" in js.text
+    assert 'sortKey: "name"' in js.text
     logo = client.get("/static/logo.svg")
     assert logo.status_code == 200
     assert "<svg" in logo.text and "Cortex" in logo.text

@@ -616,6 +616,45 @@ dialog::backdrop {
   box-shadow: 0 1px 0 var(--line);
 }
 
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.sort-btn:hover {
+  color: var(--ink);
+}
+
+.sort-btn::after {
+  content: "↕";
+  font-size: 0.72rem;
+  font-weight: 500;
+  opacity: 0.35;
+  text-transform: none;
+}
+
+th[aria-sort="ascending"] .sort-btn::after {
+  content: "↑";
+  opacity: 1;
+  color: var(--accent);
+}
+
+th[aria-sort="descending"] .sort-btn::after {
+  content: "↓";
+  opacity: 1;
+  color: var(--accent);
+}
+
 .col-grain, .col-owner { white-space: nowrap; }
 
 .col-delete {
