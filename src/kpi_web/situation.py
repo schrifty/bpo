@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import calendar
 import json
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Iterable
 
 from src.config import LLM_MODEL, anthropic_llm_client, logger
 from src.kpi_store import (
@@ -23,16 +24,90 @@ from src.llm_utils import _llm_create_with_retry
 from src.metrics_registry import (
     has_metric_generator,
     iter_all_metrics,
+    registry_metric_description,
     registry_metric_direction,
     registry_metric_grain,
+    registry_metric_mgmt_guidance,
+    registry_metric_owner,
+    registry_metric_tags,
     registry_metric_target,
 )
 
-_MAX_DIGEST_CHARS = 24_000
+_MAX_DIGEST_CHARS = 40_000
+_MAX_GUIDANCE_CHARS = 240
+_MAX_DESCRIPTION_CHARS = 160
+
+# Tag → team label used to group KPIs for "your team / peer teams / company".
+_TEAM_TAGS: tuple[tuple[str, str], ...] = (
+    ("support", "Support"),
+    ("care", "Support"),
+    ("engineering", "Engineering"),
+    ("ai", "Engineering (AI adoption)"),
+    ("finance", "Finance / cost"),
+    ("akkr", "Portfolio (AKKR)"),
+)
 
 
 class KpiSituationError(RuntimeError):
     """Claude situation briefing failed (do not substitute placeholder copy)."""
+
+
+SITUATION_SYSTEM_PROMPT = """\
+You write the Situation panel of the Cortex KPI catalog for LeanDNA. Readers are \
+engineering, support, and AI-adoption leads plus the exec who owns the catalog. They \
+open this page to answer four questions, in this order: How is my team doing? How are \
+the teams next to me doing? How is the company doing overall? What should I do about it \
+this week? Write so each question is answered in the first few lines that address it.
+
+Ground rules
+- Use only the JSON digest. Every number you cite must appear in it. Never invent a \
+week-ago or month-ago value; when `week_ago` or `month_ago` is null, say the comparison \
+is unavailable for that KPI and move on (the `week_note` / `month_note` fields say why).
+- Direction matters more than sign. `direction: higher` means up is good; `lower` means \
+down is good. `week_move_is_good` / `month_move_is_good` already encode this; trust them.
+- Targets are commitments. Lead with anything in `company.targets_missed`, and name the \
+gap in the KPI's own unit (e.g. "84.9% vs a 90% target"). Celebrate a made target only \
+when it was recently missed or the margin is thin — otherwise one clause is enough.
+- A KPI is worth a sentence only if it moved materially (roughly ≥10% on a rate or ratio, \
+or a clear break in a count), crossed its target, or has been stuck while missing. Skip \
+flat-and-healthy KPIs or summarize them in one line ("the rest of Support is steady").
+- Monthly KPIs describe the last closed month, not this week. Do not describe a monthly \
+close as "this week's" movement.
+- Monthly/quarterly grains have no week-ago reading; say so once, not per KPI.
+- Do not speculate about root cause. You may quote or paraphrase `mgmt_guidance` as the \
+lever the owner has already agreed to pull; that is the only source of "why" you may use.
+- Zero is a real value for Cursor spend and token KPIs. Treat it as a measurement.
+- Flag data problems as work items, not as commentary: a KPI with only one stored point, \
+a grain that cannot answer the reader's question, or an owner with no instrumented KPIs \
+(`pending_kpis_by_team`) is an action for someone. A `current.period_key` older than the \
+last closed period means the store is stale for that KPI — say "stale" and skip trend talk.
+- Cluster related KPIs into one point instead of listing each (e.g. "the three Cursor \
+spend/token KPIs all closed down ~10%"). Readers scan; they do not read a ledger.
+
+Format: plain text only. No markdown of any kind — no **bold**, no # headings, no \
+--- rules, no tables. Section labels are a bare line of text ("Your team", "Peer teams", \
+"Company", "Watch this week"). Bullets start with "- ".
+
+Structure
+1. Your team — for `viewer.teams` (or, for the catalog admin, the team with the most \
+missed targets). Three to five bullets: target status first, then the largest moves vs a \
+month ago and, where available, a week ago. Mention KPIs the reader owns by name.
+2. Peer teams — one compact paragraph per other team in `company.by_team` with at least \
+one instrumented KPI. Name only the one or two things a peer lead would want to know \
+about you, and where a peer's trend will land on your desk (e.g. escalation rate rising \
+into engineering; AI spend rising while PR volume falls).
+3. Company — three lines max: how many targets made vs missed, the single biggest \
+improvement and the single biggest deterioration across the catalog this month, and \
+whether AI investment (spend, tokens, active users) is tracking with output (PRs merged, \
+issues shipped, cycle time).
+4. Watch this week — three to five actionable bullets. Each pairs a KPI trend with a \
+concrete next step drawn from `mgmt_guidance`, a target gap, or a data gap. Phrase as \
+"verb + object + why now". No generic advice.
+
+Tone: direct, quantitative, calm. Numbers with units and the comparison period every \
+time ("64 open, up 12% vs last week, down 39% vs a month ago"). Target 250–400 words; \
+never exceed 480. Stop when the reader can act; do not pad.
+"""
 
 
 @dataclass(frozen=True)
@@ -43,13 +118,13 @@ class _Point:
 
 
 def period_as_date(grain: str, period_key: str, as_of: str | None = None) -> date | None:
-    """Calendar day used to age a stored reading for week/month comparisons."""
-    raw_as_of = (as_of or "").strip()
-    if raw_as_of:
-        try:
-            return date.fromisoformat(raw_as_of[:10])
-        except ValueError:
-            pass
+    """Calendar day used to age a stored reading for week/month comparisons.
+
+    The period key is the store's primary key and names the period the reading
+    describes, so it wins. ``as_of`` is only a fallback when the key does not
+    parse (it records when a generator ran, which can differ from the period —
+    rows captured before the period-key fix carry a stale key and a fresh as_of).
+    """
     key = (period_key or "").strip()
     g = (grain or "").strip().lower()
     try:
@@ -72,11 +147,37 @@ def period_as_date(grain: str, period_key: str, as_of: str | None = None) -> dat
             last = calendar.monthrange(year, month)[1]
             return date(year, month, last)
     except (ValueError, TypeError):
-        return None
+        pass
     try:
         return date.fromisoformat(key[:10])
     except ValueError:
-        return None
+        pass
+    raw_as_of = (as_of or "").strip()
+    if raw_as_of:
+        try:
+            return date.fromisoformat(raw_as_of[:10])
+        except ValueError:
+            return None
+    return None
+
+
+_MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_MD_RULE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
+_MD_HEADING = re.compile(r"^\s*#{1,6}\s+")
+
+
+def strip_markdown_chrome(text: str) -> str:
+    """Drop bold markers, horizontal rules, and heading hashes; keep bullets."""
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        if _MD_RULE.match(line):
+            continue
+        line = _MD_HEADING.sub("", line)
+        line = _MD_BOLD.sub(r"\1", line)
+        out.append(line.rstrip())
+    cleaned = "\n".join(out)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def _pct_change(current: float, prior: float | None) -> float | None:
@@ -191,25 +292,103 @@ def _points_from_rows(rows: list[StoredKPI]) -> list[_Point]:
     return out
 
 
+def team_for_tags(tags: Iterable[str]) -> str:
+    have = {str(t).strip().lower() for t in tags}
+    for tag, label in _TEAM_TAGS:
+        if tag in have:
+            return label
+    return "Other"
+
+
+def _trim(text: str | None, limit: int) -> str | None:
+    s = " ".join(str(text or "").split())
+    if not s:
+        return None
+    return s if len(s) <= limit else s[: limit - 1].rstrip() + "…"
+
+
+def _is_good_move(change_pct: float | None, direction: str | None) -> bool | None:
+    if change_pct is None or direction not in ("higher", "lower"):
+        return None
+    if change_pct == 0:
+        return None
+    return (change_pct > 0) == (direction == "higher")
+
+
+def _company_summary(kpis: list[dict[str, Any]]) -> dict[str, Any]:
+    made = [k["name"] for k in kpis if k.get("target_outcome") == "made"]
+    missed = [k["name"] for k in kpis if k.get("target_outcome") == "missed"]
+    no_target = [k["name"] for k in kpis if k.get("target_outcome") is None]
+
+    def movers(field: str, *, good: bool | None, limit: int = 6) -> list[dict[str, Any]]:
+        out = []
+        for k in kpis:
+            pct = k.get(field)
+            if pct is None:
+                continue
+            verdict = _is_good_move(pct, k.get("direction"))
+            if good is not None and verdict is not good:
+                continue
+            out.append({"name": k["name"], "team": k["team"], "change_pct": pct})
+        out.sort(key=lambda m: -abs(float(m["change_pct"])))
+        return out[:limit]
+
+    by_team: dict[str, dict[str, int]] = {}
+    for k in kpis:
+        t = by_team.setdefault(k["team"], {"kpis": 0, "made": 0, "missed": 0, "improving_month": 0, "worsening_month": 0})
+        t["kpis"] += 1
+        if k.get("target_outcome") == "made":
+            t["made"] += 1
+        elif k.get("target_outcome") == "missed":
+            t["missed"] += 1
+        verdict = _is_good_move(k.get("month_change_pct"), k.get("direction"))
+        if verdict is True:
+            t["improving_month"] += 1
+        elif verdict is False:
+            t["worsening_month"] += 1
+    return {
+        "targets_made": made,
+        "targets_missed": missed,
+        "no_target_or_direction": no_target,
+        "biggest_improvements_month": movers("month_change_pct", good=True),
+        "biggest_deteriorations_month": movers("month_change_pct", good=False),
+        "biggest_improvements_week": movers("week_change_pct", good=True, limit=4),
+        "biggest_deteriorations_week": movers("week_change_pct", good=False, limit=4),
+        "by_team": by_team,
+    }
+
+
 def build_situation_digest(
     conn: sqlite3.Connection,
     registry: dict[str, Any],
     *,
     as_of: date | None = None,
+    viewer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compact facts for Claude: instrumented KPIs with stored readings."""
+    """Compact facts for Claude: instrumented KPIs with stored readings.
+
+    *viewer* (optional) describes who is reading: ``email``, ``name``,
+    ``is_catalog_admin``, and ``packs`` (topic packs they lead). Their team is
+    inferred from the KPIs they own plus those packs so the briefing can lead
+    with "your team" before peers and the company.
+    """
     today = as_of or date.today()
     stored = list_kpis(conn)
     by_name: dict[str, list[StoredKPI]] = {}
     for row in stored:
         by_name.setdefault(row.metric_name, []).append(row)
 
+    viewer_email = str((viewer or {}).get("email") or "").strip().lower()
     kpis: list[dict[str, Any]] = []
     skipped_no_generator = 0
     skipped_no_reading = 0
+    pending_by_team: dict[str, list[str]] = {}
     for name, entry in iter_all_metrics(registry=registry):
+        tags = registry_metric_tags(entry)
+        team = team_for_tags(tags)
         if not has_metric_generator(entry):
             skipped_no_generator += 1
+            pending_by_team.setdefault(team, []).append(name)
             continue
         grain = registry_metric_grain(entry)
         points = _points_from_rows(by_name.get(name, []))
@@ -224,12 +403,19 @@ def build_situation_digest(
             direction = registry_metric_direction(entry)
         except ValueError:
             direction = None
+        owner = (registry_metric_owner(entry) or "").strip().lower() or None
         compared = compare_series(points, grain=grain, as_of=today)
         current_val = compared["current"]["value"] if compared.get("current") else None
         kpis.append(
             {
                 "name": name,
+                "team": team,
+                "tags": list(tags),
+                "owner": owner,
+                "owned_by_viewer": bool(viewer_email and owner == viewer_email),
                 "grain": grain,
+                "description": _trim(registry_metric_description(entry), _MAX_DESCRIPTION_CHARS),
+                "mgmt_guidance": _trim(registry_metric_mgmt_guidance(entry), _MAX_GUIDANCE_CHARS),
                 "target": target,
                 "direction": direction,
                 "target_outcome": (
@@ -237,19 +423,44 @@ def build_situation_digest(
                     if current_val is not None
                     else None
                 ),
+                "week_move_is_good": _is_good_move(compared.get("week_change_pct"), direction),
+                "month_move_is_good": _is_good_move(compared.get("month_change_pct"), direction),
                 **compared,
             }
         )
-    kpis.sort(key=lambda row: str(row["name"]).casefold())
+    kpis.sort(key=lambda row: (str(row["team"]), str(row["name"]).casefold()))
+
+    viewer_block: dict[str, Any] | None = None
+    if viewer:
+        owned_teams = sorted({k["team"] for k in kpis if k["owned_by_viewer"]})
+        pack_teams = sorted(
+            {
+                team_for_tags([p])
+                for p in (viewer.get("packs") or [])
+            }
+            - {"Other"}
+        )
+        viewer_block = {
+            "email": viewer_email or None,
+            "name": viewer.get("name"),
+            "role": "catalog admin (cross-team view)" if viewer.get("is_catalog_admin") else "team lead",
+            "teams": sorted(set(owned_teams) | set(pack_teams)),
+            "owned_kpis": [k["name"] for k in kpis if k["owned_by_viewer"]],
+        }
+
     return {
         "as_of": today.isoformat(),
         "kpi_count": len(kpis),
         "skipped_no_generator": skipped_no_generator,
         "skipped_no_stored_reading": skipped_no_reading,
+        "pending_kpis_by_team": pending_by_team,
+        "viewer": viewer_block,
+        "company": _company_summary(kpis),
         "kpis": kpis,
         "coverage_note": (
             "Daily KPIs are often stored at month-end plus today, so week-ago "
-            "may be missing even when month-ago exists."
+            "may be missing even when month-ago exists. Monthly KPIs describe the "
+            "last closed calendar month; quarterly the last closed quarter."
         ),
     }
 
@@ -267,22 +478,15 @@ def generate_situation_analysis(
     payload = json.dumps(digest, default=str, separators=(",", ":"))
     if len(payload) > _MAX_DIGEST_CHARS:
         payload = payload[:_MAX_DIGEST_CHARS] + "…"
-    system = (
-        "You are briefing LeanDNA engineering and support leads on the Cortex KPI catalog. "
-        "Use only the JSON digest. Compare the latest reading to week-ago and month-ago "
-        "when those fields are present. If week_ago is null, say the catalog cannot support "
-        "a week comparison for that grain or history shape — do not invent a weekly number. "
-        "Call out target made/missed when target_outcome is set. Prefer the largest moves "
-        "and cluster support vs engineering/AI. Do not speculate on causes. "
-        "Write 3–8 tight paragraphs or short bullets (plain text, no markdown headings)."
-    )
+    system = SITUATION_SYSTEM_PROMPT
     user = (
-        "Analyze the current KPI situation relative to a week ago and a month ago.\n\n"
+        "Write the Situation briefing for the reader described in `viewer` "
+        "(if viewer is null, write for the whole leadership team). Use only this digest.\n\n"
         f"{payload}"
     )
     call = invoke if invoke is not None else _claude_complete
     text = call(system=system, user=user)
-    cleaned = (text or "").strip()
+    cleaned = strip_markdown_chrome(text or "")
     if not cleaned:
         raise KpiSituationError("Claude returned an empty KPI situation briefing")
     return cleaned
@@ -322,7 +526,7 @@ def _claude_complete(*, system: str, user: str) -> str:
         resp = _llm_create_with_retry(
             client,
             model=model,
-            max_tokens=2500,
+            max_tokens=3000,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},

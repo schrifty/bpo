@@ -306,14 +306,22 @@ async def api_list_kpis(request: Request) -> Response:
 async def api_kpi_situation(request: Request) -> Response:
     """GET /api/situation — Claude briefing vs week-ago and month-ago stored readings."""
     try:
-        require_user(request)
+        user = require_user(request)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
     settings = _settings(request)
     store_conn: sqlite3.Connection | None = None
     try:
+        owners = load_kpi_owners_config(path=settings.owners_path)
+        lead = owners.lead_for(user.email)
+        viewer = {
+            "email": user.email,
+            "name": user.name,
+            "is_catalog_admin": user.is_catalog_admin,
+            "packs": list(lead.packs) if lead else [],
+        }
         store_conn = _open_store(settings)
-        digest = build_situation_digest(store_conn, _registry(request))
+        digest = build_situation_digest(store_conn, _registry(request), viewer=viewer)
         analysis = generate_situation_analysis(digest)
     except KpiSituationError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

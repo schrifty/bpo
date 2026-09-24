@@ -60,7 +60,13 @@ Permissions match CLI ownership rules (enforced server-side via
    drops the override so the number already in SQLite shows again. It does not
    re-run the generator.
 5. With no row selected, the right pane is the Claude week/month situation
-   briefing. Select a KPI to read description, guidance, target, and history.
+   briefing (`GET /api/situation`). It is written for the signed-in reader:
+   your team first (owned KPIs and topic packs), then peer teams, then the
+   company, then "Watch this week" actions drawn from each KPI's management
+   guidance and target gaps. Facts come only from the store digest
+   (`src/kpi_web/situation.py`); rows are aged by `period_key`, not `as_of`,
+   so pre-fix rows with stale keys cannot masquerade as the current close.
+   Select a KPI to read description, guidance, target, and history.
    The pencil in the detail header edits **name, tags, and target** (plus
    direction/unit, which a target needs). Delete is the trash control at the
    left of each row (confirmation dialog, then YAML delete).

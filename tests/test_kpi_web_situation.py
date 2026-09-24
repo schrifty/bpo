@@ -45,6 +45,69 @@ def test_period_as_date_by_grain() -> None:
     assert period_as_date(GRAIN_MONTH, "2026-08") == date(2026, 8, 31)
 
 
+def test_period_key_wins_over_fresh_as_of() -> None:
+    # Rows captured before the period-key fix carry a stale key and a fresh as_of;
+    # the key names the period, so it must decide the row's age.
+    assert period_as_date(GRAIN_MONTH, "2024-09", "2026-09-20") == date(2024, 9, 30)
+    assert period_as_date(GRAIN_DAILY, "not-a-date", "2026-09-20") == date(2026, 9, 20)
+
+
+def test_stale_period_key_rows_do_not_become_current(tmp_path: Path) -> None:
+    registry = yaml.safe_load(
+        """
+metrics:
+  "AI Spend %":
+    metric-generator: get_ai_spend_pct
+    grain: monthly
+    tags: [engineering, ai]
+    target: 5
+    direction: higher
+"""
+    )
+    conn = connect(tmp_path / "kpi.sqlite")
+    for key, value in (("2026-08", 2.72), ("2026-07", 3.07)):
+        upsert_kpi(
+            conn,
+            stored_kpi_from_observation(
+                metric_name="AI Spend %",
+                grain=GRAIN_MONTH,
+                period_key=key,
+                observation=KPIObservation(value=value, origin="live"),
+                generator="get_ai_spend_pct",
+            ),
+        )
+    # Simulate a pre-fix row: stale key, recent as_of, zero value.
+    conn.execute(
+        "UPDATE kpi_observation SET as_of = '2026-09-20' WHERE period_key = '2026-07'"
+    )
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="AI Spend %",
+            grain=GRAIN_MONTH,
+            period_key="2024-09",
+            observation=KPIObservation(value=0.0, origin="live"),
+            generator="get_ai_spend_pct",
+        ),
+    )
+    conn.execute(
+        "UPDATE kpi_observation SET as_of = '2026-09-20' WHERE period_key = '2024-09'"
+    )
+    conn.commit()
+    digest = build_situation_digest(conn, registry, as_of=date(2026, 9, 24))
+    conn.close()
+    row = digest["kpis"][0]
+    assert row["current"]["period_key"] == "2026-08"
+    assert row["month_ago"]["period_key"] == "2026-07"
+
+
+def test_strip_markdown_chrome() -> None:
+    from src.kpi_web.situation import strip_markdown_chrome
+
+    raw = "**Your team**\n\n- SLA at **84.9%**\n\n---\n\n## Company\nSeven made."
+    assert strip_markdown_chrome(raw) == "Your team\n\n- SLA at 84.9%\n\nCompany\nSeven made."
+
+
 def test_daily_month_end_history_has_no_week_ago() -> None:
     points = [
         _Point(date(2026, 9, 24), 10.0, "2026-09-24"),
@@ -122,8 +185,72 @@ metrics:
     assert digest["skipped_no_generator"] == 1
     row = digest["kpis"][0]
     assert row["name"] == "Wired Daily"
+    assert row["team"] == "Engineering"
     assert row["target_outcome"] == "made"
     assert row["month_ago"]["value"] == 9.0
+    assert row["month_move_is_good"] is True
+    assert digest["viewer"] is None
+    company = digest["company"]
+    assert company["targets_made"] == ["Wired Daily"]
+    assert company["biggest_improvements_month"][0]["name"] == "Wired Daily"
+    assert company["by_team"]["Engineering"]["improving_month"] == 1
+    assert digest["pending_kpis_by_team"] == {"Other": ["Pending"]}
+
+
+def test_digest_marks_viewer_team_and_owned_kpis(tmp_path: Path) -> None:
+    registry = yaml.safe_load(
+        """
+metrics:
+  "Open HELP":
+    owner: lead.support@leandna.com
+    metric-generator: get_open_help
+    grain: daily
+    tags: [support]
+    target: 50
+    direction: lower
+    mgmt_guidance: Triage anything older than 30 days every Monday.
+  "PRs Merged":
+    owner: marc.schriftman@leandna.com
+    metric-generator: get_prs_merged
+    grain: monthly
+    tags: [engineering]
+"""
+    )
+    conn = connect(tmp_path / "kpi.sqlite")
+    for name, grain, key, value in (
+        ("Open HELP", GRAIN_DAILY, "2026-09-24", 64.0),
+        ("PRs Merged", GRAIN_MONTH, "2026-08", 300.0),
+    ):
+        upsert_kpi(
+            conn,
+            stored_kpi_from_observation(
+                metric_name=name,
+                grain=grain,
+                period_key=key,
+                observation=KPIObservation(value=value, origin="live"),
+                generator="g",
+            ),
+        )
+    digest = build_situation_digest(
+        conn,
+        registry,
+        as_of=date(2026, 9, 24),
+        viewer={
+            "email": "Lead.Support@leandna.com",
+            "name": "Lead",
+            "is_catalog_admin": False,
+            "packs": ["support"],
+        },
+    )
+    conn.close()
+    assert digest["viewer"]["teams"] == ["Support"]
+    assert digest["viewer"]["owned_kpis"] == ["Open HELP"]
+    assert digest["viewer"]["role"] == "team lead"
+    open_help = next(k for k in digest["kpis"] if k["name"] == "Open HELP")
+    assert open_help["owned_by_viewer"] is True
+    assert open_help["target_outcome"] == "missed"
+    assert "Triage" in open_help["mgmt_guidance"]
+    assert digest["company"]["targets_missed"] == ["Open HELP"]
 
 
 def test_generate_situation_fails_loud_without_readings() -> None:
@@ -131,12 +258,23 @@ def test_generate_situation_fails_loud_without_readings() -> None:
         generate_situation_analysis({"kpi_count": 0, "kpis": []})
 
 
-def test_generate_situation_uses_invoke() -> None:
+def test_generate_situation_uses_invoke_with_reader_prompt() -> None:
+    seen: dict[str, str] = {}
+
+    def fake(*, system: str, user: str) -> str:
+        seen["system"] = system
+        seen["user"] = user
+        return "Support tickets are down vs last month."
+
     text = generate_situation_analysis(
-        {"kpi_count": 1, "kpis": [{"name": "X"}]},
-        invoke=lambda **_: "Support tickets are down vs last month.",
+        {"kpi_count": 1, "kpis": [{"name": "X"}], "viewer": {"teams": ["Support"]}},
+        invoke=fake,
     )
     assert "Support tickets" in text
+    assert "How is my team doing?" in seen["system"]
+    assert "Watch this week" in seen["system"]
+    assert "mgmt_guidance" in seen["system"]
+    assert '"teams":["Support"]' in seen["user"]
 
 
 def test_generate_situation_empty_llm_fails() -> None:
@@ -180,10 +318,13 @@ metrics:
         ),
     )
     conn.close()
-    monkeypatch.setattr(
-        "src.kpi_web.api.generate_situation_analysis",
-        lambda digest, **_: "Month-end spend is up versus August.",
-    )
+    captured: dict[str, object] = {}
+
+    def fake_generate(digest, **_):
+        captured["digest"] = digest
+        return "Month-end spend is up versus August."
+
+    monkeypatch.setattr("src.kpi_web.api.generate_situation_analysis", fake_generate)
     env = {
         "CORTEX_KPI_WEB_ALLOW_DEV_AUTH": "true",
         "CORTEX_KPI_WEB_DEV_USER": "marc.schriftman@leandna.com",
@@ -202,6 +343,10 @@ metrics:
     assert body["ok"] is True
     assert "Month-end spend" in body["analysis"]
     assert body["kpi_count"] == 1
+    viewer = captured["digest"]["viewer"]  # type: ignore[index]
+    assert viewer["email"] == "marc.schriftman@leandna.com"
+    assert viewer["role"].startswith("catalog admin")
+    assert viewer["owned_kpis"] == ["Wired Daily"]
 
 
 def test_situation_api_fails_loud_on_claude_error(
