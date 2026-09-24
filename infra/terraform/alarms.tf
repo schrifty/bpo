@@ -19,9 +19,9 @@ resource "aws_cloudwatch_log_metric_filter" "run_summary_failed" {
   pattern        = "\"CORTEX_RUN_SUMMARY\" \"\\\"success\\\":false\""
 
   metric_transformation {
-    name      = "RunSummaryFailed"
-    namespace = "Cortex/Schedules"
-    value     = "1"
+    name          = "RunSummaryFailed"
+    namespace     = "Cortex/Schedules"
+    value         = "1"
     default_value = "0"
   }
 }

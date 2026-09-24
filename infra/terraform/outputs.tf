@@ -150,6 +150,25 @@ output "run_task_llm_context_portfolio_daily" {
   EOT
 }
 
+output "kpi_web_url" {
+  description = "HTTPS origin for the KPI catalog UI (Google OAuth redirect base)."
+  value       = var.enable_kpi_web ? "https://${aws_cloudfront_distribution.kpi_web[0].domain_name}" : null
+}
+
+output "kpi_web_oauth_redirect_uri" {
+  description = "Add this Authorized redirect URI on the Google OAuth web client."
+  value       = var.enable_kpi_web ? "https://${aws_cloudfront_distribution.kpi_web[0].domain_name}/auth/callback" : null
+}
+
+output "kpi_web_secret_arn" {
+  description = "Secrets Manager JSON for session secret + Google OAuth client (put-secret-value)."
+  value       = var.enable_kpi_web ? aws_secretsmanager_secret.kpi_web[0].arn : null
+}
+
+output "kpi_web_service_name" {
+  value = var.enable_kpi_web ? aws_ecs_service.kpi_web[0].name : null
+}
+
 output "scheduled_job_rules" {
   value = [for k, r in aws_cloudwatch_event_rule.job : r.name]
 }

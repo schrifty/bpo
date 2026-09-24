@@ -90,6 +90,37 @@ CORTEX_KPI_WEB_ALLOWED_DOMAINS=leandna.com
 5. Users sign in at `/auth/login`. Only emails listed as `catalog_admin` or
    `leads` in `config/kpi_owners.yaml` may access the catalog.
 
+## AWS (ECS + CloudFront)
+
+Terraform (`enable_kpi_web`, default on) runs the same container as a Fargate
+service: ALB in `us-east-2` (CloudFront origin only) and HTTPS at the CloudFront
+URL. Dev login is refused on ECS (`scripts/run_kpi_web.sh`).
+
+```bash
+export AWS_PROFILE=aws-schrifty-login AWS_REGION=us-east-2
+cd infra/terraform
+terraform apply
+terraform output kpi_web_url
+terraform output kpi_web_oauth_redirect_uri
+```
+
+1. Add the redirect URI to the Google OAuth **Web** client.
+2. Merge Google client id/secret into `cortex/prod/kpi-web` (keep
+   `CORTEX_KPI_WEB_SESSION_SECRET` from the first apply):
+
+```bash
+# Download current JSON, add CORTEX_KPI_WEB_GOOGLE_CLIENT_ID and
+# CORTEX_KPI_WEB_GOOGLE_CLIENT_SECRET, then:
+aws secretsmanager put-secret-value \
+  --secret-id cortex/prod/kpi-web \
+  --secret-string file://kpi-web-secret.json
+aws ecs update-service --cluster cortex --service cortex-kpi-web --force-new-deployment
+```
+
+Image must include `scripts/run_kpi_web.sh` (`scripts/push_ecr_image.sh --tag latest`).
+Catalog YAML writes stay on the container filesystem (ephemeral); stored KPI
+values come from EFS (and S3 when `kpi_store_s3_uri` is set).
+
 Outside-domain accounts and unknown Workspace users get **403** with an explicit
 error (no empty fake catalog).
 

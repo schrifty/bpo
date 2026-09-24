@@ -279,6 +279,34 @@ variable "scheduled_jobs" {
   }
 }
 
+variable "enable_kpi_web" {
+  description = "Run the KPI catalog UI as a Fargate service behind ALB + CloudFront (HTTPS)."
+  type        = bool
+  default     = true
+}
+
+variable "kpi_web_cpu" {
+  type    = number
+  default = 512
+}
+
+variable "kpi_web_memory" {
+  type    = number
+  default = 1024
+}
+
+variable "kpi_web_desired_count" {
+  description = "Fargate tasks for the KPI web service (0 stops the UI without destroying ALB)."
+  type        = number
+  default     = 1
+}
+
+variable "kpi_web_allowed_domains" {
+  description = "Workspace domains allowed to sign in (CORTEX_KPI_WEB_ALLOWED_DOMAINS)."
+  type        = string
+  default     = "leandna.com"
+}
+
 variable "tags" {
   description = "Additional tags for all resources."
   type        = map(string)

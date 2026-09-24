@@ -38,7 +38,7 @@ resource "aws_ecs_task_definition" "decks" {
       entryPoint = [
         "/app/scripts/run_job.sh",
       ]
-      command = var.default_job_command
+      command     = var.default_job_command
       environment = local.container_environment
       mountPoints = [
         {

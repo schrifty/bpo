@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN chmod +x scripts/run_job.sh \
+RUN chmod +x scripts/run_job.sh scripts/run_kpi_web.sh \
     && useradd --create-home --uid 1000 cortex \
     && mkdir -p /var/cortex/cache \
     && chown -R cortex:cortex /app /var/cortex/cache

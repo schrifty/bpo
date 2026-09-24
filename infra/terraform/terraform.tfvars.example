@@ -26,5 +26,11 @@ enable_schedules = false
 # Optional KPI SQLite S3 object (injects CORTEX_KPI_STORE_S3_URI + IAM):
 # kpi_store_s3_uri = "s3://your-bucket/kpi/observations.sqlite"
 
+# KPI catalog UI (Fargate + CloudFront). Set false to skip.
+# enable_kpi_web = true
+# After apply: add terraform output kpi_web_oauth_redirect_uri to the Google
+# OAuth web client, then merge CORTEX_KPI_WEB_GOOGLE_CLIENT_ID / SECRET into
+# secret cortex/prod/kpi-web (see docs/SETUP/KPI_WEB.md).
+
 # task_cpu    = 4096
 # task_memory = 16384

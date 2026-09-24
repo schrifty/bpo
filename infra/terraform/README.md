@@ -7,12 +7,13 @@ Idempotent replacement for manual IAM / EFS / ECS / EventBridge setup.
 | Resource | Name (default) |
 |----------|----------------|
 | ECR repository | `cortex-decks` |
-| Secrets Manager secrets | `cortex/prod/google`, `…/integrations`, `…/llm`, `…/slack`; legacy `cortex/prod/env` still loaded first |
+| Secrets Manager secrets | `cortex/prod/google`, `…/integrations`, `…/llm`, `…/slack`, `…/kpi-web`; legacy `cortex/prod/env` still loaded first |
 | CloudWatch log group | `/cortex/decks` |
 | EFS + access point | `cortex-cache` (uid/gid 1000); encrypt JSON with `CORTEX_CACHE_FERNET_KEY` in the integrations secret |
-| IAM roles | `cortex-ecs-execution`, `cortex-ecs-task` (full secrets), `cortex-ecs-task-llm` / `-decks` / `-metrics`, `cortex-eventbridge-ecs` (if schedules on) |
+| IAM roles | `cortex-ecs-execution`, `cortex-ecs-task` (full secrets), `cortex-ecs-task-llm` / `-decks` / `-metrics`, `cortex-ecs-task-kpi-web`, `cortex-eventbridge-ecs` (if schedules on) |
 | ECS cluster | `cortex` |
-| ECS task definition | `cortex-decks` |
+| ECS task definition | `cortex-decks` (jobs), `cortex-kpi-web` (catalog UI) |
+| ECS service | `cortex-kpi-web` (when `enable_kpi_web`) |
 | EventBridge rules | optional (`enable_schedules`) |
 
 ## Prerequisites
@@ -154,6 +155,7 @@ Full checklist: `docs/SETUP/KPI_OPS.md`.
 | `ses_identity` | `leandna.com` | SES identity ARN for morning-report `SendEmail` |
 | `ses_from_address` | empty | Optional `ses:FromAddress` condition (match `CORTEX_METRICS_DIGEST_FROM`) |
 | `kpi_store_s3_uri` | empty | Optional `s3://bucket/key` → env + IAM for KPI SQLite |
+| `enable_kpi_web` | `true` | Fargate + ALB + CloudFront for the KPI catalog UI |
 
 ## Importing existing manual resources
 
