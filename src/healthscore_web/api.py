@@ -12,12 +12,14 @@ from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from src.healthscore_web.framework import component_map, load_framework
+from src.healthscore_web.snapshot import run_usage_level_snapshot
 from src.healthscore_web.store import (
     connect,
     latest_by_component,
     observations_for_entity,
     upsert_observation,
 )
+from src.healthscore_web.usage_level import UsageLevelGeneratorError
 from src.kpi_web.auth import KPIWebAuthError, auth_error_response, require_user
 from src.salesforce_client import SalesforceClient, _CHURNED_CONTRACT_STATUS_LOWER
 
@@ -286,6 +288,24 @@ async def api_set_component(request: Request) -> Response:
         logger.exception("Health Score component write failed")
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     return JSONResponse({"ok": True, "observation": saved})
+
+
+async def api_generate_usage_level(request: Request) -> Response:
+    try:
+        require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    try:
+        result = run_usage_level_snapshot(dry_run=False)
+    except UsageLevelGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score usage_level generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"usage_level generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
 
 
 def static_mount() -> StaticFiles:

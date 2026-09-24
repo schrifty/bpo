@@ -26,6 +26,7 @@ def test_cortex_module_help_has_organized_sections() -> None:
         "--kpi",
         "kpi add",
         "kpi-snapshot",
+        "healthscore-snapshot",
         "metrics-digest",
         "run-job",
     ):

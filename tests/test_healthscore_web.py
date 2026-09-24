@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from starlette.testclient import TestClient
 
 from src.healthscore_web.framework import load_framework
 from src.healthscore_web.store import connect, observations_for_entity
+from src.healthscore_web.usage_level import get_usage_level, usage_level_points
 from src.kpi_web.app import create_app
 from src.kpi_web.settings import load_kpi_web_settings
 from tests.test_kpi_web_api import _OWNERS_YAML, _REGISTRY, _login
@@ -56,6 +58,10 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     roi = next(row for row in framework["inputs"] if row["key"] == "roi_multiple")
     assert roi["weight"] is None
     assert roi["status"] == "needs_weight"
+    usage = next(row for row in framework["inputs"] if row["key"] == "usage_level")
+    assert usage["generator"] == "get_usage_level"
+    assert usage["owner"] == "Lindsay Brown"
+    assert usage["owner_email"] == "lindsay.brown@leandna.com"
 
 
 def test_healthscore_store_is_separate_and_tracks_history(
@@ -149,3 +155,128 @@ def test_healthscore_rejects_non_salesforce_entity_and_excess_points(
     )
     assert excess.status_code == 400
     assert "cannot exceed 6" in excess.json()["error"]
+
+
+def test_usage_level_points_follow_framework_bands() -> None:
+    assert usage_level_points(None) == 0
+    assert usage_level_points(0) == 1
+    assert usage_level_points(30) == 1
+    assert usage_level_points(31) == 2
+    assert usage_level_points(65) == 3
+    assert usage_level_points(80) == 4
+    assert usage_level_points(92) == 5
+    assert usage_level_points(93) == 6
+
+
+def test_get_usage_level_scores_csr_match_and_warns_on_join_miss(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    entities = [
+        *_entities(),
+        {
+            "id": "001-unmatched",
+            "name": "No CSR Entity",
+            "entity_name": "Missing",
+            "parent_name": None,
+            "ultimate_parent_name": None,
+        },
+    ]
+    week_rows = [
+        {
+            "delta": "week",
+            "customer": "Acme Parent",
+            "entity": "Acme Entity",
+            "factoryName": "Plant A",
+            "weeklyActiveBuyersPercent": json.dumps({"endValue": 95, "empty": False}),
+            "endDate": "2026-09-21",
+        },
+        {
+            "delta": "week",
+            "customer": "Acme Parent",
+            "entity": "Acme Entity",
+            "factoryName": "Plant B",
+            "automatedHealthScores": json.dumps(
+                [{"name": "Usage", "healthScore": 40.0}]
+            ),
+            "endDate": "2026-09-21",
+        },
+    ]
+    dry = get_usage_level(entities=entities, week_rows=week_rows, persist=False)
+    assert dry["owner"] == "Lindsay Brown"
+    assert dry["scored"] == 1
+    assert dry["unmatched"] == 1
+    assert dry["warnings"][0]["id"] == "001-unmatched"
+    reading = dry["readings"][0]
+    assert reading["raw_value"] == pytest.approx(67.5)
+    assert reading["points"] == 4
+    assert reading["period_date"] == "2026-09-21"
+
+    persisted = get_usage_level(entities=entities, week_rows=week_rows, persist=True)
+    assert persisted["scored"] == 1
+    conn = connect()
+    rows = observations_for_entity(conn, "001-active")
+    conn.close()
+    assert rows[0]["source_mode"] == "automated"
+    assert rows[0]["entered_by"] == "get_usage_level"
+    assert rows[0]["points"] == 4
+
+
+def test_usage_level_generator_does_not_clobber_manual_reading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    conn = connect()
+    conn.execute(
+        """
+        INSERT INTO healthscore_observation (
+            entity_id, entity_name, component_key, period_date, raw_value_json,
+            points, source_mode, note, entered_by, entered_at
+        ) VALUES ('001-active', 'Acme Entity', 'usage_level', '2026-09-21', '10',
+                  1, 'manual', 'CS override', 'lindsay.brown@leandna.com',
+                  '2026-09-21T00:00:00Z')
+        """
+    )
+    conn.commit()
+    conn.close()
+    week_rows = [
+        {
+            "delta": "week",
+            "customer": "Acme Parent",
+            "entity": "Acme Entity",
+            "factoryName": "Plant A",
+            "weeklyActiveBuyersPercent": json.dumps({"endValue": 99, "empty": False}),
+            "endDate": "2026-09-21",
+        }
+    ]
+    result = get_usage_level(entities=_entities(), week_rows=week_rows, persist=True)
+    assert result["skipped_manual"] == 1
+    conn = connect()
+    rows = observations_for_entity(conn, "001-active")
+    conn.close()
+    assert rows[0]["source_mode"] == "manual"
+    assert rows[0]["raw_value"] == 10
+
+
+def test_generate_usage_level_api_is_authenticated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
+    monkeypatch.setattr(
+        "src.healthscore_web.api.run_usage_level_snapshot",
+        lambda **kwargs: {
+            "ok": True,
+            "generator": "get_usage_level",
+            "scored": 1,
+            "unmatched": 0,
+            "warnings": [],
+            "readings": [],
+        },
+    )
+    client = _client(tmp_path, monkeypatch)
+    assert client.post("/healthscore/api/generate/usage_level").status_code == 401
+    _login(client)
+    res = client.post("/healthscore/api/generate/usage_level")
+    assert res.status_code == 200
+    assert res.json()["generator"] == "get_usage_level"
+

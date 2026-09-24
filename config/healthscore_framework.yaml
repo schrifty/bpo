@@ -22,6 +22,10 @@ inputs:
     cadence: Weekly
     automation: automated
     status: defined
+    generator: get_usage_level
+    owner: Lindsay Brown
+    owner_email: lindsay.brown@leandna.com
+    owner_role: Head of Customer Success
   - key: usage_trend
     pillar: Product Adoption & Usage
     name: Usage trend / velocity

@@ -40,6 +40,11 @@ def create_app(
             healthscore_api.api_set_component,
             methods=["PUT"],
         ),
+        Route(
+            "/healthscore/api/generate/usage_level",
+            healthscore_api.api_generate_usage_level,
+            methods=["POST"],
+        ),
         Route("/api/health", api.api_health, methods=["GET"]),
         Route("/api/me", api.api_me, methods=["GET"]),
         Route("/api/meta", api.api_meta, methods=["GET"]),

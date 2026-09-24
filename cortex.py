@@ -99,6 +99,8 @@ Metrics & KPIs
   kpi-snapshot            Run registry generators into the SQLite KPI store
                           [--date YYYY-MM-DD] [--dry-run] [--tag TAG]
                           [--metric NAME] [--history-months N]
+  healthscore-snapshot    Run Health Score generators into the Health Score store
+                          [--dry-run] [--component usage_level] [--date YYYY-MM-DD]
   metrics-upsert          Upsert generator values to LeanDNA MetricDataPoint
                           [--date YYYY-MM-DD] [--dry-run] [--metric NAME]
                           [--requested-sites ID]
@@ -1635,6 +1637,10 @@ def main():
     if sub == "kpi-snapshot":
         _run_kpi_snapshot_cli(sys.argv[2:])
         return
+    if sub == "healthscore-snapshot":
+        from src.healthscore_web.snapshot import run_healthscore_snapshot_cli
+
+        raise SystemExit(run_healthscore_snapshot_cli(sys.argv[2:]))
     if sub == "metrics-upsert":
         _run_metrics_upsert_cli(sys.argv[2:])
         return
