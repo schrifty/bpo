@@ -18,6 +18,7 @@ from starlette.responses import (
 )
 from starlette.staticfiles import StaticFiles
 
+from src.config import LLM_MODEL
 from src.kpi_owners import (
     assert_actor_may_mutate_metric,
     KPIOwnershipError,
@@ -41,10 +42,18 @@ from src.kpi_web.auth import (
     user_from_google_info,
 )
 from src.kpi_web.situation import (
+    SITUATION_SYSTEM_PROMPT,
     KpiSituationError,
     build_situation_digest,
+    digest_kpi_names,
     generate_situation_analysis,
+    generate_situation_chat,
     iter_situation_analysis,
+)
+from src.kpi_web.situation_cache import (
+    load_situation_cache,
+    save_situation_cache,
+    situation_cache_key,
 )
 from src.kpi_web.mutations import (
     add_from_body,
@@ -333,6 +342,17 @@ def _situation_digest(request: Request, user: Any) -> dict[str, Any]:
             store_conn.close()
 
 
+def _situation_cache_key(digest: dict[str, Any]) -> str:
+    model = (
+        str(LLM_MODEL) if str(LLM_MODEL).startswith("claude") else "claude-sonnet-4-6"
+    )
+    return situation_cache_key(
+        digest,
+        prompt=SITUATION_SYSTEM_PROMPT,
+        model=model,
+    )
+
+
 async def api_kpi_situation(request: Request) -> Response:
     """GET /api/situation — Claude briefing vs week-ago and month-ago stored readings."""
     try:
@@ -341,7 +361,16 @@ async def api_kpi_situation(request: Request) -> Response:
         return auth_error_response(exc)
     try:
         digest = _situation_digest(request, user)
-        analysis = generate_situation_analysis(digest)
+        key = _situation_cache_key(digest)
+        cached = load_situation_cache(key)
+        if cached:
+            analysis = cached["analysis"]
+        else:
+            analysis = generate_situation_analysis(digest)
+            try:
+                cached = save_situation_cache(key, analysis)
+            except OSError:
+                logger.exception("Could not persist KPI situation cache")
     except KpiSituationError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     except Exception as exc:  # noqa: BLE001
@@ -353,6 +382,9 @@ async def api_kpi_situation(request: Request) -> Response:
             "analysis": analysis,
             "as_of": digest.get("as_of"),
             "kpi_count": digest.get("kpi_count"),
+            "kpi_names": digest_kpi_names(digest),
+            "cached": bool(cached),
+            "cached_at": cached.get("created_at") if cached else None,
         }
     )
 
@@ -370,6 +402,8 @@ async def api_kpi_situation_stream(request: Request) -> Response:
         return auth_error_response(exc)
     try:
         digest = _situation_digest(request, user)
+        key = _situation_cache_key(digest)
+        cached = load_situation_cache(key)
     except KpiSituationError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     except Exception as exc:  # noqa: BLE001
@@ -385,10 +419,19 @@ async def api_kpi_situation_stream(request: Request) -> Response:
                 "type": "start",
                 "as_of": digest.get("as_of"),
                 "kpi_count": digest.get("kpi_count"),
+                "kpi_names": digest_kpi_names(digest),
+                "cached": bool(cached),
+                "cached_at": cached.get("created_at") if cached else None,
             }
         )
+        if cached:
+            yield event({"type": "delta", "text": cached["analysis"]})
+            yield event({"type": "done"})
+            return
+        chunks: list[str] = []
         try:
             for chunk in iter_situation_analysis(digest):
+                chunks.append(chunk)
                 yield event({"type": "delta", "text": chunk})
         except KpiSituationError as exc:
             yield event({"type": "error", "error": str(exc)})
@@ -397,12 +440,69 @@ async def api_kpi_situation_stream(request: Request) -> Response:
             logger.exception("KPI situation stream failed")
             yield event({"type": "error", "error": str(exc)})
             return
+        analysis = "".join(chunks).strip()
+        try:
+            save_situation_cache(key, analysis)
+        except (OSError, ValueError):
+            logger.exception("Could not persist KPI situation cache")
         yield event({"type": "done"})
 
     return StreamingResponse(
         events(),
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+async def api_kpi_situation_chat(request: Request) -> Response:
+    """POST /api/situation/chat — grounded follow-up about the current KPI digest."""
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    try:
+        raw = await request.json()
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            {"ok": False, "error": f"request body must be JSON: {exc}"},
+            status_code=400,
+        )
+    if not isinstance(raw, dict):
+        return JSONResponse(
+            {"ok": False, "error": "request body must be a JSON object"},
+            status_code=400,
+        )
+    message = str(raw.get("message") or "").strip()
+    history = raw.get("history") or []
+    if not message:
+        return JSONResponse(
+            {"ok": False, "error": "message is required"},
+            status_code=400,
+        )
+    if len(message) > 2000:
+        return JSONResponse(
+            {"ok": False, "error": "message must be 2000 characters or fewer"},
+            status_code=400,
+        )
+    if not isinstance(history, list):
+        return JSONResponse(
+            {"ok": False, "error": "history must be a list"},
+            status_code=400,
+        )
+    try:
+        digest = _situation_digest(request, user)
+        answer = generate_situation_chat(digest, message, history=history)
+    except KpiSituationError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("KPI situation chat failed")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    return JSONResponse(
+        {
+            "ok": True,
+            "answer": answer,
+            "kpi_names": digest_kpi_names(digest),
+        }
     )
 
 

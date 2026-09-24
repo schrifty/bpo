@@ -25,12 +25,31 @@ from src.kpi_web.situation import (
     KpiSituationError,
     build_situation_digest,
     compare_series,
+    digest_kpi_names,
     generate_situation_analysis,
+    generate_situation_chat,
     iter_situation_analysis,
     period_as_date,
+    validate_situation_analysis,
     _Point,
 )
+from src.kpi_web.situation_cache import (
+    load_situation_cache,
+    save_situation_cache,
+    situation_cache_key,
+)
 from tests.test_kpi_web_api import _OWNERS_YAML, _login
+
+_SIX_BULLETS = "\n".join(
+    [
+        "- Your team — Support tickets are down vs last month.",
+        "- Your team — SLA is improving.",
+        "- Your team — Reopens need attention.",
+        "- Across the company — Engineering output is down.",
+        "- Across the company — AI adoption is steady.",
+        "- Across the company — Automation coverage is low.",
+    ]
+)
 
 
 @pytest.fixture(autouse=True)
@@ -144,6 +163,17 @@ def test_monthly_skips_week_ago() -> None:
     assert "monthly/quarterly" in (got["week_note"] or "")
 
 
+def test_digest_kpi_names_longest_first_and_pending() -> None:
+    names = digest_kpi_names(
+        {
+            "kpis": [{"name": "AI Spend %"}, {"name": "AI Spend / Issue"}],
+            "pending_kpis_by_team": {"Engineering": ["Spec-to-Production Cycle Time"]},
+        }
+    )
+    assert names[0] == "Spec-to-Production Cycle Time"
+    assert names.index("AI Spend / Issue") < names.index("AI Spend %")
+
+
 def test_digest_only_includes_generator_kpis_with_readings(tmp_path: Path) -> None:
     registry = yaml.safe_load(
         """
@@ -183,6 +213,7 @@ metrics:
     digest = build_situation_digest(conn, registry, as_of=date(2026, 9, 24))
     conn.close()
     assert digest["kpi_count"] == 1
+    assert digest["kpi_names"] == ["Wired Daily", "Pending"]
     assert digest["skipped_no_generator"] == 1
     row = digest["kpis"][0]
     assert row["name"] == "Wired Daily"
@@ -265,7 +296,7 @@ def test_generate_situation_uses_invoke_with_reader_prompt() -> None:
     def fake(*, system: str, user: str) -> str:
         seen["system"] = system
         seen["user"] = user
-        return "Support tickets are down vs last month."
+        return _SIX_BULLETS
 
     text = generate_situation_analysis(
         {"kpi_count": 1, "kpis": [{"name": "X"}], "viewer": {"teams": ["Support"]}},
@@ -273,8 +304,11 @@ def test_generate_situation_uses_invoke_with_reader_prompt() -> None:
     )
     assert "Support tickets" in text
     assert "How is my team doing?" in seen["system"]
-    assert "Watch this week" in seen["system"]
+    assert "exactly six bullets" in seen["system"]
+    assert "first three bullets" in seen["system"]
+    assert "final three bullets" in seen["system"]
     assert "mgmt_guidance" in seen["system"]
+    assert "copy its `name`" in seen["system"]
     assert '"teams":["Support"]' in seen["user"]
 
 
@@ -284,6 +318,54 @@ def test_generate_situation_empty_llm_fails() -> None:
             {"kpi_count": 1, "kpis": [{"name": "X"}]},
             invoke=lambda **_: "  ",
         )
+
+
+def test_validate_situation_analysis_rejects_wrong_team_split() -> None:
+    with pytest.raises(KpiSituationError, match="first 3"):
+        validate_situation_analysis(
+            _SIX_BULLETS.replace(
+                "- Your team — Reopens need attention.",
+                "- Across the company — Reopens need attention.",
+            )
+        )
+
+
+def test_generate_situation_chat_is_grounded_and_carries_history() -> None:
+    seen: dict[str, str] = {}
+
+    def fake(*, system: str, user: str) -> str:
+        seen["system"] = system
+        seen["user"] = user
+        return "PRs Merged is below target."
+
+    text = generate_situation_chat(
+        {"kpi_count": 1, "kpis": [{"name": "PRs Merged", "target": 500}]},
+        "What should I watch?",
+        history=[{"role": "user", "content": "Focus on engineering."}],
+        invoke=fake,
+    )
+    assert text == "PRs Merged is below target."
+    assert "Use only the supplied KPI digest" in seen["system"]
+    assert "What should I watch?" in seen["user"]
+    assert "Focus on engineering." in seen["user"]
+
+
+def test_situation_cache_is_content_addressed_and_persistent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    digest = {"viewer": {"email": "lead@leandna.com"}, "kpis": [{"name": "X"}]}
+    first = situation_cache_key(digest, prompt="p1", model="claude")
+    assert load_situation_cache(first) is None
+    saved = save_situation_cache(first, "- One")
+    assert saved["created_at"]
+    assert load_situation_cache(first)["analysis"] == "- One"
+    assert situation_cache_key(digest, prompt="p2", model="claude") != first
+    assert situation_cache_key(
+        {**digest, "kpis": [{"name": "X", "value": 2}]},
+        prompt="p1",
+        model="claude",
+    ) != first
 
 
 def test_situation_api_returns_claude_text(
@@ -344,6 +426,7 @@ metrics:
     assert body["ok"] is True
     assert "Month-end spend" in body["analysis"]
     assert body["kpi_count"] == 1
+    assert body["kpi_names"] == ["Wired Daily"]
     viewer = captured["digest"]["viewer"]  # type: ignore[index]
     assert viewer["email"] == "marc.schriftman@leandna.com"
     assert viewer["role"].startswith("catalog admin")
@@ -406,14 +489,18 @@ metrics:
 
 def test_iter_situation_analysis_cleans_markdown_across_chunks() -> None:
     # Markdown arrives split mid-token, so cleaning has to buffer whole lines.
-    chunks = ["# Your te", "am\n\n**Supp", "ort** is up.\n---\nDone."]
+    raw = _SIX_BULLETS.replace(
+        "- Your team — Support",
+        "# - Your team — **Support**",
+    )
+    chunks = [raw[:20], raw[20:47], raw[47:]]
     out = "".join(
         iter_situation_analysis(
             {"kpi_count": 1, "kpis": [{"name": "X"}]},
             stream=lambda **_: iter(chunks),
         )
     )
-    assert out == "Your team\n\nSupport is up.\nDone."
+    assert out == _SIX_BULLETS
 
 
 def test_iter_situation_analysis_empty_stream_fails() -> None:
@@ -493,10 +580,69 @@ def test_situation_stream_api_emits_ndjson_deltas(
     events = _ndjson(res.text)
     assert events[0]["type"] == "start"
     assert events[0]["kpi_count"] == 1
+    assert events[0]["kpi_names"] == ["Wired Daily"]
     assert "".join(e["text"] for e in events if e["type"] == "delta") == (
         "Your team\nSupport is up.\n"
     )
     assert events[-1]["type"] == "done"
+
+
+def test_situation_stream_reuses_cache_until_digest_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = 0
+
+    def fake_iter(digest, **_):
+        nonlocal calls
+        calls += 1
+        yield "- Cached briefing"
+
+    monkeypatch.setattr("src.kpi_web.api.iter_situation_analysis", fake_iter)
+    client = _situation_client(tmp_path, monkeypatch)
+    first = _ndjson(client.get("/api/situation/stream").text)
+    second = _ndjson(client.get("/api/situation/stream").text)
+    assert first[0]["cached"] is False
+    assert second[0]["cached"] is True
+    assert second[1] == {"type": "delta", "text": "- Cached briefing"}
+    assert calls == 1
+
+
+def test_situation_chat_api_uses_current_digest_and_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_chat(digest, message, *, history):
+        captured.update(digest=digest, message=message, history=history)
+        return "Wired Daily is current."
+
+    monkeypatch.setattr("src.kpi_web.api.generate_situation_chat", fake_chat)
+    client = _situation_client(tmp_path, monkeypatch)
+    res = client.post(
+        "/api/situation/chat",
+        json={
+            "message": "Is this current?",
+            "history": [{"role": "assistant", "content": "Ask me anything."}],
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["answer"] == "Wired Daily is current."
+    assert res.json()["kpi_names"] == ["Wired Daily"]
+    assert captured["message"] == "Is this current?"
+    assert captured["history"] == [
+        {"role": "assistant", "content": "Ask me anything."}
+    ]
+    assert captured["digest"]["kpi_count"] == 1  # type: ignore[index]
+
+
+def test_situation_chat_api_rejects_empty_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    res = _situation_client(tmp_path, monkeypatch).post(
+        "/api/situation/chat", json={"message": " "}
+    )
+    assert res.status_code == 400
+    assert res.json()["error"] == "message is required"
 
 
 def test_situation_stream_api_reports_error_event(

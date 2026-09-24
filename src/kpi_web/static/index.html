@@ -144,10 +144,21 @@
         </div>
         <aside id="detail" class="detail-pane">
           <div id="situation-root">
-            <h2>Situation</h2>
-            <p class="muted" id="situation-status">Comparing stored KPIs to a week ago and a month ago…</p>
-            <div id="situation-body" class="situation-body" hidden></div>
-            <p id="situation-error" class="error" hidden></p>
+            <div class="situation-scroll">
+              <h2>What do you think, Claude?</h2>
+              <p class="muted" id="situation-status">Comparing stored KPIs to a week ago and a month ago…</p>
+              <div id="situation-body" class="situation-body" hidden></div>
+              <p class="situation-cache-note muted" id="situation-cache-note" hidden></p>
+              <p id="situation-error" class="error" hidden></p>
+              <div id="situation-chat" class="situation-chat" aria-live="polite"></div>
+              <p id="situation-chat-error" class="error" hidden></p>
+            </div>
+            <form id="situation-chat-form" class="situation-chat-form">
+              <input id="situation-chat-input" type="text" maxlength="2000"
+                autocomplete="off" placeholder="Ask Claude about the KPI data…"
+                aria-label="Ask Claude about the KPI data" />
+              <button id="situation-chat-send" type="submit">Send</button>
+            </form>
           </div>
         </aside>
       </div>

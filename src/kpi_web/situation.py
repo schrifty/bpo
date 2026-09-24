@@ -83,30 +83,46 @@ a grain that cannot answer the reader's question, or an owner with no instrument
 last closed period means the store is stale for that KPI — say "stale" and skip trend talk.
 - Cluster related KPIs into one point instead of listing each (e.g. "the three Cursor \
 spend/token KPIs all closed down ~10%"). Readers scan; they do not read a ledger.
+- When a specific KPI is in play, copy its `name` from the digest exactly — \
+punctuation, %, slashes, and capitalization. The catalog turns those strings into \
+links. Do not paraphrase ("PRs" for "PRs Merged", "AI spend" for "Monthly AI Spend").
 
-Format: plain text only. No markdown of any kind — no **bold**, no # headings, no \
---- rules, no tables. Section labels are a bare line of text ("Your team", "Peer teams", \
-"Company", "Watch this week"). Bullets start with "- ".
+Format: exactly six bullets and nothing else. Plain text only. No section labels, \
+intro, summary, markdown emphasis, headings, rules, or tables. The first three bullets \
+must start with "- Your team — ". The final three must start with \
+"- Across the company — ". Each bullet is one to three concise sentences and includes \
+the action when one is warranted.
 
-Structure
-1. Your team — for `viewer.teams` (or, for the catalog admin, the team with the most \
-missed targets). Three to five bullets: target status first, then the largest moves vs a \
-month ago and, where available, a week ago. Mention KPIs the reader owns by name.
-2. Peer teams — one compact paragraph per other team in `company.by_team` with at least \
-one instrumented KPI. Name only the one or two things a peer lead would want to know \
-about you, and where a peer's trend will land on your desk (e.g. escalation rate rising \
-into engineering; AI spend rising while PR volume falls).
-3. Company — three lines max: how many targets made vs missed, the single biggest \
-improvement and the single biggest deterioration across the catalog this month, and \
-whether AI investment (spend, tokens, active users) is tracking with output (PRs merged, \
-issues shipped, cycle time).
-4. Watch this week — three to five actionable bullets. Each pairs a KPI trend with a \
-concrete next step drawn from `mgmt_guidance`, a target gap, or a data gap. Phrase as \
-"verb + object + why now". No generic advice.
+The first three bullets must discuss only the reader's team (`viewer.teams`), or, for \
+the catalog admin, the team with the most missed targets. Do not spend any part of \
+these bullets on another team. Put target misses first, then the largest meaningful \
+moves. Mention owned KPIs by exact name.
+
+The final three bullets cover all other KPIs across peer teams and the company. Select \
+the three facts or connected trends with the greatest company impact; include target \
+health, the biggest improvement or deterioration, AI investment versus output, and \
+actionable data gaps only when they are among the most important. Do not spend these \
+three bullets listing teams.
 
 Tone: direct, quantitative, calm. Numbers with units and the comparison period every \
-time ("64 open, up 12% vs last week, down 39% vs a month ago"). Target 250–400 words; \
-never exceed 480. Stop when the reader can act; do not pad.
+time ("64 open, up 12% vs last week, down 39% vs a month ago"). Target 180–300 words; \
+never exceed 360. Stop after the sixth bullet.
+"""
+
+
+SITUATION_CHAT_SYSTEM_PROMPT = """\
+You are Claude inside the Cortex KPI catalog. Answer a signed-in leader's follow-up \
+question about their KPI data.
+
+Use only the supplied KPI digest and conversation. Never invent a value, comparison, \
+target, owner, cause, or time period. If the digest cannot answer the question, say \
+exactly what is missing. Respect KPI direction: lower can be better. `mgmt_guidance` is \
+the only approved source for causes or actions. Monthly and quarterly values are closed \
+periods, not this week's movement.
+
+When mentioning a KPI, copy its `name` exactly so Cortex can link it to its detail panel. \
+Answer the question directly in at most 180 words. Plain text only; short bullets are \
+allowed. Do not repeat the six-bullet briefing unless the user asks for a recap.
 """
 
 
@@ -458,6 +474,9 @@ def build_situation_digest(
     return {
         "as_of": today.isoformat(),
         "kpi_count": len(kpis),
+        "kpi_names": digest_kpi_names_from(
+            kpis=kpis, pending_kpis_by_team=pending_by_team
+        ),
         "skipped_no_generator": skipped_no_generator,
         "skipped_no_stored_reading": skipped_no_reading,
         "pending_kpis_by_team": pending_by_team,
@@ -470,6 +489,43 @@ def build_situation_digest(
             "last closed calendar month; quarterly the last closed quarter."
         ),
     }
+
+
+def digest_kpi_names(digest: dict[str, Any]) -> list[str]:
+    """Catalog names Claude may cite: instrumented KPIs plus still-pending ones."""
+    return digest_kpi_names_from(
+        kpis=digest.get("kpis") or [],
+        pending_kpis_by_team=digest.get("pending_kpis_by_team") or {},
+    )
+
+
+def digest_kpi_names_from(
+    *,
+    kpis: list[Any],
+    pending_kpis_by_team: dict[str, Any] | None,
+) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: Any) -> None:
+        name = str(raw or "").strip()
+        if not name or name in seen:
+            return
+        seen.add(name)
+        names.append(name)
+
+    for row in kpis or []:
+        if isinstance(row, dict):
+            add(row.get("name"))
+        else:
+            add(row)
+    pending = pending_kpis_by_team or {}
+    if isinstance(pending, dict):
+        for items in pending.values():
+            for name in items or []:
+                add(name)
+    names.sort(key=lambda n: (-len(n), n.casefold()))
+    return names
 
 
 def _situation_prompt(digest: dict[str, Any]) -> tuple[str, str]:
@@ -504,6 +560,7 @@ def iter_situation_analysis(
     source = stream if stream is not None else _claude_stream
     buffer = ""
     produced = False
+    rendered: list[str] = []
     for delta in source(system=system, user=user):
         buffer += str(delta or "")
         while "\n" in buffer:
@@ -513,13 +570,35 @@ def iter_situation_analysis(
                 continue
             if cleaned.strip():
                 produced = True
-            yield cleaned + "\n"
+            piece = cleaned + "\n"
+            rendered.append(piece)
+            yield piece
     tail = _clean_md_line(buffer)
     if tail and tail.strip():
         produced = True
+        rendered.append(tail)
         yield tail
     if not produced:
         raise KpiSituationError("Claude returned an empty KPI situation briefing")
+    validate_situation_analysis("".join(rendered))
+
+
+def validate_situation_analysis(text: str) -> None:
+    """Reject briefings that violate the six-bullet reader/company contract."""
+    bullets = [line.strip() for line in text.splitlines() if line.strip().startswith("- ")]
+    if len(bullets) != 6:
+        raise KpiSituationError(
+            f"Claude KPI situation briefing must contain exactly 6 bullets; got {len(bullets)}"
+        )
+    if any(not line.startswith("- Your team — ") for line in bullets[:3]):
+        raise KpiSituationError(
+            "Claude KPI situation briefing must start its first 3 bullets with 'Your team'"
+        )
+    if any(not line.startswith("- Across the company — ") for line in bullets[3:]):
+        raise KpiSituationError(
+            "Claude KPI situation briefing must start its final 3 bullets with "
+            "'Across the company'"
+        )
 
 
 def generate_situation_analysis(
@@ -534,7 +613,44 @@ def generate_situation_analysis(
     cleaned = strip_markdown_chrome(text or "")
     if not cleaned:
         raise KpiSituationError("Claude returned an empty KPI situation briefing")
+    validate_situation_analysis(cleaned)
     return cleaned
+
+
+def generate_situation_chat(
+    digest: dict[str, Any],
+    message: str,
+    *,
+    history: list[dict[str, str]] | None = None,
+    invoke=None,
+) -> str:
+    """Answer one grounded follow-up question about the current KPI digest."""
+    question = str(message or "").strip()
+    if not question:
+        raise KpiSituationError("KPI chat message is required")
+    if int(digest.get("kpi_count") or 0) < 1:
+        raise KpiSituationError("no stored generator KPI readings available for KPI chat")
+    conversation: list[dict[str, str]] = []
+    for item in (history or [])[-12:]:
+        role = str(item.get("role") or "")
+        content = str(item.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            conversation.append({"role": role, "content": content[:4000]})
+    payload = json.dumps(digest, default=str, separators=(",", ":"))
+    if len(payload) > _MAX_DIGEST_CHARS:
+        payload = payload[:_MAX_DIGEST_CHARS] + "…"
+    user = (
+        f"KPI digest:\n{payload}\n\n"
+        f"Prior conversation:\n{json.dumps(conversation, separators=(',', ':'))}\n\n"
+        f"Current question:\n{question[:2000]}"
+    )
+    call = invoke if invoke is not None else _claude_complete
+    text = strip_markdown_chrome(
+        call(system=SITUATION_CHAT_SYSTEM_PROMPT, user=user) or ""
+    )
+    if not text:
+        raise KpiSituationError("Claude returned an empty KPI chat response")
+    return text
 
 
 def _message_text(resp: Any) -> str:

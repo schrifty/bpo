@@ -13,7 +13,10 @@
     editingValue: null,
     situation: null,
     situationPromise: null,
+    chatMessages: [],
+    chatBusy: false,
     rows: [],
+    kpiNames: [],
     sortKey: "name",
     sortDir: "asc",
   };
@@ -25,6 +28,41 @@
     monthly: 3,
     quarterly: 4,
   };
+
+  function escapeRegExp(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function rememberKpiNames(names) {
+    const seen = new Set(state.kpiNames);
+    for (const raw of names || []) {
+      const name = String(raw || "").trim();
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        state.kpiNames.push(name);
+      }
+    }
+  }
+
+  function linkKpiMentions(text) {
+    const raw = String(text || "");
+    const names = [...state.kpiNames].sort((a, b) => b.length - a.length || a.localeCompare(b));
+    if (!raw || !names.length) return esc(raw);
+    const re = new RegExp(names.map(escapeRegExp).join("|"), "gi");
+    const lowerToCanon = new Map(names.map((n) => [n.toLowerCase(), n]));
+    let out = "";
+    let last = 0;
+    for (const match of raw.matchAll(re)) {
+      const start = match.index ?? 0;
+      out += esc(raw.slice(last, start));
+      const shown = match[0];
+      const canon = lowerToCanon.get(shown.toLowerCase()) || shown;
+      out += `<button type="button" class="kpi-mention" data-kpi="${esc(canon)}">${esc(shown)}</button>`;
+      last = start + shown.length;
+    }
+    out += esc(raw.slice(last));
+    return out;
+  }
 
   function esc(s) {
     return String(s ?? "")
@@ -416,6 +454,7 @@
     const tbody = $("kpi-table").querySelector("tbody");
     tbody.innerHTML = "";
     state.rows = payload.kpis || [];
+    rememberKpiNames(state.rows.map((k) => k.name));
     const items = sortKpis(state.rows);
     syncSortHeaders();
     $("empty-state").classList.toggle("hidden", items.length > 0);
@@ -471,39 +510,89 @@
 
   function situationMarkup() {
     return `<div id="situation-root">
-      <h2>Situation</h2>
-      <p class="muted" id="situation-status"></p>
-      <div id="situation-body" class="situation-body" hidden></div>
-      <p id="situation-error" class="error" hidden></p>
+      <div class="situation-scroll">
+        <h2>What do you think, Claude?</h2>
+        <p class="muted" id="situation-status"></p>
+        <div id="situation-body" class="situation-body" hidden></div>
+        <p class="situation-cache-note muted" id="situation-cache-note" hidden></p>
+        <p id="situation-error" class="error" hidden></p>
+        <div id="situation-chat" class="situation-chat" aria-live="polite"></div>
+        <p id="situation-chat-error" class="error" hidden></p>
+      </div>
+      <form id="situation-chat-form" class="situation-chat-form">
+        <input id="situation-chat-input" type="text" maxlength="2000"
+          autocomplete="off" placeholder="Ask Claude about the KPI data…"
+          aria-label="Ask Claude about the KPI data" />
+        <button id="situation-chat-send" type="submit">Send</button>
+      </form>
     </div>`;
+  }
+
+  function renderSituationChat() {
+    const log = $("situation-chat");
+    const input = $("situation-chat-input");
+    const send = $("situation-chat-send");
+    if (!log || !input || !send) return;
+    log.innerHTML = state.chatMessages
+      .map((message) => {
+        const role = message.role === "user" ? "You" : "Claude";
+        const content =
+          message.role === "assistant"
+            ? linkKpiMentions(message.content)
+            : esc(message.content);
+        return `<div class="chat-message chat-${message.role}">
+          <span class="chat-role">${role}</span>
+          <div>${content}</div>
+        </div>`;
+      })
+      .join("");
+    if (state.chatBusy) {
+      log.insertAdjacentHTML(
+        "beforeend",
+        '<div class="chat-message chat-assistant chat-thinking">Claude is thinking…</div>'
+      );
+    }
+    input.disabled = state.chatBusy;
+    send.disabled = state.chatBusy;
+    if (log.lastElementChild) log.lastElementChild.scrollIntoView({ block: "nearest" });
   }
 
   function applySituationView() {
     const status = $("situation-status");
     const body = $("situation-body");
     const err = $("situation-error");
-    if (!status || !body || !err) return;
+    const cacheNote = $("situation-cache-note");
+    if (!status || !body || !err || !cacheNote) return;
     const cached = state.situation;
     if (!cached) {
       status.hidden = false;
       status.textContent = "Comparing stored KPIs to a week ago and a month ago…";
       body.hidden = true;
+      cacheNote.hidden = true;
       err.hidden = true;
+      renderSituationChat();
       return;
     }
     if (cached.error) {
       status.hidden = true;
       body.hidden = true;
+      cacheNote.hidden = true;
       err.hidden = false;
       err.textContent = cached.error;
+      renderSituationChat();
       return;
     }
     body.hidden = false;
-    body.textContent = cached.analysis || "";
+    body.innerHTML = linkKpiMentions(cached.analysis || "");
     body.classList.toggle("streaming", !!cached.streaming);
     status.hidden = !cached.streaming;
     if (cached.streaming) status.textContent = "Claude is writing the briefing…";
+    cacheNote.hidden = !cached.cached;
+    cacheNote.textContent = cached.cached
+      ? "Cached briefing — refreshed automatically when KPI data changes."
+      : "";
     err.hidden = true;
+    renderSituationChat();
   }
 
   async function streamSituation() {
@@ -522,6 +611,7 @@
     const decoder = new TextDecoder();
     let pending = "";
     let text = "";
+    let cacheMeta = { cached: false, cachedAt: null };
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -538,15 +628,27 @@
           continue;
         }
         if (event.type === "error") throw new Error(event.error || "situation briefing failed");
+        if (event.type === "start") {
+          rememberKpiNames(event.kpi_names);
+          cacheMeta = {
+            cached: Boolean(event.cached),
+            cachedAt: event.cached_at || null,
+          };
+          continue;
+        }
         if (event.type !== "delta") continue;
         text += event.text || "";
-        state.situation = { analysis: text.replace(/^\n+/, ""), streaming: true };
+        state.situation = {
+          analysis: text.replace(/^\n+/, ""),
+          streaming: true,
+          ...cacheMeta,
+        };
         if (!state.selected) applySituationView();
       }
     }
     const analysis = text.trim();
     if (!analysis) throw new Error("Claude returned an empty KPI situation briefing");
-    return analysis;
+    return { analysis, ...cacheMeta };
   }
 
   function showSituationPane() {
@@ -575,8 +677,8 @@
     state.situation = null;
     applySituationView();
     state.situationPromise = streamSituation()
-      .then((analysis) => {
-        state.situation = { analysis };
+      .then((result) => {
+        state.situation = result;
       })
       .catch((err) => {
         state.situation = { error: err.message || String(err) };
@@ -586,6 +688,38 @@
         if (!state.selected) applySituationView();
       });
     await state.situationPromise;
+  }
+
+  async function sendSituationChat() {
+    if (state.chatBusy) return;
+    const input = $("situation-chat-input");
+    const err = $("situation-chat-error");
+    const message = String(input?.value || "").trim();
+    if (!message) return;
+    const history = state.chatMessages.map(({ role, content }) => ({ role, content }));
+    state.chatMessages.push({ role: "user", content: message });
+    state.chatBusy = true;
+    input.value = "";
+    if (err) err.hidden = true;
+    renderSituationChat();
+    try {
+      const data = await api("/api/situation/chat", {
+        method: "POST",
+        body: JSON.stringify({ message, history }),
+      });
+      rememberKpiNames(data.kpi_names);
+      state.chatMessages.push({ role: "assistant", content: data.answer });
+    } catch (chatErr) {
+      if (err) {
+        err.hidden = false;
+        err.textContent = chatErr.message || String(chatErr);
+      }
+    } finally {
+      state.chatBusy = false;
+      renderSituationChat();
+      const nextInput = $("situation-chat-input");
+      if (nextInput) nextInput.focus();
+    }
   }
 
   function beginValueEdit(td, kpi) {
@@ -1075,6 +1209,17 @@
     if ($("app-panel").classList.contains("hidden")) return;
     ev.preventDefault();
     showSituationPane();
+  });
+  $("detail").addEventListener("click", (ev) => {
+    const mention = ev.target.closest(".kpi-mention");
+    if (!mention) return;
+    const name = mention.getAttribute("data-kpi");
+    if (name) selectKpi(name);
+  });
+  $("detail").addEventListener("submit", (ev) => {
+    if (ev.target.id !== "situation-chat-form") return;
+    ev.preventDefault();
+    sendSituationChat();
   });
   $("user-badge").addEventListener("click", (ev) => {
     ev.stopPropagation();

@@ -62,12 +62,17 @@ Permissions match CLI ownership rules (enforced server-side via
    drops the override so the number already in SQLite shows again. It does not
    re-run the generator.
 5. With no row selected, the right pane is the Claude week/month situation
-   briefing (`GET /api/situation`). It is written for the signed-in reader:
-   your team first (owned KPIs and topic packs), then peer teams, then the
-   company, then "Watch this week" actions drawn from each KPI's management
-   guidance and target gaps. Facts come only from the store digest
+   briefing (`GET /api/situation`). It is exactly six bullets: three for the
+   signed-in reader's team (owned KPIs and topic packs), then three covering
+   the most important trends across the rest of the catalog. Facts come only
+   from the store digest
    (`src/kpi_web/situation.py`); rows are aged by `period_key`, not `as_of`,
    so pre-fix rows with stale keys cannot masquerade as the current close.
+   Completed briefings are cached under
+   `CORTEX_CACHE_ROOT/kpi/situation/`, keyed by the complete reader-specific
+   digest, model, and prompt. The cache survives process restarts and remains
+   valid until KPI data, reader context, model, or prompt changes; partial or
+   failed streams are never cached.
    The pane reads `GET /api/situation/stream`, an NDJSON stream of
    `start` / `delta` / `error` / `done` events, so the briefing appears a line
    at a time instead of after the ~30s Claude needs to finish it. Failures
@@ -75,6 +80,9 @@ Permissions match CLI ownership rules (enforced server-side via
    and the pane shows the message instead of a truncated briefing.
    `GET /api/situation` still returns the whole briefing as one JSON response
    for scripts.
+   The message bar at the bottom calls `POST /api/situation/chat`; each answer
+   is grounded in the same current digest and the last 12 turns. KPI names in
+   the briefing and chat answers link to their detail panels.
    Select a KPI to read description, guidance, target, and history.
    The pencil in the detail header edits **name, tags, and target** (plus
    direction/unit, which a target needs). Delete is the trash control at the

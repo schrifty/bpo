@@ -261,10 +261,17 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     assert js.status_code == 200
     assert "restoreOverride" in js.text
     assert "value-restore" in js.text
-    assert "loadSituation" in js.text
+    assert "function linkKpiMentions" in js.text
+    assert "kpi-mention" in js.text
+    assert "function rememberKpiNames" in js.text
+    assert 'id="situation-chat-form"' in html
+    assert "Ask Claude about the KPI data" in html
+    assert "sendSituationChat" in js.text
+    assert "/api/situation/chat" in js.text
     assert "/api/situation" in js.text
     assert "Select a KPI to see description" not in html
     assert 'id="situation-root"' in html
+    assert "What do you think, Claude?" in html
     assert 'href="/static/logo.svg"' in html
     assert 'class="brand-mark"' in html
     assert 'data-sort="name"' in html
