@@ -266,6 +266,11 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     assert "/api/situation" in js.text
     assert "Select a KPI to see description" not in html
     assert 'id="situation-root"' in html
+    assert 'href="/static/logo.svg"' in html
+    assert 'class="brand-mark"' in html
+    logo = client.get("/static/logo.svg")
+    assert logo.status_code == 200
+    assert "<svg" in logo.text and "Cortex" in logo.text
 
 
 def test_stored_values_fail_loud_when_store_missing(

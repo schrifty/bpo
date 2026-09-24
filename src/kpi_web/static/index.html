@@ -4,12 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cortex KPIs</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <header class="top">
     <div class="brand">
-      <a href="/" class="brand-link" id="brand-home">Cortex KPIs</a>
+      <a href="/" class="brand-link" id="brand-home">
+        <img src="/static/logo.svg" alt="" class="brand-mark" width="28" height="28" />
+        <span class="brand-word">Cortex<span class="brand-sub">KPIs</span></span>
+      </a>
     </div>
     <div id="session" class="session hidden">
       <button
@@ -38,6 +42,7 @@
 
   <main>
     <section id="login-panel" class="panel hidden">
+      <img src="/static/logo.svg" alt="Cortex" class="login-mark" width="72" height="72" />
       <h1>Sign in</h1>
       <p class="muted">Google Workspace SSO. Only catalog admin and configured leads can view KPIs.</p>
       <div id="login-actions" class="row"></div>
