@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from statistics import median
@@ -21,6 +21,7 @@ from src.metrics_registry import (
     is_upsertable_metric,
     load_metrics_registry,
     metric_registry_skip_reason,
+    registry_metric_grain,
 )
 
 
@@ -40,6 +41,7 @@ class MetricUpsertContext:
     max_issues_per_board: int
     workers: int
     metric_name_filter: str | None
+    grain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -694,6 +696,7 @@ def invoke_metric_generator(
         "timeout": ctx.timeout_seconds,
         "entry_date": ctx.entry_date,
         "as_of": ctx.entry_date,
+        "grain": ctx.grain,
         "db_path": str(kpi_store_path) if kpi_store_path is not None else None,
         "skip_s3": skip_s3,
     }
@@ -747,7 +750,11 @@ def upsert_one_registry_metric(
 
     metric_id = resolution.metric_id
 
-    raw = invoke_metric_generator(gen_name, registry=registry, ctx=ctx)
+    raw = invoke_metric_generator(
+        gen_name,
+        registry=registry,
+        ctx=replace(ctx, grain=registry_metric_grain(entry)),
+    )
     parts = parse_generator_parts(raw, metric_name=metric_name, registry=registry)
 
     row: dict[str, Any] = {

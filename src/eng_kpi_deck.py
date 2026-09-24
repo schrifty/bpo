@@ -21,7 +21,6 @@ from .kpi_store import (
     GRAIN_MONTH,
     connect,
     default_kpi_store_path,
-    grain_for_generator,
     list_kpis,
 )
 from .metrics_digest import DigestRow, generate_digest_row
@@ -29,6 +28,7 @@ from .metrics_registry import (
     has_metric_generator,
     iter_metrics_with_generator,
     load_metrics_registry,
+    registry_metric_grain,
     registry_metric_tags,
 )
 from .metrics_upsert import MetricUpsertContext
@@ -268,8 +268,7 @@ def _build_kpi_cards(
     cards: list[EngKpiCard] = []
     for name, entry in entries:
         row = generate_digest_row(name, entry, registry=registry, ctx=resolve_ctx)
-        gen = str(entry.get("metric-generator") or "").strip()
-        grain = grain_for_generator(gen)
+        grain = registry_metric_grain(entry)
         history: list[HistoryPoint] = []
         if history_conn is not None:
             history = history_points_for_metric(history_conn, name=name, grain=grain)

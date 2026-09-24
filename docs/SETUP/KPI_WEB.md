@@ -42,7 +42,7 @@ Permissions match CLI ownership rules (enforced server-side via
    assign another owner. Check **Dry-run** to preview the change JSON without
    writing YAML; uncheck to persist.
 3. Select a KPI you may edit → **Edit** / **Delete** in the detail pane.
-4. Delete always dry-runs first, then asks before writing.
+4. Delete opens a confirmation dialog, dry-runs, then writes the YAML delete.
 
 Leads see Edit/Delete only on KPIs they own; other owners are view-only.
 

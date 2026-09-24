@@ -11,7 +11,7 @@ import argparse
 import logging
 import sys
 from calendar import month_name
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from typing import Any, Sequence
 
@@ -24,6 +24,7 @@ from src.metrics_registry import (
     normalize_tag,
     registry_metric_description,
     registry_metric_direction,
+    registry_metric_grain,
     registry_metric_tags,
     registry_metric_target,
     validate_metric_target_direction,
@@ -341,7 +342,15 @@ def generate_digest_row(
     gen_name = str(entry.get("metric-generator") or "").strip()
     raw: dict[str, Any] | None = None
     try:
-        raw = invoke_metric_generator(gen_name, registry=registry, ctx=ctx)
+        raw = invoke_metric_generator(
+            gen_name,
+            registry=registry,
+            ctx=(
+                replace(ctx, grain=registry_metric_grain(entry))
+                if isinstance(ctx, MetricUpsertContext)
+                else ctx
+            ),
+        )
         # Prefer explicit ``value`` when present so USD/issue (and similar) are not
         # misread as (numerator/denominator)*100 by :func:`scalar_from_parts`.
         if isinstance(raw, dict) and raw.get("value") is not None and not raw.get("error"):

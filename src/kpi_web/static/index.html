@@ -32,12 +32,6 @@
           </select>
         </label>
         <label>
-          Tag
-          <select id="filter-tag">
-            <option value="">All tags</option>
-          </select>
-        </label>
-        <label>
           Mode
           <select id="filter-mode">
             <option value="stored">stored</option>
@@ -51,6 +45,14 @@
         </label>
         <button type="button" id="btn-refresh">Refresh</button>
         <button type="button" id="btn-add" class="secondary">Add KPI</button>
+      </div>
+
+      <div class="tag-filter-wrap">
+        <div class="tag-filter-heading">
+          <span>Tags</span>
+          <button type="button" id="btn-clear-tags" class="linkish hidden">Clear</button>
+        </div>
+        <div id="filter-tags" class="tag-filter" role="group" aria-label="Filter by tags"></div>
       </div>
 
       <p id="list-status" class="muted"></p>
@@ -80,6 +82,18 @@
     </section>
   </main>
 
+  <dialog id="confirm-delete-dialog">
+    <form id="confirm-delete-form" method="dialog">
+      <h2>Delete KPI</h2>
+      <p id="confirm-delete-copy">This will remove the KPI from the catalog YAML.</p>
+      <p id="confirm-delete-error" class="error" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="btn-delete-cancel" class="secondary" value="cancel">Cancel</button>
+        <button type="submit" id="btn-delete-confirm" class="danger">Delete</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="kpi-form-dialog">
     <form id="kpi-form" method="dialog">
       <h2 id="form-title">Add KPI</h2>
@@ -108,6 +122,16 @@
         <label>
           Tags <span class="muted">(comma-separated)</span>
           <input type="text" id="f-tags" placeholder="engineering, ai" autocomplete="off" />
+        </label>
+        <label>
+          Grain
+          <select id="f-grain" required>
+            <option value="hourly">hourly</option>
+            <option value="daily" selected>daily</option>
+            <option value="weekly">weekly</option>
+            <option value="monthly">monthly</option>
+            <option value="quarterly">quarterly</option>
+          </select>
         </label>
         <label>
           Target

@@ -24,6 +24,9 @@
 #                       Live and SQLite stored resolve do not need it.
 #   metric-generator  — Python function that computes the value when wired in Cortex;
 #                       null when no generator exists in this repo yet
+#   grain             — Required observation cadence: hourly | daily | weekly |
+#                       monthly | quarterly. The snapshot caller passes it to the
+#                       generator context and uses it to choose the storage period key.
 #   tags              — Optional list of lowercase labels for grouping/filtering KPIs
 #                       (e.g. [engineering, impact]). One KPI may carry many tags. Query
 #                       with `metrics-by-tag <tag>` (live by default).
@@ -63,6 +66,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: 1860
     metric-generator: null
+    grain: daily
     tags: [control-tower, onboarding]
 
   # On-Time Performance
@@ -74,6 +78,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: 1745
     metric-generator: null
+    grain: daily
     tags: [supply-chain]
 
   # Customer-Reported Bugs (month-close created count)
@@ -89,6 +94,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_customer_reported_bugs_created
+    grain: monthly
     tags: [engineering, quality, legacy]
     target: 15
     direction: lower
@@ -103,6 +109,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: 1769
     metric-generator: null
+    grain: daily
     tags: [reliability, platform, legacy]
 
   # AI Token Usage
@@ -114,6 +121,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_ai_token_usage
+    grain: daily
     tags: [ai, engineering, forward]
 
   "Monthly AI Spend":
@@ -124,6 +132,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_monthly_ai_spend
+    grain: daily
     tags: [enterprise, finance]
     unit: currency
 
@@ -136,6 +145,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: 2175
     metric-generator: null
+    grain: daily
     tags: [onboarding]
 
   # Sprint Delivery %
@@ -149,6 +159,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: 2086
     metric-generator: get_sprint_delivery_by_team
+    grain: daily
     tags: [engineering, legacy]
     unit: percent
     target: 80
@@ -165,6 +176,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_median_ttfr
+    grain: daily
     tags: [support, sla, care]
     target: 48
     direction: lower
@@ -178,6 +190,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: 2171
     metric-generator: get_median_ttr
+    grain: daily
     tags: [support, sla, care]
     target: 6.67
     direction: lower
@@ -193,6 +206,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_sla_adherence
+    grain: daily
     tags: [support, sla, care]
     unit: percent
     target: 90
@@ -208,6 +222,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_help_resolved_created_ratio
+    grain: monthly
     tags: [support, throughput]
     unit: percent
     target: 100
@@ -225,6 +240,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_help_ticket_count
+    grain: monthly
     tags: [support, volume]
 
   "Support FTE":
@@ -237,6 +253,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_support_fte
+    grain: monthly
     tags: [support, finance]
 
   "Tickets per FTE":
@@ -249,6 +266,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_tickets_per_fte
+    grain: monthly
     tags: [support, finance]
 
   "Support Spend / Ticket":
@@ -262,6 +280,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_support_spend_per_ticket
+    grain: monthly
     tags: [support, finance]
     unit: currency
 
@@ -277,6 +296,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_support_spend_per_resolved
+    grain: monthly
     tags: [support, finance]
     unit: currency
 
@@ -292,6 +312,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_help_fully_loaded_spend_per_ticket
+    grain: monthly
     tags: [support, finance]
     unit: currency
 
@@ -306,6 +327,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_engineering_escalation_count
+    grain: monthly
     tags: [support, escalation, engineering]
 
   "Engineering Escalation Rate":
@@ -319,6 +341,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_engineering_escalation_rate
+    grain: monthly
     tags: [support, escalation, engineering]
     unit: percent
 
@@ -332,6 +355,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_data_escalation_count
+    grain: monthly
     tags: [support, escalation, data-integration]
 
   "Data Escalation Rate":
@@ -345,6 +369,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_data_escalation_rate
+    grain: monthly
     tags: [support, escalation, data-integration]
     unit: percent
 
@@ -358,6 +383,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_open_help
+    grain: daily
     tags: [support, backlog]
 
   "Open HELP >30d %":
@@ -370,6 +396,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_open_help_over_30d_pct
+    grain: daily
     tags: [support, backlog, care]
     unit: percent
 
@@ -384,6 +411,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_help_reopen_pct
+    grain: monthly
     tags: [support, care]
     unit: percent
 
@@ -397,6 +425,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_open_help_waiting_on_customer_pct
+    grain: daily
     tags: [support, care, backlog]
     unit: percent
 
@@ -410,6 +439,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_open_help_waiting_on_us_over_30d_pct
+    grain: daily
     tags: [support, care, backlog]
     unit: percent
 
@@ -423,6 +453,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_p90_ttr
+    grain: daily
     tags: [support, sla, care]
     target: 10
     direction: lower
@@ -435,6 +466,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: 2024
     metric-generator: get_dev_team_cycle_times
+    grain: daily
     tags: [engineering, legacy]
     target: 1
     direction: lower
@@ -447,6 +479,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: 2179
     metric-generator: get_dev_team_lead_time
+    grain: daily
     tags: [engineering, legacy]
     target: 14
     direction: lower
@@ -460,6 +493,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [reliability, data-integration]
 
   # Data Sync Failures (YTD) - 2031
@@ -471,6 +505,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [reliability, data-integration]
 
   # 2076
@@ -482,6 +517,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_kpi_automation_pct
+    grain: daily
     tags: [automation, ops]
     unit: percent
     target: 90
@@ -495,6 +531,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
+    grain: daily
     tags: [engineering, legacy]
     target: 150
     direction: higher
@@ -508,6 +545,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [ai]
 
   # ── Engineering MFR scorecard (board-level AI adoption & impact) ──
@@ -519,6 +557,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_weekly_active_ai_users
+    grain: weekly
     tags: [engineering, ai, AKKR, forward]
     unit: percent
     target: 100
@@ -534,6 +573,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_ai_assisted_prs_pct
+    grain: monthly
     tags: [engineering, ai, AKKR, legacy]
     unit: percent
     target: 90
@@ -549,6 +589,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_ai_code_share
+    grain: monthly
     tags: [engineering, ai, AKKR, forward]
     unit: percent
     target: 80
@@ -563,6 +604,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_tokens_per_dev
+    grain: monthly
     tags: [engineering, ai, AKKR, forward]
 
   "Token Cost per Dev":
@@ -573,6 +615,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_token_cost_per_dev
+    grain: monthly
     tags: [engineering, ai, AKKR, forward]
     unit: currency
     target: 250
@@ -586,6 +629,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_ai_spend_pct
+    grain: monthly
     tags: [engineering, ai, AKKR, forward]
     unit: percent
     target: 5
@@ -599,6 +643,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_prs_merged
+    grain: monthly
     tags: [engineering, impact, AKKR, legacy]
     target: 500
     direction: higher
@@ -611,6 +656,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_defects_per_100_issues
+    grain: monthly
     tags: [engineering, impact, quality, AKKR, legacy]
     unit: percent
     target: 15
@@ -625,6 +671,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_issues_shipped
+    grain: monthly
     tags: [engineering, impact, AKKR, legacy]
     target: 280
     direction: higher
@@ -639,6 +686,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_growth_allocation_pct
+    grain: monthly
     tags: [engineering, impact, AKKR, legacy]
     unit: percent
     target: 90
@@ -652,6 +700,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_headcount_plus_ai_spend_per_issue
+    grain: monthly
     tags: [engineering, impact, ai, AKKR, legacy]
     unit: currency
     target: 1600
@@ -665,6 +714,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: get_ai_spend_per_issue
+    grain: monthly
     tags: [engineering, impact, ai, AKKR, legacy]
     unit: currency
 
@@ -686,6 +736,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [engineering, sdd, forward, pending]
     unit: percent
 
@@ -703,6 +754,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [engineering, sdd, forward, pending]
 
   "Escaped Defect Rate":
@@ -719,6 +771,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [engineering, quality, forward, pending]
 
   "QA Cycle Time":
@@ -733,6 +786,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [engineering, quality, forward, pending]
 
   "SLO Attainment %":
@@ -746,6 +800,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [reliability, platform, forward, pending]
     unit: percent
 
@@ -760,6 +815,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [reliability, platform, forward, pending]
 
   "Engineering + Infrastructure Cost % of ARR":
@@ -775,6 +831,7 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [engineering, finance, forward, pending]
     unit: percent
 
@@ -790,4 +847,5 @@ metrics:
     owner: marc.schriftman@leandna.com
     metric-id: null
     metric-generator: null
+    grain: daily
     tags: [engineering, product, forward, pending]

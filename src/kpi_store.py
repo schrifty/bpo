@@ -1,4 +1,4 @@
-"""SQLite store for KPI observations (daily snapshot and month-close grains).
+"""SQLite store for KPI observations at registry-defined grains.
 
 The database file is local. :mod:`src.kpi_store_s3` uploads/downloads that file.
 This module does not generate KPIs or talk to LeanDNA.
@@ -14,11 +14,19 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .kpi_observation import KPIObservation
+from .metrics_registry import LEGACY_MONTHLY_GENERATORS
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+GRAIN_HOURLY = "hourly"
 GRAIN_DAILY = "daily"
-GRAIN_MONTH = "month"
-GRAINS = frozenset({GRAIN_DAILY, GRAIN_MONTH})
+GRAIN_WEEKLY = "weekly"
+GRAIN_MONTHLY = "monthly"
+GRAIN_QUARTERLY = "quarterly"
+# Compatibility name used by older callers/tests.
+GRAIN_MONTH = GRAIN_MONTHLY
+GRAINS = frozenset(
+    {GRAIN_HOURLY, GRAIN_DAILY, GRAIN_WEEKLY, GRAIN_MONTHLY, GRAIN_QUARTERLY}
+)
 
 # Headline month-close name. Retired daily open-stock rows used this name or
 # ``Open Customer-Reported Bugs`` and are dropped on connect.
@@ -32,44 +40,14 @@ _RETIRED_TRAILING_SUPPORT_METRICS = (
 )
 
 # Previous-calendar-month scorecard generators (period_key = YYYY-MM of that month).
-MONTH_CLOSE_GENERATORS = frozenset(
-    {
-        "get_tokens_per_dev",
-        "get_token_cost_per_dev",
-        "get_prs_merged",
-        "get_ai_assisted_prs_pct",
-        "get_ai_code_share",
-        "get_ai_automated_prs_pct",
-        "get_ai_assisted_automated_prs_pct",
-        "get_issues_shipped",
-        "get_defects_per_100_issues",
-        "get_defect_introduction_rate",
-        "get_growth_allocation_pct",
-        "get_ai_spend_pct",
-        "get_ai_spend_per_issue",
-        "get_headcount_plus_ai_spend_per_issue",
-        "get_customer_reported_bugs_created",
-        "get_customer_reported_bugs_eom",
-        "get_help_ticket_count",
-        "get_support_fte",
-        "get_tickets_per_fte",
-        "get_support_spend_per_ticket",
-        "get_support_spend_per_resolved",
-        "get_help_fully_loaded_spend_per_ticket",
-        "get_help_reopen_pct",
-        "get_help_resolved_created_ratio",
-        "get_engineering_escalation_count",
-        "get_data_escalation_count",
-        "get_engineering_escalation_rate",
-        "get_data_escalation_rate",
-    }
-)
+MONTH_CLOSE_GENERATORS = LEGACY_MONTHLY_GENERATORS
 
 
 def grain_for_generator(generator: str) -> str:
+    """Legacy fallback for registry rows that predate the required grain field."""
     name = (generator or "").strip()
     if name in MONTH_CLOSE_GENERATORS:
-        return GRAIN_MONTH
+        return GRAIN_MONTHLY
     return GRAIN_DAILY
 
 
@@ -86,7 +64,9 @@ CREATE TABLE IF NOT EXISTS kpi_store_meta (
 
 CREATE TABLE IF NOT EXISTS kpi_observation (
     metric_name TEXT NOT NULL,
-    grain TEXT NOT NULL CHECK (grain IN ('daily', 'month')),
+    grain TEXT NOT NULL CHECK (
+        grain IN ('hourly', 'daily', 'weekly', 'monthly', 'quarterly')
+    ),
     period_key TEXT NOT NULL,
     captured_at TEXT NOT NULL,
     value REAL,
@@ -129,14 +109,24 @@ def _utc_now_iso() -> str:
 
 def validate_grain(grain: str) -> str:
     g = (grain or "").strip().lower()
+    if g == "month":
+        g = GRAIN_MONTHLY
     if g not in GRAINS:
-        raise KPIStoreError(f"grain must be 'daily' or 'month', got {grain!r}")
+        raise KPIStoreError(f"grain must be one of {sorted(GRAINS)}, got {grain!r}")
     return g
 
 
 def validate_period_key(grain: str, period_key: str) -> str:
     key = (period_key or "").strip()
     g = validate_grain(grain)
+    if g == GRAIN_HOURLY:
+        try:
+            datetime.strptime(key, "%Y-%m-%dT%H")
+        except ValueError as exc:
+            raise KPIStoreError(
+                f"hourly period_key must be YYYY-MM-DDTHH, got {period_key!r}"
+            ) from exc
+        return key
     if g == GRAIN_DAILY:
         if len(key) != 10 or key[4] != "-" or key[7] != "-":
             raise KPIStoreError(f"daily period_key must be YYYY-MM-DD, got {period_key!r}")
@@ -145,13 +135,39 @@ def validate_period_key(grain: str, period_key: str) -> str:
         except ValueError as exc:
             raise KPIStoreError(f"invalid period_key {period_key!r} for grain {g!r}") from exc
         return key
-    if len(key) != 7 or key[4] != "-":
-        raise KPIStoreError(f"month period_key must be YYYY-MM, got {period_key!r}")
-    try:
-        datetime.strptime(key + "-01", "%Y-%m-%d")
-    except ValueError as exc:
-        raise KPIStoreError(f"invalid period_key {period_key!r} for grain {g!r}") from exc
-    return key
+    if g == GRAIN_WEEKLY:
+        try:
+            datetime.strptime(f"{key}-1", "%G-W%V-%u")
+        except ValueError as exc:
+            raise KPIStoreError(
+                f"weekly period_key must be YYYY-Www, got {period_key!r}"
+            ) from exc
+        return key
+    if g == GRAIN_MONTHLY:
+        try:
+            datetime.strptime(key + "-01", "%Y-%m-%d")
+        except ValueError as exc:
+            raise KPIStoreError(
+                f"monthly period_key must be YYYY-MM, got {period_key!r}"
+            ) from exc
+        return key
+    if g == GRAIN_QUARTERLY:
+        if (
+            len(key) != 7
+            or key[4:6] != "-Q"
+            or key[-1] not in {"1", "2", "3", "4"}
+        ):
+            raise KPIStoreError(
+                f"quarterly period_key must be YYYY-Q1..Q4, got {period_key!r}"
+            )
+        try:
+            int(key[:4])
+        except ValueError as exc:
+            raise KPIStoreError(
+                f"quarterly period_key must be YYYY-Q1..Q4, got {period_key!r}"
+            ) from exc
+        return key
+    raise KPIStoreError(f"unsupported grain {g!r}")
 
 
 def _as_sql_float(value: Any) -> float | None:
@@ -177,6 +193,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
 
 
 def init_schema(conn: sqlite3.Connection) -> None:
+    _migrate_grain_schema(conn)
     conn.executescript(_SCHEMA_SQL)
     conn.execute(
         "INSERT INTO kpi_store_meta(key, value) VALUES ('schema_version', ?) "
@@ -186,7 +203,40 @@ def init_schema(conn: sqlite3.Connection) -> None:
     migrate_legacy_daily_customer_reported_bugs(conn)
     migrate_retired_combined_escalation_rate(conn)
     migrate_retired_trailing_support_metrics(conn)
+    dedupe_one_reading_per_day(conn)
     conn.commit()
+
+
+def _migrate_grain_schema(conn: sqlite3.Connection) -> None:
+    """Rebuild v1's daily/month table so all registry grains are accepted."""
+    found = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'kpi_observation'"
+    ).fetchone()
+    if found is None:
+        return
+    sql = str(found[0] or "")
+    if "'hourly'" in sql and "'quarterly'" in sql:
+        return
+    conn.execute("ALTER TABLE kpi_observation RENAME TO kpi_observation_v1")
+    conn.execute("DROP INDEX IF EXISTS kpi_observation_period")
+    conn.executescript(_SCHEMA_SQL)
+    conn.execute(
+        """
+        INSERT INTO kpi_observation (
+            metric_name, grain, period_key, captured_at,
+            value, numerator, denominator, generator,
+            tags_json, meta_json, error, as_of, window_days
+        )
+        SELECT
+            metric_name,
+            CASE grain WHEN 'month' THEN 'monthly' ELSE grain END,
+            period_key, captured_at,
+            value, numerator, denominator, generator,
+            tags_json, meta_json, error, as_of, window_days
+        FROM kpi_observation_v1
+        """
+    )
+    conn.execute("DROP TABLE kpi_observation_v1")
 
 
 def migrate_legacy_daily_customer_reported_bugs(conn: sqlite3.Connection) -> None:
@@ -220,6 +270,66 @@ def migrate_retired_trailing_support_metrics(conn: sqlite3.Connection) -> None:
     )
 
 
+def _observation_calendar_day(*, as_of: str | None, period_key: str, grain: str) -> str:
+    """YYYY-MM-DD used to enforce one reading per KPI per day."""
+    raw = (as_of or period_key or "").strip()
+    day = raw[:10]
+    if len(day) == 10 and day[4] == "-" and day[7] == "-":
+        return day
+    if grain == GRAIN_MONTHLY and len((period_key or "").strip()) == 7:
+        return f"{period_key.strip()}-01"
+    return day or (period_key or "").strip()
+
+
+def _dedupe_keep_rank(row: sqlite3.Row) -> tuple[int, str, str]:
+    """Higher tuple wins: period matching the day, then later capture, then later period."""
+    grain = str(row["grain"] or "")
+    period = str(row["period_key"] or "")
+    day = _observation_calendar_day(as_of=row["as_of"], period_key=period, grain=grain)
+    if grain == GRAIN_DAILY:
+        matches = 1 if period == day else 0
+    elif grain == GRAIN_MONTHLY:
+        matches = 1 if period == day[:7] else 0
+    else:
+        matches = 0
+    return (matches, str(row["captured_at"] or ""), period)
+
+
+def dedupe_one_reading_per_day(conn: sqlite3.Connection) -> int:
+    """Delete extra rows so each metric+grain has at most one reading per calendar day.
+
+    Day is ``as_of`` (YYYY-MM-DD) when set, else ``period_key``. Among duplicates,
+    keep the row whose period is that day when possible, otherwise the latest
+    ``captured_at`` (then latest ``period_key``).
+    """
+    grouped: dict[tuple[str, str, str], list[sqlite3.Row]] = {}
+    for raw in conn.execute(
+        "SELECT metric_name, grain, period_key, as_of, captured_at FROM kpi_observation"
+    ):
+        day = _observation_calendar_day(
+            as_of=raw["as_of"], period_key=raw["period_key"], grain=raw["grain"]
+        )
+        grouped.setdefault((raw["metric_name"], raw["grain"], day), []).append(raw)
+    deleted = 0
+    for (_name, grain, _day), rows in grouped.items():
+        if len(rows) < 2:
+            continue
+        winner = max(rows, key=_dedupe_keep_rank)
+        for row in rows:
+            if (
+                row["metric_name"] == winner["metric_name"]
+                and row["grain"] == winner["grain"]
+                and row["period_key"] == winner["period_key"]
+            ):
+                continue
+            conn.execute(
+                "DELETE FROM kpi_observation WHERE metric_name = ? AND grain = ? AND period_key = ?",
+                (row["metric_name"], grain, row["period_key"]),
+            )
+            deleted += 1
+    return deleted
+
+
 def stored_kpi_from_observation(
     *,
     metric_name: str,
@@ -237,11 +347,12 @@ def stored_kpi_from_observation(
     g = validate_grain(grain)
     pk = validate_period_key(g, period_key)
     tag_tuple = tuple(str(t).strip() for t in (tags or ()) if str(t).strip())
+    as_of = _as_of_for_period(g, pk)
     obs = KPIObservation(
         value=observation.value,
         numerator=observation.numerator,
         denominator=observation.denominator,
-        as_of=observation.as_of or (pk if g == GRAIN_DAILY else pk + "-01"),
+        as_of=as_of,
         window_days=observation.window_days,
         source=observation.source,
         warnings=observation.warnings,
@@ -258,6 +369,23 @@ def stored_kpi_from_observation(
         generator=(generator or "").strip() or None,
         tags=tag_tuple,
     )
+
+
+def _as_of_for_period(grain: str, period_key: str) -> str:
+    """Canonical date/time representing a persisted grain period."""
+    if grain == GRAIN_HOURLY:
+        return f"{period_key}:00:00Z"
+    if grain == GRAIN_DAILY:
+        return period_key
+    if grain == GRAIN_WEEKLY:
+        return datetime.strptime(f"{period_key}-1", "%G-W%V-%u").date().isoformat()
+    if grain == GRAIN_MONTHLY:
+        return f"{period_key}-01"
+    if grain == GRAIN_QUARTERLY:
+        year = int(period_key[:4])
+        quarter = int(period_key[-1])
+        return f"{year:04d}-{((quarter - 1) * 3) + 1:02d}-01"
+    raise KPIStoreError(f"unsupported grain {grain!r}")
 
 
 def upsert_kpi(conn: sqlite3.Connection, row: StoredKPI) -> None:

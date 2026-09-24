@@ -8,7 +8,7 @@ Ship gate / owner onboarding / env + smoke matrix: **[`KPI_RELEASE.md`](./KPI_RE
 **SES DKIM** for morning digest remains a Marc AWS ops item until verified — see
 digest section below (do not treat digest as “done” until that gate clears).
 
-## Daily snapshot (`kpi-snapshot`)
+## Grain-aware snapshot (`kpi-snapshot`)
 
 | Piece | Location |
 |-------|----------|
@@ -32,6 +32,14 @@ digest section below (do not treat digest as “done” until that gate clears).
 On ECS, the scheduled job writes to the EFS cache mount. After a successful run,
 `engineering-kpis` (07:45 UTC) and `cortex kpi --mode stored` can read those rows
 from the same path (or from S3 when configured).
+
+Every registry row has a required `grain`: `hourly`, `daily`, `weekly`,
+`monthly`, or `quarterly`. The snapshot caller passes that grain into the
+generator context and derives the SQLite `period_key` from it. Repeated runs in
+the same period replace the existing row, so a weekly KPI has one row per ISO
+week and a monthly KPI has one row per closed calendar month. The current
+EventBridge snapshot runs daily; an `hourly` KPI therefore needs a separate
+hourly caller before it can actually collect every hour.
 
 ### S3 round-trip (optional but recommended)
 

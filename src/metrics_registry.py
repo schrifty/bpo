@@ -289,6 +289,55 @@ def has_metric_generator(entry: Any) -> bool:
 
 MetricDirection = str  # "higher" | "lower"
 VALID_METRIC_DIRECTIONS: frozenset[str] = frozenset({"higher", "lower"})
+VALID_METRIC_GRAINS: frozenset[str] = frozenset(
+    {"hourly", "daily", "weekly", "monthly", "quarterly"}
+)
+LEGACY_MONTHLY_GENERATORS: frozenset[str] = frozenset(
+    {
+        "get_tokens_per_dev",
+        "get_token_cost_per_dev",
+        "get_prs_merged",
+        "get_ai_assisted_prs_pct",
+        "get_ai_code_share",
+        "get_ai_automated_prs_pct",
+        "get_ai_assisted_automated_prs_pct",
+        "get_issues_shipped",
+        "get_defects_per_100_issues",
+        "get_defect_introduction_rate",
+        "get_growth_allocation_pct",
+        "get_ai_spend_pct",
+        "get_ai_spend_per_issue",
+        "get_headcount_plus_ai_spend_per_issue",
+        "get_customer_reported_bugs_created",
+        "get_customer_reported_bugs_eom",
+        "get_help_ticket_count",
+        "get_support_fte",
+        "get_tickets_per_fte",
+        "get_support_spend_per_ticket",
+        "get_support_spend_per_resolved",
+        "get_help_fully_loaded_spend_per_ticket",
+        "get_help_reopen_pct",
+        "get_help_resolved_created_ratio",
+        "get_engineering_escalation_count",
+        "get_data_escalation_count",
+        "get_engineering_escalation_rate",
+        "get_data_escalation_rate",
+    }
+)
+
+
+def registry_metric_grain(entry: Any) -> str:
+    """Required KPI observation cadence; legacy rows default to daily."""
+    if not isinstance(entry, dict):
+        return "daily"
+    raw = entry.get("grain")
+    if raw is None or not str(raw).strip():
+        generator = str(entry.get("metric-generator") or "").strip()
+        return "monthly" if generator in LEGACY_MONTHLY_GENERATORS else "daily"
+    text = str(raw).strip().lower()
+    if text not in VALID_METRIC_GRAINS:
+        raise ValueError(f"grain must be one of {sorted(VALID_METRIC_GRAINS)}, got {raw!r}")
+    return text
 
 
 def registry_metric_target(entry: Any) -> float | None:

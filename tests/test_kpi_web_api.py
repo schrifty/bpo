@@ -204,6 +204,8 @@ def test_meta_and_health(tmp_path: Path) -> None:
     body = meta.json()
     assert body["catalog_admin"] == "marc.schriftman@leandna.com"
     assert any(t["tag"] == "engineering" for t in body["tags"])
+    counts = [t["count"] for t in body["tags"]]
+    assert counts == sorted(counts, reverse=True)
     assert any(o["email"] == "marc.schriftman@leandna.com" for o in body["owners"])
 
 
@@ -218,7 +220,12 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     client = _client(tmp_path)
     res = client.get("/")
     assert res.status_code == 200
-    assert "Cortex KPIs" in res.text
+    html = res.text
+    assert "Cortex KPIs" in html
+    assert 'id="filter-tags"' in html
+    assert "<select id=\"filter-tag\"" not in html
+    assert 'id="confirm-delete-dialog"' in html
+    assert 'id="btn-delete-confirm"' in html
 
 
 def test_stored_values_fail_loud_when_store_missing(tmp_path: Path) -> None:

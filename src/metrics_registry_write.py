@@ -27,12 +27,14 @@ from .kpi_owners import (
 )
 from .metrics_registry import (
     VALID_METRIC_DIRECTIONS,
+    VALID_METRIC_GRAINS,
     VALID_METRIC_UNITS,
     get_registry_metric,
     load_metrics_registry,
     normalize_owner_email,
     normalize_tag,
     registry_metric_mgmt_guidance,
+    registry_metric_grain,
     registry_metric_owner,
     registry_metric_tags,
     validate_metric_target_direction,
@@ -229,6 +231,7 @@ def default_metric_entry() -> dict[str, Any]:
         "owner": None,
         "metric-id": None,
         "metric-generator": None,
+        "grain": "daily",
         "tags": [],
     }
 
@@ -241,6 +244,7 @@ def public_metric_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "owner": registry_metric_owner(entry),
         "metric-id": entry.get("metric-id"),
         "metric-generator": entry.get("metric-generator"),
+        "grain": registry_metric_grain(entry),
         "tags": list(registry_metric_tags(entry)),
     }
     if "unit" in entry:
@@ -285,6 +289,8 @@ def format_metric_block(name: str, entry: dict[str, Any], *, leading_comment: bo
         lines.append("    metric-generator: null")
     else:
         lines.append(f"    metric-generator: {str(gen).strip()}")
+    grain = registry_metric_grain(entry)
+    lines.append(f"    grain: {grain}")
     lines.append(_format_tags(registry_metric_tags(entry) if "tags" in entry else []))
     unit = entry.get("unit")
     if unit is not None and str(unit).strip() != "":
@@ -313,6 +319,10 @@ def _validate_entry(entry: dict[str, Any]) -> None:
     err = validate_metric_target_direction(entry)
     if err:
         raise MetricsRegistryWriteError(err)
+    try:
+        registry_metric_grain(entry)
+    except ValueError as exc:
+        raise MetricsRegistryWriteError(str(exc)) from exc
     unit = entry.get("unit")
     if unit is not None and str(unit).strip() != "":
         text = str(unit).strip().lower()
@@ -335,6 +345,7 @@ def apply_metric_fields(
     owner: Any = UNSET,
     metric_id: Any = UNSET,
     generator: Any = UNSET,
+    grain: Any = UNSET,
     tags: Any = UNSET,
     add_tags: Any = UNSET,
     remove_tags: Any = UNSET,
@@ -346,6 +357,7 @@ def apply_metric_fields(
     clear_owner: bool = False,
     clear_metric_id: bool = False,
     clear_generator: bool = False,
+    clear_grain: bool = False,
     clear_tags: bool = False,
     clear_unit: bool = False,
     clear_target: bool = False,
@@ -376,6 +388,15 @@ def apply_metric_fields(
     elif generator is not UNSET:
         gen = None if generator is None else str(generator).strip()
         entry["metric-generator"] = gen or None
+    if clear_grain:
+        entry["grain"] = "daily"
+    elif grain is not UNSET:
+        text = str(grain or "").strip().lower()
+        if text not in VALID_METRIC_GRAINS:
+            raise MetricsRegistryWriteError(
+                f"grain must be one of {sorted(VALID_METRIC_GRAINS)}, got {grain!r}"
+            )
+        entry["grain"] = text
     current_tags = registry_metric_tags(entry)
     if clear_tags:
         current_tags = []
@@ -487,6 +508,7 @@ def add_registry_metric(
     owner: Any = UNSET,
     metric_id: Any = UNSET,
     generator: Any = UNSET,
+    grain: Any = UNSET,
     tags: Any = UNSET,
     unit: Any = UNSET,
     target: Any = UNSET,
@@ -525,6 +547,7 @@ def add_registry_metric(
         owner=owner_value,
         metric_id=metric_id,
         generator=generator,
+        grain=grain,
         tags=[] if tags is UNSET else tags,
         unit=unit,
         target=target,
@@ -561,6 +584,7 @@ def edit_registry_metric(
     owner: Any = UNSET,
     metric_id: Any = UNSET,
     generator: Any = UNSET,
+    grain: Any = UNSET,
     tags: Any = UNSET,
     add_tags: Any = UNSET,
     remove_tags: Any = UNSET,
@@ -572,6 +596,7 @@ def edit_registry_metric(
     clear_owner: bool = False,
     clear_metric_id: bool = False,
     clear_generator: bool = False,
+    clear_grain: bool = False,
     clear_tags: bool = False,
     clear_unit: bool = False,
     clear_target: bool = False,
@@ -613,6 +638,7 @@ def edit_registry_metric(
         owner=owner_value,
         metric_id=metric_id,
         generator=generator,
+        grain=grain,
         tags=tags,
         add_tags=add_tags,
         remove_tags=remove_tags,
@@ -624,6 +650,7 @@ def edit_registry_metric(
         clear_owner=clear_owner,
         clear_metric_id=clear_metric_id,
         clear_generator=clear_generator,
+        clear_grain=clear_grain,
         clear_tags=clear_tags,
         clear_unit=clear_unit,
         clear_target=clear_target,

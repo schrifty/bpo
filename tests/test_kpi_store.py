@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 from botocore.exceptions import ClientError
@@ -14,6 +15,7 @@ from src.kpi_store import (
     GRAIN_MONTH,
     KPIStoreError,
     connect,
+    dedupe_one_reading_per_day,
     get_kpi,
     list_kpis,
     stored_kpi_from_observation,
@@ -48,7 +50,7 @@ def test_connect_creates_schema(tmp_path: Path) -> None:
     path = tmp_path / "kpi.sqlite"
     conn = connect(path)
     ver = conn.execute("SELECT value FROM kpi_store_meta WHERE key = 'schema_version'").fetchone()
-    assert ver["value"] == "1"
+    assert ver["value"] == "2"
     conn.close()
     assert path.is_file()
 
@@ -220,6 +222,103 @@ def test_retired_trailing_support_names_deleted_on_connect(tmp_path: Path) -> No
     conn.close()
 
 
+def test_dedupe_one_reading_per_day_keeps_matching_period(tmp_path: Path) -> None:
+    """Same as_of day, many period_keys: keep the row whose period_key is that day."""
+    conn = connect(tmp_path / "kpi.sqlite")
+    for period, captured in (
+        ("2024-09-30", "2026-09-20T23:05:59Z"),
+        ("2026-08-31", "2026-09-20T23:05:58Z"),
+        ("2026-09-20", "2026-09-20T23:05:57Z"),
+    ):
+        conn.execute(
+            """
+            INSERT INTO kpi_observation (
+                metric_name, grain, period_key, captured_at, value, tags_json, meta_json, as_of
+            ) VALUES ('AI Token Usage', 'daily', ?, ?, 1.0, '[]', '{}', '2026-09-20')
+            """,
+            (period, captured),
+        )
+    conn.commit()
+    assert len(list_kpis(conn, metric_name="AI Token Usage", grain=GRAIN_DAILY)) == 3
+    deleted = dedupe_one_reading_per_day(conn)
+    conn.commit()
+    assert deleted == 2
+    left = list_kpis(conn, metric_name="AI Token Usage", grain=GRAIN_DAILY)
+    assert [r.period_key for r in left] == ["2026-09-20"]
+    conn.close()
+
+
+def test_dedupe_one_reading_per_day_keeps_latest_capture(tmp_path: Path) -> None:
+    conn = connect(tmp_path / "kpi.sqlite")
+    conn.execute(
+        """
+        INSERT INTO kpi_observation (
+            metric_name, grain, period_key, captured_at, value, tags_json, meta_json, as_of
+        ) VALUES ('Sprint Delivery %', 'daily', '2026-09-10', '2026-09-11T10:00:00Z', 70.0, '[]', '{}', '2026-09-11')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO kpi_observation (
+            metric_name, grain, period_key, captured_at, value, tags_json, meta_json, as_of
+        ) VALUES ('Sprint Delivery %', 'daily', '2026-09-09', '2026-09-11T18:00:00Z', 71.0, '[]', '{}', '2026-09-11')
+        """
+    )
+    conn.commit()
+    deleted = dedupe_one_reading_per_day(conn)
+    conn.commit()
+    assert deleted == 1
+    left = list_kpis(conn, metric_name="Sprint Delivery %")
+    assert len(left) == 1
+    assert left[0].period_key == "2026-09-09"
+    assert left[0].observation.value == 71.0
+    conn.close()
+
+
+def test_connect_dedupes_existing_store(tmp_path: Path) -> None:
+    db = tmp_path / "kpi.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        """
+        CREATE TABLE kpi_store_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE kpi_observation (
+            metric_name TEXT NOT NULL,
+            grain TEXT NOT NULL,
+            period_key TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            value REAL,
+            numerator REAL,
+            denominator REAL,
+            generator TEXT,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            meta_json TEXT NOT NULL DEFAULT '{}',
+            error TEXT,
+            as_of TEXT,
+            window_days INTEGER,
+            PRIMARY KEY (metric_name, grain, period_key)
+        );
+        """
+    )
+    for period, captured in (
+        ("2026-08-31", "2026-09-20T23:05:59Z"),
+        ("2026-09-20", "2026-09-20T23:05:50Z"),
+    ):
+        conn.execute(
+            """
+            INSERT INTO kpi_observation (
+                metric_name, grain, period_key, captured_at, value, tags_json, meta_json, as_of
+            ) VALUES ('KPI Automation %', 'daily', ?, ?, 40, '[]', '{}', '2026-09-20')
+            """,
+            (period, captured),
+        )
+    conn.commit()
+    conn.close()
+    conn = connect(db)
+    left = list_kpis(conn, metric_name="KPI Automation %")
+    assert [r.period_key for r in left] == ["2026-09-20"]
+    conn.close()
+
+
 def test_error_row_is_persisted(tmp_path: Path) -> None:
     conn = connect(tmp_path / "kpi.sqlite")
     upsert_kpi(
@@ -240,7 +339,7 @@ def test_error_row_is_persisted(tmp_path: Path) -> None:
 
 
 def test_invalid_grain_and_period_key() -> None:
-    with pytest.raises(KPIStoreError, match="daily.*month"):
+    with pytest.raises(KPIStoreError, match="weekly period_key"):
         stored_kpi_from_observation(
             metric_name="X",
             grain="weekly",

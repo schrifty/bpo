@@ -91,6 +91,58 @@ main { padding: 1.25rem; max-width: 1400px; margin: 0 auto; }
   padding-bottom: 0.35rem;
 }
 
+.tag-filter-wrap {
+  margin: 0 0 0.85rem;
+}
+
+.tag-filter-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+button.linkish {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.tag-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.tag-chip {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.tag-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  filter: none;
+}
+
+.tag-chip[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 select, button {
   font: inherit;
   padding: 0.4rem 0.55rem;
@@ -150,13 +202,20 @@ dialog::backdrop {
   background: rgba(20, 30, 26, 0.45);
 }
 
-#kpi-form {
+#kpi-form,
+#confirm-delete-form {
   padding: 1rem 1.15rem 1.15rem;
 }
 
-#kpi-form h2 {
+#kpi-form h2,
+#confirm-delete-form h2 {
   margin: 0 0 0.75rem;
   font-size: 1.15rem;
+}
+
+#confirm-delete-copy {
+  margin: 0 0 0.5rem;
+  line-height: 1.4;
 }
 
 .form-grid {

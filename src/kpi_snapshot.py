@@ -18,10 +18,14 @@ from src.config import logger
 from src.kpi_observation import observation_from_generator_raw
 from src.kpi_store import (
     GRAIN_DAILY,
+    GRAIN_HOURLY,
     GRAIN_MONTH,
+    GRAIN_QUARTERLY,
+    GRAIN_WEEKLY,
+    GRAINS,
     connect,
+    dedupe_one_reading_per_day,
     default_kpi_store_path,
-    grain_for_generator,
     stored_kpi_from_observation,
     upsert_kpi,
 )
@@ -34,6 +38,7 @@ from src.metrics_registry import (
     entry_has_tag,
     has_metric_generator,
     load_metrics_registry,
+    registry_metric_grain,
     registry_metric_tags,
 )
 from src.metrics_upsert import (
@@ -48,6 +53,19 @@ def period_key_for(grain: str, as_of: date) -> str:
         first = as_of.replace(day=1)
         prev = first - timedelta(days=1)
         return f"{prev.year:04d}-{prev.month:02d}"
+    if grain == GRAIN_QUARTERLY:
+        current_quarter_start_month = ((as_of.month - 1) // 3) * 3 + 1
+        previous_quarter_end = as_of.replace(
+            month=current_quarter_start_month, day=1
+        ) - timedelta(days=1)
+        quarter = ((previous_quarter_end.month - 1) // 3) + 1
+        return f"{previous_quarter_end.year:04d}-Q{quarter}"
+    if grain == GRAIN_WEEKLY:
+        iso = as_of.isocalendar()
+        return f"{iso.year:04d}-W{iso.week:02d}"
+    if grain == GRAIN_HOURLY:
+        # Scheduled snapshots currently carry a date, not an hour; midnight is explicit.
+        return f"{as_of.isoformat()}T00"
     return as_of.isoformat()
 
 
@@ -110,8 +128,8 @@ def iter_snapshot_metrics(
             continue
         if tag and not entry_has_tag(entry, tag):
             continue
-        gen = str(entry.get("metric-generator") or "").strip()
-        if want_grain and grain_for_generator(gen) != want_grain:
+        row_grain = registry_metric_grain(entry)
+        if want_grain and row_grain != want_grain:
             continue
         out.append((str(name), entry))
     return out
@@ -210,13 +228,13 @@ def run_kpi_snapshot(
         considered += len(targets)
         for name, entry in targets:
             gen = str(entry.get("metric-generator") or "").strip()
-            row_grain = grain_for_generator(gen)
+            row_grain = registry_metric_grain(entry)
             period_key = period_key_for(row_grain, as_of)
             try:
                 raw = invoke(
                     gen,
                     registry=reg,
-                    ctx=day_ctx,
+                    ctx=replace(day_ctx, grain=row_grain),
                     kpi_store_path=path,
                     skip_s3=True if persist else skip_s3,
                 )
@@ -277,6 +295,8 @@ def run_kpi_snapshot(
             rows.append(rec)
 
     if conn is not None:
+        dedupe_one_reading_per_day(conn)
+        conn.commit()
         conn.close()
 
     if use_s3 and persist:
@@ -343,9 +363,9 @@ def add_kpi_snapshot_arguments(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--tag", default=None, help="Only KPIs carrying this registry tag")
     ap.add_argument(
         "--grain",
-        choices=("daily", "month"),
+        choices=sorted(GRAINS),
         default=None,
-        help="Only daily snapshot KPIs or previous-calendar-month (scorecard) KPIs",
+        help="Only KPIs with this registry grain",
     )
     ap.add_argument(
         "--db",

@@ -49,6 +49,7 @@ from src.metrics_registry import (
     iter_metrics_by_tags,
     load_metrics_registry,
     normalize_tag,
+    registry_metric_grain,
     registry_metric_tags,
 )
 from src.metrics_registry_write import MetricsRegistryWriteError
@@ -129,10 +130,8 @@ def _history_from_store(
     *,
     limit: int = 12,
 ) -> list[dict[str, Any]]:
-    from src.kpi_store import grain_for_generator
-
     gen = str(entry.get("metric-generator") or "").strip()
-    grain = grain_for_generator(gen) if gen else None
+    grain = registry_metric_grain(entry) if gen else None
     rows = list_kpis(conn, metric_name=metric_name, grain=grain, limit=max(1, limit))
     points: list[DatapointValue] = []
     for i, row in enumerate(rows):

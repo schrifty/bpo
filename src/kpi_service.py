@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 from typing import Any, Literal
@@ -23,7 +23,7 @@ from src.kpi_observation import (
     observation_from_generator_raw,
     observation_from_stored_datapoint,
 )
-from src.kpi_store import StoredKPI, connect, grain_for_generator, list_kpis
+from src.kpi_store import StoredKPI, connect, list_kpis
 from src.kpi_store_s3 import prepare_kpi_store_for_read
 from src.metrics_latest import (
     DEFAULT_RECENT_DATAPOINT_COUNT,
@@ -42,6 +42,7 @@ from src.metrics_registry import (
     load_metrics_registry,
     normalize_tag,
     registry_metric_description,
+    registry_metric_grain,
     registry_metric_mgmt_guidance,
     registry_metric_owner,
     registry_metric_tags,
@@ -122,7 +123,11 @@ def generate_live_observation(
         return _empty_observation(warning="no metric-generator — cannot compute live value")
     gen_name = str(entry.get("metric-generator") or "").strip()
     try:
-        raw = invoke_metric_generator(gen_name, registry=registry, ctx=ctx)
+        raw = invoke_metric_generator(
+            gen_name,
+            registry=registry,
+            ctx=replace(ctx, grain=registry_metric_grain(entry)),
+        )
     except MetricUpsertError as e:
         return KPIObservation(error=str(e), origin="live", as_of=date.today().isoformat())
     except Exception as e:  # noqa: BLE001 — surface integration failures to callers
@@ -152,7 +157,7 @@ def observations_from_kpi_store(
     Pass *stored_rows* to skip a per-KPI ``list_kpis`` query (bulk resolve).
     """
     gen = str(entry.get("metric-generator") or "").strip()
-    grain = grain_for_generator(gen) if gen else None
+    grain = registry_metric_grain(entry) if gen else None
     limit = max(1, recent_count)
     if stored_rows is not None:
         rows = list(stored_rows)[:limit]
@@ -321,7 +326,7 @@ def _stored_rows_for_entry(
 ) -> list[StoredKPI]:
     gen = str(entry.get("metric-generator") or "").strip()
     if gen:
-        return by_name_grain.get((metric_name, grain_for_generator(gen)), [])
+        return by_name_grain.get((metric_name, registry_metric_grain(entry)), [])
     return by_name.get(metric_name, [])
 
 

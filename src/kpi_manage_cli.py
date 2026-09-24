@@ -17,6 +17,7 @@ from src.kpi_owners import (
 )
 from src.metrics_registry import (
     VALID_METRIC_DIRECTIONS,
+    VALID_METRIC_GRAINS,
     VALID_METRIC_UNITS,
     all_registry_owners,
     get_registry_metric,
@@ -150,6 +151,12 @@ def _add_field_args(ap: argparse.ArgumentParser, *, for_edit: bool) -> None:
     ap.add_argument("--metric-id", dest="metric_id", default=UNSET, help="LeanDNA catalog id (integer)")
     ap.add_argument("--generator", dest="generator", default=UNSET, help="metric-generator function name")
     ap.add_argument(
+        "--grain",
+        default=UNSET,
+        choices=sorted(VALID_METRIC_GRAINS),
+        help="Observation cadence (hourly, daily, weekly, monthly, quarterly)",
+    )
+    ap.add_argument(
         "--tags",
         default=UNSET,
         help="Replace tags (comma-separated, e.g. engineering,ai)",
@@ -183,6 +190,7 @@ def _add_field_args(ap: argparse.ArgumentParser, *, for_edit: bool) -> None:
         )
         ap.add_argument("--clear-metric-id", action="store_true")
         ap.add_argument("--clear-generator", action="store_true")
+        ap.add_argument("--clear-grain", action="store_true", help="Reset grain to daily")
         ap.add_argument("--clear-tags", action="store_true")
         ap.add_argument("--clear-unit", action="store_true")
         ap.add_argument("--clear-target", action="store_true")
@@ -248,6 +256,7 @@ def _cmd_add(ns: argparse.Namespace) -> int:
         owner=ns.owner,
         metric_id=ns.metric_id,
         generator=ns.generator,
+        grain=ns.grain,
         tags=_merged_tags(ns),
         unit=ns.unit,
         target=ns.target,
@@ -270,6 +279,7 @@ def _cmd_edit(ns: argparse.Namespace) -> int:
         owner=ns.owner,
         metric_id=ns.metric_id,
         generator=ns.generator,
+        grain=ns.grain,
         tags=_merged_tags(ns),
         add_tags=ns.add_tags if ns.add_tags else UNSET,
         remove_tags=ns.remove_tags if ns.remove_tags else UNSET,
@@ -281,6 +291,7 @@ def _cmd_edit(ns: argparse.Namespace) -> int:
         clear_owner=bool(ns.clear_owner),
         clear_metric_id=bool(ns.clear_metric_id),
         clear_generator=bool(ns.clear_generator),
+        clear_grain=bool(ns.clear_grain),
         clear_tags=bool(ns.clear_tags),
         clear_unit=bool(ns.clear_unit),
         clear_target=bool(ns.clear_target),

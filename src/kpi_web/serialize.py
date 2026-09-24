@@ -13,6 +13,7 @@ from src.metrics_registry import (
     is_automated_metric,
     registry_metric_description,
     registry_metric_direction,
+    registry_metric_grain,
     registry_metric_mgmt_guidance,
     registry_metric_owner,
     registry_metric_tags,
@@ -63,6 +64,7 @@ def catalog_entry_to_dict(name: str, entry: dict[str, Any]) -> dict[str, Any]:
         "target": target,
         "direction": direction,
         "unit": unit,
+        "grain": registry_metric_grain(entry),
         "target_error": target_error,
         "metric_id": int(entry["metric-id"]) if has_metric_id(entry) else None,
         "metric_generator": (

@@ -9,14 +9,22 @@ import pytest
 import yaml
 
 from src.kpi_snapshot import (
-    grain_for_generator,
     iter_history_snapshot_plan,
     iter_snapshot_metrics,
     kpi_snapshot_exit_code,
     period_key_for,
     run_kpi_snapshot,
 )
-from src.kpi_store import GRAIN_DAILY, GRAIN_MONTH, connect, list_kpis
+from src.kpi_store import (
+    GRAIN_DAILY,
+    GRAIN_HOURLY,
+    GRAIN_MONTH,
+    GRAIN_QUARTERLY,
+    GRAIN_WEEKLY,
+    connect,
+    list_kpis,
+)
+from src.metrics_registry import registry_metric_grain
 from src.metrics_upsert import MetricUpsertContext, MetricUpsertError
 
 
@@ -43,41 +51,34 @@ def _registry() -> dict:
 metrics:
   "PRs Merged":
     metric-generator: get_prs_merged
+    grain: monthly
     tags: [engineering]
   "SLA Adherence (30 Days)":
     metric-generator: get_sla_adherence
+    grain: daily
     tags: [support, sla]
   "Customer-Reported Bugs":
     metric-generator: get_customer_reported_bugs_created
+    grain: monthly
     tags: [engineering, quality]
   "No Gen":
     metric-generator: null
+    grain: daily
     tags: [engineering]
 """
     )
 
 
 def test_grain_and_period_key() -> None:
-    assert grain_for_generator("get_prs_merged") == GRAIN_MONTH
-    assert grain_for_generator("get_sla_adherence") == GRAIN_DAILY
-    assert grain_for_generator("get_customer_reported_bugs_created") == GRAIN_MONTH
-    assert grain_for_generator("get_customer_reported_bugs_eom") == GRAIN_MONTH
-    assert grain_for_generator("get_help_ticket_count") == GRAIN_MONTH
-    assert grain_for_generator("get_support_fte") == GRAIN_MONTH
-    assert grain_for_generator("get_tickets_per_fte") == GRAIN_MONTH
-    assert grain_for_generator("get_support_spend_per_ticket") == GRAIN_MONTH
-    assert grain_for_generator("get_support_spend_per_resolved") == GRAIN_MONTH
-    assert grain_for_generator("get_help_fully_loaded_spend_per_ticket") == GRAIN_MONTH
-    assert grain_for_generator("get_help_resolved_created_ratio") == GRAIN_MONTH
-    assert grain_for_generator("get_engineering_escalation_count") == GRAIN_MONTH
-    assert grain_for_generator("get_open_help") == GRAIN_DAILY
-    assert grain_for_generator("get_open_help_over_30d_pct") == GRAIN_DAILY
-    assert grain_for_generator("get_help_reopen_pct") == GRAIN_MONTH
-    assert grain_for_generator("get_open_help_waiting_on_customer_pct") == GRAIN_DAILY
-    assert grain_for_generator("get_open_help_waiting_on_us_over_30d_pct") == GRAIN_DAILY
+    assert registry_metric_grain({"grain": "monthly"}) == GRAIN_MONTH
+    assert registry_metric_grain({"grain": "weekly"}) == GRAIN_WEEKLY
+    assert registry_metric_grain({}) == GRAIN_DAILY
+    assert period_key_for(GRAIN_HOURLY, date(2026, 9, 10)) == "2026-09-10T00"
     assert period_key_for(GRAIN_DAILY, date(2026, 9, 10)) == "2026-09-10"
+    assert period_key_for(GRAIN_WEEKLY, date(2026, 9, 10)) == "2026-W37"
     assert period_key_for(GRAIN_MONTH, date(2026, 9, 10)) == "2026-08"
     assert period_key_for(GRAIN_MONTH, date(2026, 1, 3)) == "2025-12"
+    assert period_key_for(GRAIN_QUARTERLY, date(2026, 9, 10)) == "2026-Q2"
 
 
 def test_iter_snapshot_metrics_skips_null_generator_and_honors_tag() -> None:

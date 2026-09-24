@@ -3,11 +3,13 @@
 
   const state = {
     selected: null,
+    selectedTags: [],
     mode: "stored",
     meta: null,
     me: null,
     formMode: "add", // add | edit
     editName: null,
+    pendingDelete: null,
   };
 
   function esc(s) {
@@ -24,6 +26,14 @@
       return Number.isInteger(v) ? String(v) : v.toFixed(4).replace(/\.?0+$/, "");
     }
     return String(v);
+  }
+
+  function fmtTarget(kpi) {
+    if (kpi.target == null || kpi.target === "") return "—";
+    const n = fmtValue(kpi.target);
+    if (kpi.direction === "higher") return `>= ${n}`;
+    if (kpi.direction === "lower") return `<= ${n}`;
+    return n;
   }
 
   async function api(path, options = {}) {
@@ -96,9 +106,7 @@
 
   function fillFilters(meta) {
     const ownerSel = $("filter-owner");
-    const tagSel = $("filter-tag");
     const prevOwner = ownerSel.value;
-    const prevTag = tagSel.value;
     ownerSel.innerHTML = '<option value="">All owners</option>';
     for (const o of meta.owners || []) {
       if (o.email === "(missing)") continue;
@@ -108,14 +116,51 @@
       ownerSel.appendChild(opt);
     }
     if (prevOwner) ownerSel.value = prevOwner;
-    tagSel.innerHTML = '<option value="">All tags</option>';
-    for (const t of meta.tags || []) {
-      const opt = document.createElement("option");
-      opt.value = t.tag;
-      opt.textContent = `${t.tag} (${t.count})`;
-      tagSel.appendChild(opt);
+    renderTagFilter(meta.tags || []);
+  }
+
+  function renderTagFilter(tags) {
+    const host = $("filter-tags");
+    const known = new Set((tags || []).map((t) => t.tag));
+    state.selectedTags = state.selectedTags.filter((t) => known.has(t));
+    const ordered = [...(tags || [])].sort((a, b) => {
+      const byCount = (b.count || 0) - (a.count || 0);
+      if (byCount !== 0) return byCount;
+      return String(a.tag).localeCompare(String(b.tag));
+    });
+    host.innerHTML = "";
+    if (!ordered.length) {
+      const empty = document.createElement("span");
+      empty.className = "muted";
+      empty.textContent = "No tags in catalog";
+      host.appendChild(empty);
     }
-    if (prevTag) tagSel.value = prevTag;
+    for (const t of ordered) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tag-chip";
+      btn.setAttribute("aria-pressed", state.selectedTags.includes(t.tag) ? "true" : "false");
+      btn.dataset.tag = t.tag;
+      btn.textContent = `${t.tag} (${t.count})`;
+      btn.addEventListener("click", () => toggleTag(t.tag));
+      host.appendChild(btn);
+    }
+    $("btn-clear-tags").classList.toggle("hidden", state.selectedTags.length === 0);
+  }
+
+  function toggleTag(tag) {
+    const i = state.selectedTags.indexOf(tag);
+    if (i >= 0) state.selectedTags.splice(i, 1);
+    else state.selectedTags.push(tag);
+    renderTagFilter((state.meta && state.meta.tags) || []);
+    refreshList();
+  }
+
+  function clearTags() {
+    if (!state.selectedTags.length) return;
+    state.selectedTags = [];
+    renderTagFilter((state.meta && state.meta.tags) || []);
+    refreshList();
   }
 
   function valueCell(kpi) {
@@ -158,7 +203,7 @@
         <td>${esc(kpi.name)}</td>
         <td>${esc(kpi.owner || "—")}</td>
         <td>${(kpi.tags || []).map((t) => `<span class="pill">${esc(t)}</span>`).join("") || "—"}</td>
-        <td>${kpi.target == null ? "—" : esc(fmtValue(kpi.target))}${kpi.direction ? ` <span class="muted">(${esc(kpi.direction)})</span>` : ""}</td>
+        <td>${esc(fmtTarget(kpi))}</td>
         <td>${valueCell(kpi)}</td>`;
       tr.addEventListener("click", () => selectKpi(kpi.name));
       tbody.appendChild(tr);
@@ -206,9 +251,10 @@
         <dd>${esc(kpi.mgmt_guidance || "—")}</dd>
         <dt>Tags</dt>
         <dd>${(kpi.tags || []).map((t) => `<span class="pill">${esc(t)}</span>`).join("") || "—"}</dd>
+        <dt>Grain</dt>
+        <dd>${esc(kpi.grain || "daily")}</dd>
         <dt>Target</dt>
-        <dd>${kpi.target == null ? "—" : esc(fmtValue(kpi.target))}
-          ${kpi.direction ? `(${esc(kpi.direction)})` : ""}
+        <dd>${esc(fmtTarget(kpi))}
           ${kpi.unit ? ` · ${esc(kpi.unit)}` : ""}
           ${kpi.target_error ? `<div class="error">${esc(kpi.target_error)}</div>` : ""}
         </dd>
@@ -259,6 +305,7 @@
       description: $("f-description").value,
       mgmt_guidance: $("f-mgmt").value,
       tags: parseTags($("f-tags").value),
+      grain: $("f-grain").value,
       dry_run: $("f-dry-run").checked,
     };
     const owner = $("f-owner").value.trim();
@@ -298,6 +345,7 @@
     $("f-mgmt").value = kpi.mgmt_guidance || "";
     $("f-owner").value = kpi.owner || "";
     $("f-tags").value = (kpi.tags || []).join(", ");
+    $("f-grain").value = kpi.grain || "daily";
     $("f-target").value = kpi.target == null ? "" : String(kpi.target);
     $("f-direction").value = kpi.direction || "";
     $("f-unit").value = kpi.unit || "";
@@ -308,6 +356,7 @@
   function resetForm() {
     $("kpi-form").reset();
     $("f-dry-run").checked = true;
+    $("f-grain").value = "daily";
     $("form-error").hidden = true;
     $("form-preview").classList.add("hidden");
     $("form-preview").textContent = "";
@@ -394,23 +443,37 @@
   }
 
   async function deleteKpi(kpi) {
-    if (!window.confirm(`Dry-run delete preview for "${kpi.name}"?`)) return;
+    state.pendingDelete = kpi;
+    $("confirm-delete-copy").textContent =
+      `Delete “${kpi.name}”? This removes it from the catalog YAML.`;
+    $("confirm-delete-error").hidden = true;
+    $("confirm-delete-dialog").showModal();
+  }
+
+  async function confirmDelete(ev) {
+    ev.preventDefault();
+    const kpi = state.pendingDelete;
+    const errEl = $("confirm-delete-error");
+    errEl.hidden = true;
+    if (!kpi) {
+      $("confirm-delete-dialog").close();
+      return;
+    }
+    const confirmBtn = $("btn-delete-confirm");
+    confirmBtn.disabled = true;
     try {
-      const preview = await api(
-        `/api/kpis/${encodeURIComponent(kpi.name)}?dry_run=1`,
-        { method: "DELETE" }
-      );
-      const proceed = window.confirm(
-        `Dry-run delete OK for "${preview.change.name}" (owner ${preview.change.entry?.owner || "—"}).\n\nWrite the delete to YAML now?`
-      );
-      if (!proceed) {
-        showMutateStatus(`Dry-run delete: ${kpi.name} (not written)`, false);
-        return;
-      }
+      await api(`/api/kpis/${encodeURIComponent(kpi.name)}?dry_run=1`, {
+        method: "DELETE",
+      });
       const data = await api(`/api/kpis/${encodeURIComponent(kpi.name)}`, {
         method: "DELETE",
       });
-      showMutateStatus(`Deleted ${data.change.name} by ${data.change.actor}`, false);
+      $("confirm-delete-dialog").close();
+      state.pendingDelete = null;
+      showMutateStatus(
+        `Deleted ${data.change.name} by ${data.change.actor}`,
+        false
+      );
       state.selected = null;
       $("detail").innerHTML =
         '<p class="muted">KPI deleted. Select another or add a new one.</p>';
@@ -419,7 +482,10 @@
       fillFilters(meta);
       await refreshList();
     } catch (err) {
-      showMutateStatus(err.message || String(err), true);
+      errEl.hidden = false;
+      errEl.textContent = err.message || String(err);
+    } finally {
+      confirmBtn.disabled = false;
     }
   }
 
@@ -427,18 +493,25 @@
     const errEl = $("list-error");
     errEl.hidden = true;
     const owner = $("filter-owner").value;
-    const tag = $("filter-tag").value;
+    const tags = state.selectedTags;
     const mode = $("filter-mode").value;
     const values = $("filter-values").checked;
     state.mode = mode;
     const qs = new URLSearchParams();
     if (owner) qs.set("owner", owner);
-    if (tag) qs.set("tag", tag);
     qs.set("mode", mode);
     if (values) qs.set("values", "1");
     $("list-status").textContent = "Loading…";
     try {
       const data = await api(`/api/kpis?${qs.toString()}`);
+      if (tags.length) {
+        const want = new Set(tags);
+        data.kpis = (data.kpis || []).filter((k) =>
+          (k.tags || []).some((t) => want.has(t))
+        );
+        data.count = data.kpis.length;
+        data.filters = { ...(data.filters || {}), tags };
+      }
       renderList(data);
       if (state.selected) {
         for (const tr of $("kpi-table").querySelectorAll("tbody tr")) {
@@ -496,10 +569,19 @@
 
   $("btn-refresh").addEventListener("click", refreshList);
   $("btn-add").addEventListener("click", openAddForm);
+  $("btn-clear-tags").addEventListener("click", clearTags);
   $("btn-form-cancel").addEventListener("click", () => $("kpi-form-dialog").close());
   $("kpi-form").addEventListener("submit", submitForm);
+  $("btn-delete-cancel").addEventListener("click", () => {
+    state.pendingDelete = null;
+    $("confirm-delete-dialog").close();
+  });
+  $("confirm-delete-form").addEventListener("submit", confirmDelete);
+  $("confirm-delete-dialog").addEventListener("close", () => {
+    state.pendingDelete = null;
+    $("btn-delete-confirm").disabled = false;
+  });
   $("filter-owner").addEventListener("change", refreshList);
-  $("filter-tag").addEventListener("change", refreshList);
   $("filter-mode").addEventListener("change", () => {
     state.mode = $("filter-mode").value;
     if (state.selected) selectKpi(state.selected);
