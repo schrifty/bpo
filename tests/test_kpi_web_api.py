@@ -224,6 +224,16 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     assert "Cortex KPIs" in html
     assert 'id="filter-tags"' in html
     assert "<select id=\"filter-tag\"" not in html
+    assert 'id="user-badge"' in html
+    assert 'id="btn-add"' in html
+    assert 'id="btn-refresh"' not in html
+    assert 'id="btn-filters"' in html
+    assert 'id="filter-menu"' in html
+    assert 'id="filter-grain"' in html
+    assert 'id="filter-target"' in html
+    assert 'id="filter-owner"' in html
+    assert 'class="table-scroll"' in html
+    assert "<th>Owner</th>" in html
     assert 'id="confirm-delete-dialog"' in html
     assert 'id="btn-delete-confirm"' in html
 

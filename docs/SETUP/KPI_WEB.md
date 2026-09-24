@@ -19,6 +19,8 @@ python3 -m src.kpi_web
 ```
 
 Open http://127.0.0.1:8080 — use **Dev login**, then filter by owner/tag and open a KPI detail.
+The list table shows grain plus owner; `first.last@leandna.com` owners display as
+`First Last` (hover the cell for the email).
 
 Stored values need a local KPI SQLite DB (from `cortex kpi-snapshot`). With
 `--skip-s3`, the app does not pull from `CORTEX_KPI_STORE_S3_URI`. Live mode runs
@@ -38,11 +40,14 @@ Permissions match CLI ownership rules (enforced server-side via
 ### In the UI
 
 1. Sign in (Google SSO or Dev login).
-2. **Add KPI** — toolbar button opens a form. Default owner is you. Leads cannot
-   assign another owner. Check **Dry-run** to preview the change JSON without
-   writing YAML; uncheck to persist.
-3. Select a KPI you may edit → **Edit** / **Delete** in the detail pane.
-4. Delete opens a confirmation dialog, dry-runs, then writes the YAML delete.
+2. **Add KPI** — open the account badge (upper right) and choose **Add KPI**.
+   Default owner is you. Leads cannot assign another owner. Check **Dry-run** to
+   preview the change JSON without writing YAML; uncheck to persist.
+3. Filter the list from the funnel icon at the top-right of the table: owner,
+   grain, and target made (green) / missed (red). Made/missed loads stored
+   values when needed. Tag chips stay on the page.
+4. Select a KPI you may edit → **Edit** / **Delete** in the detail pane.
+5. Delete opens a confirmation dialog, dry-runs, then writes the YAML delete.
 
 Leads see Edit/Delete only on KPIs they own; other owners are view-only.
 

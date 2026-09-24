@@ -12,7 +12,29 @@
       <a href="/" class="brand-link">Cortex KPIs</a>
       <span class="sub">view &amp; maintain</span>
     </div>
-    <div id="session" class="session"></div>
+    <div id="session" class="session hidden">
+      <button
+        type="button"
+        id="user-badge"
+        class="user-badge"
+        aria-haspopup="menu"
+        aria-expanded="false"
+        aria-controls="user-menu"
+        title="Account"
+      >
+        <img id="user-badge-img" alt="" referrerpolicy="no-referrer" hidden />
+        <span id="user-badge-initials"></span>
+      </button>
+      <div id="user-menu" class="user-menu hidden" role="menu">
+        <div class="user-menu-identity">
+          <div id="user-menu-name" class="user-menu-name"></div>
+          <div id="user-menu-email" class="user-menu-email"></div>
+          <div id="user-menu-role" class="user-menu-role"></div>
+        </div>
+        <button type="button" id="btn-add" class="user-menu-item" role="menuitem">Add KPI</button>
+        <a id="btn-signout" class="user-menu-item" href="/auth/logout" role="menuitem">Sign out</a>
+      </div>
+    </div>
   </header>
 
   <main>
@@ -26,12 +48,6 @@
     <section id="app-panel" class="hidden">
       <div class="toolbar">
         <label>
-          Owner
-          <select id="filter-owner">
-            <option value="">All owners</option>
-          </select>
-        </label>
-        <label>
           Mode
           <select id="filter-mode">
             <option value="stored">stored</option>
@@ -43,8 +59,6 @@
           <input type="checkbox" id="filter-values" />
           Resolve values
         </label>
-        <button type="button" id="btn-refresh">Refresh</button>
-        <button type="button" id="btn-add" class="secondary">Add KPI</button>
       </div>
 
       <div class="tag-filter-wrap">
@@ -61,19 +75,67 @@
 
       <div class="layout">
         <div class="list-pane">
-          <table id="kpi-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Owner</th>
-                <th>Tags</th>
-                <th>Target</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-          <p id="empty-state" class="muted hidden">No KPIs match these filters.</p>
+          <div class="list-pane-bar">
+            <button
+              type="button"
+              id="btn-filters"
+              class="icon-btn"
+              aria-haspopup="true"
+              aria-expanded="false"
+              aria-controls="filter-menu"
+              title="Filters"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M4 5h16l-6.5 7.4V19l-3 1.5v-8.1L4 5z"
+                />
+              </svg>
+            </button>
+            <div id="filter-menu" class="filter-menu hidden">
+              <label>
+                Owner
+                <select id="filter-owner">
+                  <option value="">All owners</option>
+                </select>
+              </label>
+              <label>
+                Grain
+                <select id="filter-grain">
+                  <option value="">All grains</option>
+                  <option value="hourly">hourly</option>
+                  <option value="daily">daily</option>
+                  <option value="weekly">weekly</option>
+                  <option value="monthly">monthly</option>
+                  <option value="quarterly">quarterly</option>
+                </select>
+              </label>
+              <label>
+                Target
+                <select id="filter-target">
+                  <option value="">All</option>
+                  <option value="made">Made (green)</option>
+                  <option value="missed">Missed (red)</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table id="kpi-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Grain</th>
+                  <th>Owner</th>
+                  <th>Tags</th>
+                  <th>Target</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <p id="empty-state" class="muted hidden">No KPIs match these filters.</p>
+          </div>
         </div>
         <aside id="detail" class="detail-pane">
           <p class="muted">Select a KPI to see description, guidance, target, value, and history.</p>

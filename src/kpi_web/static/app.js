@@ -36,6 +36,23 @@
     return n;
   }
 
+  function _titleCaseLocalPart(part) {
+    return String(part)
+      .split(/[-_]+/)
+      .filter(Boolean)
+      .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+      .join("-");
+  }
+
+  /** first.last@leandna.com → "First Last"; anything else stays as stored. */
+  function fmtOwner(owner) {
+    const raw = String(owner || "").trim();
+    if (!raw) return "—";
+    const m = raw.match(/^([a-z][a-z0-9_-]*)\.([a-z][a-z0-9_-]*)@leandna\.com$/i);
+    if (!m) return raw;
+    return `${_titleCaseLocalPart(m[1])} ${_titleCaseLocalPart(m[2])}`;
+  }
+
   async function api(path, options = {}) {
     const res = await fetch(path, {
       credentials: "same-origin",
@@ -62,6 +79,8 @@
   }
 
   function showLogin(status, errMsg) {
+    setUserMenuOpen(false);
+    $("session").classList.add("hidden");
     $("login-panel").classList.remove("hidden");
     $("app-panel").classList.add("hidden");
     const actions = $("login-actions");
@@ -93,15 +112,58 @@
     }
   }
 
+  function userInitials(me) {
+    const name = String(me.name || "").trim();
+    if (name) {
+      const parts = name.split(/\s+/).filter(Boolean);
+      if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+      }
+      return name.slice(0, 2).toUpperCase();
+    }
+    const local = String(me.email || "").split("@")[0];
+    const bits = local.split(/[._-]+/).filter(Boolean);
+    if (bits.length >= 2) {
+      return (bits[0][0] + bits[1][0]).toUpperCase();
+    }
+    return (local.slice(0, 2) || "?").toUpperCase();
+  }
+
+  function setUserMenuOpen(open) {
+    const menu = $("user-menu");
+    const badge = $("user-badge");
+    if (!menu || !badge) return;
+    menu.classList.toggle("hidden", !open);
+    badge.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
   function showApp(me) {
     $("login-panel").classList.add("hidden");
     $("app-panel").classList.remove("hidden");
+    $("session").classList.remove("hidden");
     const role = me.is_catalog_admin
       ? "catalog admin (edit all)"
       : "lead (edit-own, read-all)";
-    $("session").innerHTML =
-      `${esc(me.name || me.email)} · ${esc(role)} · ` +
-      `<a href="/auth/logout">Sign out</a>`;
+    const display = me.name || me.email || "Signed in";
+    $("user-menu-name").textContent = display;
+    $("user-menu-email").textContent = me.email || "";
+    $("user-menu-email").hidden = !me.email || display === me.email;
+    $("user-menu-role").textContent = role;
+    $("user-badge").title = display;
+    $("user-badge").setAttribute("aria-label", `Account menu for ${display}`);
+    const img = $("user-badge-img");
+    const initials = $("user-badge-initials");
+    if (me.picture) {
+      img.src = me.picture;
+      img.hidden = false;
+      initials.hidden = true;
+    } else {
+      img.removeAttribute("src");
+      img.hidden = true;
+      initials.hidden = false;
+      initials.textContent = userInitials(me);
+    }
+    setUserMenuOpen(false);
   }
 
   function fillFilters(meta) {
@@ -112,7 +174,7 @@
       if (o.email === "(missing)") continue;
       const opt = document.createElement("option");
       opt.value = o.email;
-      opt.textContent = `${o.email} (${o.count})`;
+      opt.textContent = `${fmtOwner(o.email)} (${o.count})`;
       ownerSel.appendChild(opt);
     }
     if (prevOwner) ownerSel.value = prevOwner;
@@ -163,6 +225,18 @@
     refreshList();
   }
 
+  function targetOutcome(kpi) {
+    if (kpi.target == null || kpi.target === "") return null;
+    if (kpi.direction !== "higher" && kpi.direction !== "lower") return null;
+    const obs = kpi.observation;
+    if (!obs || !obs.ok || obs.value == null || obs.value === "") return null;
+    const v = Number(obs.value);
+    const t = Number(kpi.target);
+    if (!Number.isFinite(v) || !Number.isFinite(t)) return null;
+    if (kpi.direction === "higher") return v >= t ? "made" : "missed";
+    return v <= t ? "made" : "missed";
+  }
+
   function valueCell(kpi) {
     if (!kpi.observation) return '<span class="muted">—</span>';
     const obs = kpi.observation;
@@ -173,7 +247,10 @@
       const tip = (obs.warnings && obs.warnings[0]) || "no value";
       return `<span class="value-empty" title="${esc(tip)}">empty</span>`;
     }
-    return `<span class="value-ok">${esc(fmtValue(obs.value))}</span>`;
+    const outcome = targetOutcome(kpi);
+    const cls =
+      outcome === "made" ? "value-made" : outcome === "missed" ? "value-missed" : "value-ok";
+    return `<span class="${cls}">${esc(fmtValue(obs.value))}</span>`;
   }
 
   function canEdit(kpi) {
@@ -188,20 +265,27 @@
     tbody.innerHTML = "";
     const items = payload.kpis || [];
     $("empty-state").classList.toggle("hidden", items.length > 0);
+    const extras = [];
+    if (payload.filters && payload.filters.owner) extras.push(`owner=${fmtOwner(payload.filters.owner)}`);
+    if (payload.filters && payload.filters.grain) extras.push(`grain=${payload.filters.grain}`);
+    if (payload.filters && payload.filters.target) extras.push(`target=${payload.filters.target}`);
+    if (payload.filters && payload.filters.tags && payload.filters.tags.length) {
+      extras.push(`tags=${payload.filters.tags.join(",")}`);
+    }
     $("list-status").textContent =
       `${items.length} KPI(s)` +
       (payload.resolved ? ` · values (${payload.mode})` : " · catalog only") +
-      (payload.filters && payload.filters.owner ? ` · owner=${payload.filters.owner}` : "") +
-      (payload.filters && payload.filters.tags && payload.filters.tags.length
-        ? ` · tags=${payload.filters.tags.join(",")}`
-        : "");
+      (extras.length ? ` · ${extras.join(" · ")}` : "");
 
     for (const kpi of items) {
       const tr = document.createElement("tr");
       if (state.selected === kpi.name) tr.classList.add("active");
+      const ownerLabel = fmtOwner(kpi.owner);
+      const ownerTitle = kpi.owner ? ` title="${esc(kpi.owner)}"` : "";
       tr.innerHTML = `
         <td>${esc(kpi.name)}</td>
-        <td>${esc(kpi.owner || "—")}</td>
+        <td class="col-grain">${esc(kpi.grain || "daily")}</td>
+        <td class="col-owner"${ownerTitle}>${esc(ownerLabel)}</td>
         <td>${(kpi.tags || []).map((t) => `<span class="pill">${esc(t)}</span>`).join("") || "—"}</td>
         <td>${esc(fmtTarget(kpi))}</td>
         <td>${valueCell(kpi)}</td>`;
@@ -489,13 +573,35 @@
     }
   }
 
+  function paneFiltersActive() {
+    return Boolean(
+      $("filter-owner").value ||
+      $("filter-grain").value ||
+      $("filter-target").value
+    );
+  }
+
+  function setFilterMenuOpen(open) {
+    const menu = $("filter-menu");
+    const btn = $("btn-filters");
+    if (!menu || !btn) return;
+    menu.classList.toggle("hidden", !open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function syncFilterBadge() {
+    $("btn-filters").classList.toggle("has-filters", paneFiltersActive());
+  }
+
   async function refreshList() {
     const errEl = $("list-error");
     errEl.hidden = true;
     const owner = $("filter-owner").value;
     const tags = state.selectedTags;
+    const grain = $("filter-grain").value;
+    const targetFilter = $("filter-target").value;
     const mode = $("filter-mode").value;
-    const values = $("filter-values").checked;
+    const values = $("filter-values").checked || Boolean(targetFilter);
     state.mode = mode;
     const qs = new URLSearchParams();
     if (owner) qs.set("owner", owner);
@@ -504,15 +610,27 @@
     $("list-status").textContent = "Loading…";
     try {
       const data = await api(`/api/kpis?${qs.toString()}`);
+      let items = data.kpis || [];
       if (tags.length) {
         const want = new Set(tags);
-        data.kpis = (data.kpis || []).filter((k) =>
-          (k.tags || []).some((t) => want.has(t))
-        );
-        data.count = data.kpis.length;
-        data.filters = { ...(data.filters || {}), tags };
+        items = items.filter((k) => (k.tags || []).some((t) => want.has(t)));
       }
+      if (grain) {
+        items = items.filter((k) => (k.grain || "daily") === grain);
+      }
+      if (targetFilter) {
+        items = items.filter((k) => targetOutcome(k) === targetFilter);
+      }
+      data.kpis = items;
+      data.count = items.length;
+      data.filters = {
+        ...(data.filters || {}),
+        tags,
+        grain: grain || null,
+        target: targetFilter || null,
+      };
       renderList(data);
+      syncFilterBadge();
       if (state.selected) {
         for (const tr of $("kpi-table").querySelectorAll("tbody tr")) {
           if (tr.children[0] && tr.children[0].textContent === state.selected) {
@@ -567,8 +685,32 @@
     }
   }
 
-  $("btn-refresh").addEventListener("click", refreshList);
-  $("btn-add").addEventListener("click", openAddForm);
+  $("user-badge").addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    setFilterMenuOpen(false);
+    setUserMenuOpen($("user-menu").classList.contains("hidden"));
+  });
+  $("user-menu").addEventListener("click", (ev) => ev.stopPropagation());
+  $("btn-filters").addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    setUserMenuOpen(false);
+    setFilterMenuOpen($("filter-menu").classList.contains("hidden"));
+  });
+  $("filter-menu").addEventListener("click", (ev) => ev.stopPropagation());
+  document.addEventListener("click", () => {
+    setUserMenuOpen(false);
+    setFilterMenuOpen(false);
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") {
+      setUserMenuOpen(false);
+      setFilterMenuOpen(false);
+    }
+  });
+  $("btn-add").addEventListener("click", () => {
+    setUserMenuOpen(false);
+    openAddForm();
+  });
   $("btn-clear-tags").addEventListener("click", clearTags);
   $("btn-form-cancel").addEventListener("click", () => $("kpi-form-dialog").close());
   $("kpi-form").addEventListener("submit", submitForm);
@@ -582,6 +724,8 @@
     $("btn-delete-confirm").disabled = false;
   });
   $("filter-owner").addEventListener("change", refreshList);
+  $("filter-grain").addEventListener("change", refreshList);
+  $("filter-target").addEventListener("change", refreshList);
   $("filter-mode").addEventListener("change", () => {
     state.mode = $("filter-mode").value;
     if (state.selected) selectKpi(state.selected);

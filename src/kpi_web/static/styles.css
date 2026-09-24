@@ -17,6 +17,10 @@
 
 * { box-sizing: border-box; }
 
+html, body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   font-family: var(--font);
@@ -25,6 +29,10 @@ body {
     radial-gradient(1200px 500px at 10% -10%, #d9ebe4 0%, transparent 55%),
     linear-gradient(180deg, #eef2ef 0%, var(--bg) 40%);
   min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .top {
@@ -38,7 +46,7 @@ body {
   backdrop-filter: blur(6px);
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 20;
 }
 
 .brand-link {
@@ -55,10 +63,108 @@ body {
   font-size: 0.85rem;
 }
 
-.session { color: var(--muted); font-size: 0.9rem; }
-.session a { color: var(--accent); }
+.session {
+  position: relative;
+}
 
-main { padding: 1.25rem; max-width: 1400px; margin: 0 auto; }
+.user-badge {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.user-badge:hover { filter: brightness(1.05); }
+
+.user-badge img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.user-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.55rem);
+  min-width: 260px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(28, 36, 32, 0.14);
+  padding: 0.35rem 0 0.45rem;
+  z-index: 30;
+}
+
+.user-menu-identity {
+  padding: 0.7rem 0.95rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.3rem;
+}
+
+.user-menu-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.user-menu-email,
+.user-menu-role {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 0.15rem;
+}
+
+.user-menu-item {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--ink);
+  padding: 0.55rem 0.95rem;
+  font: inherit;
+  font-size: 0.9rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.user-menu-item:hover {
+  background: var(--accent-soft);
+  color: var(--ink);
+  filter: none;
+}
+
+main {
+  padding: 1.25rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#app-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 
 .panel, .detail-pane, .list-pane {
   background: var(--panel);
@@ -281,29 +387,147 @@ dialog::backdrop {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
   gap: 1rem;
+  flex: 1;
+  min-height: 0;
 }
 
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
 }
 
-table {
+.list-pane,
+.detail-pane {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.list-pane {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.list-pane-bar {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0.45rem 0.55rem 0.15rem;
+  flex-shrink: 0;
+  z-index: 5;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  position: relative;
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.icon-btn:hover,
+.icon-btn[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  filter: none;
+}
+
+.icon-btn.has-filters::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.filter-menu {
+  position: absolute;
+  right: 0.55rem;
+  top: calc(100% - 0.1rem);
+  z-index: 8;
+  min-width: 220px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(28, 36, 32, 0.14);
+  padding: 0.75rem 0.85rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.filter-menu label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.filter-menu select {
   width: 100%;
-  border-collapse: collapse;
+}
+
+.table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 1.1rem 1rem;
+}
+
+.detail-pane {
+  overflow: auto;
+}
+
+#kpi-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.92rem;
 }
 
-th, td {
+#kpi-table th,
+#kpi-table td {
   text-align: left;
   padding: 0.55rem 0.4rem;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
 }
 
-th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+#kpi-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--panel);
+  box-shadow: 0 1px 0 var(--line);
+}
 
-tbody tr { cursor: pointer; }
-tbody tr:hover, tbody tr.active { background: var(--accent-soft); }
+.col-grain, .col-owner { white-space: nowrap; }
+
+#kpi-table tbody tr { cursor: pointer; }
+#kpi-table tbody tr:hover,
+#kpi-table tbody tr.active { background: var(--accent-soft); }
 
 .muted { color: var(--muted); }
 .error {
@@ -325,6 +549,8 @@ tbody tr:hover, tbody tr.active { background: var(--accent-soft); }
 }
 
 .value-ok { color: var(--ok); font-family: var(--mono); }
+.value-made { color: var(--ok); font-family: var(--mono); font-weight: 600; }
+.value-missed { color: var(--danger); font-family: var(--mono); font-weight: 600; }
 .value-empty { color: var(--warn); background: var(--warn-bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
 .value-error { color: var(--danger); font-family: var(--mono); white-space: pre-wrap; }
 
@@ -338,4 +564,12 @@ tbody tr:hover, tbody tr.active { background: var(--accent-soft); }
   margin-top: 0.5rem;
   font-family: var(--mono);
   font-size: 0.85rem;
+  border-collapse: collapse;
+}
+
+.history th,
+.history td {
+  text-align: left;
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid var(--line);
 }
