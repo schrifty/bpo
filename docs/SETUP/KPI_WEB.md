@@ -43,9 +43,10 @@ Permissions match CLI ownership rules (enforced server-side via
 2. **Add KPI** — open the account badge (upper right) and choose **Add KPI**.
    Default owner is you. Leads cannot assign another owner. Check **Dry-run** to
    preview the change JSON without writing YAML; uncheck to persist.
-3. Filter the list from the funnel icon at the top-right of the table: owner,
-   grain, and target made (green) / missed (red). Made/missed loads stored
-   values when needed. Tag chips stay on the page.
+3. Filter the list from the funnel icon at the top-right of the table (hover
+   label **Filters**): owner, grain, mode (stored / live / leandna), and target
+   made (green) / missed (red). The list always loads values using the selected
+   mode. Tag chips stay on the page.
 4. Select a KPI you may edit → **Edit** / **Delete** in the detail pane.
 5. Delete opens a confirmation dialog, dry-runs, then writes the YAML delete.
 
@@ -137,7 +138,7 @@ error (no empty fake catalog).
 | GET | `/auth/status` | Whether a session exists; SSO/dev flags |
 | GET | `/api/me` | Actor + permissions |
 | GET | `/api/meta` | Owners, tags, topic packs |
-| GET | `/api/kpis?owner=&tag=&mode=stored\|live\|leandna&values=0\|1` | List/filter; `values=1` resolves |
+| GET | `/api/kpis?owner=&tag=&mode=stored\|live\|leandna&values=0\|1` | List/filter; UI always sends `values=1` |
 | GET | `/api/kpis/{name}?mode=&history=12` | Detail + observation + history |
 | POST | `/api/kpis` | Add KPI (`?dry_run=1` or body `dry_run`) |
 | PATCH | `/api/kpis/{name}` | Edit / rename (`new_name`, field clears, dry-run) |

@@ -456,6 +456,38 @@ dialog::backdrop {
   box-shadow: 0 0 0 2px #fff;
 }
 
+.icon-btn-tip {
+  position: absolute;
+  right: calc(100% + 0.45rem);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--ink);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  z-index: 9;
+  box-shadow: 0 2px 8px rgba(28, 36, 32, 0.25);
+}
+
+.icon-btn:hover .icon-btn-tip,
+.icon-btn:focus-visible .icon-btn-tip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.icon-btn[aria-expanded="true"] .icon-btn-tip {
+  opacity: 0;
+  visibility: hidden;
+}
+
 .filter-menu {
   position: absolute;
   right: 0.55rem;

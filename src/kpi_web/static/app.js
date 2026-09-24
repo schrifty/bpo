@@ -274,7 +274,6 @@
     }
     $("list-status").textContent =
       `${items.length} KPI(s)` +
-      (payload.resolved ? ` · values (${payload.mode})` : " · catalog only") +
       (extras.length ? ` · ${extras.join(" · ")}` : "");
 
     for (const kpi of items) {
@@ -296,17 +295,6 @@
 
   function renderDetail(payload) {
     const kpi = payload.kpi;
-    const obs = kpi.observation || {};
-    let valueHtml;
-    if (obs.error) {
-      valueHtml = `<div class="value-error">${esc(obs.error)}</div>`;
-    } else if (!obs.ok) {
-      const warns = (obs.warnings || []).join("; ") || "No value available";
-      valueHtml = `<div class="value-empty">${esc(warns)}</div>`;
-    } else {
-      valueHtml = `<div class="value-ok">${esc(fmtValue(obs.value))}</div>`;
-    }
-
     const hist = kpi.history || [];
     const histRows = hist.length
       ? hist
@@ -326,7 +314,7 @@
 
     $("detail").innerHTML = `
       <h2>${esc(kpi.name)}</h2>
-      <p class="muted">${esc(kpi.owner || "no owner")} · mode=${esc(payload.mode)} · status=${esc(kpi.value_status || "?")}</p>
+      <p class="muted">${esc(fmtOwner(kpi.owner))}</p>
       ${actions}
       <dl>
         <dt>Description</dt>
@@ -342,12 +330,6 @@
           ${kpi.unit ? ` · ${esc(kpi.unit)}` : ""}
           ${kpi.target_error ? `<div class="error">${esc(kpi.target_error)}</div>` : ""}
         </dd>
-        <dt>Value (${esc(obs.origin || payload.mode)})</dt>
-        <dd>${valueHtml}
-          ${obs.as_of ? `<div class="muted">as of ${esc(obs.as_of)}</div>` : ""}
-        </dd>
-        <dt>Generator / metric-id</dt>
-        <dd><code>${esc(kpi.metric_generator || "—")}</code> · id=${esc(kpi.metric_id ?? "—")}</dd>
         <dt>Recent history</dt>
         <dd>
           ${kpi.history_warning ? `<div class="value-empty">${esc(kpi.history_warning)}</div>` : ""}
@@ -577,7 +559,8 @@
     return Boolean(
       $("filter-owner").value ||
       $("filter-grain").value ||
-      $("filter-target").value
+      $("filter-target").value ||
+      ($("filter-mode").value && $("filter-mode").value !== "stored")
     );
   }
 
@@ -601,12 +584,11 @@
     const grain = $("filter-grain").value;
     const targetFilter = $("filter-target").value;
     const mode = $("filter-mode").value;
-    const values = $("filter-values").checked || Boolean(targetFilter);
     state.mode = mode;
     const qs = new URLSearchParams();
     if (owner) qs.set("owner", owner);
     qs.set("mode", mode);
-    if (values) qs.set("values", "1");
+    qs.set("values", "1");
     $("list-status").textContent = "Loading…";
     try {
       const data = await api(`/api/kpis?${qs.toString()}`);
@@ -728,10 +710,10 @@
   $("filter-target").addEventListener("change", refreshList);
   $("filter-mode").addEventListener("change", () => {
     state.mode = $("filter-mode").value;
+    syncFilterBadge();
     if (state.selected) selectKpi(state.selected);
-    if ($("filter-values").checked) refreshList();
+    refreshList();
   });
-  $("filter-values").addEventListener("change", refreshList);
 
   boot();
 })();
