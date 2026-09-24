@@ -70,12 +70,19 @@ def period_key_for(grain: str, as_of: date) -> str:
 
 
 def iter_history_snapshot_plan(until: date, months: int) -> list[tuple[date, str]]:
-    """Month-end daily points plus previous-calendar-month scorecard as-ofs.
+    """As-of dates for a year-shaped backfill, one cadence per grain.
 
-    ``until`` is included as both a daily and a month-close as-of (so today's
-    trailing window and the latest completed month are stored). Then each of
-    the previous *months* completed months gets a last-day daily snapshot and
-    a 1st-of-following-month scorecard snapshot.
+    * daily — *until* plus the last day of each of the previous *months*
+      (trailing-window KPIs; overlapping every-day points would not add signal)
+    * monthly — scorecard as-ofs for those completed months (1st of the
+      following month, plus *until*)
+    * weekly — *until* and one as-of per week for ``months * 52 / 12`` weeks
+    * quarterly — *until* and the first day of each of the previous
+      ``ceil(months / 3)`` quarters
+    * hourly — omitted; a year of hours is not a useful backfill
+
+    ``until`` is included so today's trailing window and the latest closed
+    period are stored.
     """
     if months < 1:
         raise ValueError(f"history months must be >= 1, got {months}")
@@ -91,12 +98,31 @@ def iter_history_snapshot_plan(until: date, months: int) -> list[tuple[date, str
 
     add(until, GRAIN_DAILY)
     add(until, GRAIN_MONTH)
+    add(until, GRAIN_WEEKLY)
+    add(until, GRAIN_QUARTERLY)
     cursor = until.replace(day=1)
     for _ in range(int(months)):
         month_end = cursor - timedelta(days=1)
         add(month_end, GRAIN_DAILY)
         add(cursor, GRAIN_MONTH)
         cursor = month_end.replace(day=1)
+
+    weeks = max(1, round(int(months) * 52 / 12))
+    week_cursor = until
+    for _ in range(weeks):
+        add(week_cursor, GRAIN_WEEKLY)
+        week_cursor = week_cursor - timedelta(days=7)
+
+    quarters = max(1, (int(months) + 2) // 3)
+    q_start_month = ((until.month - 1) // 3) * 3 + 1
+    q_cursor = until.replace(month=q_start_month, day=1)
+    for _ in range(quarters):
+        add(q_cursor, GRAIN_QUARTERLY)
+        prev_end = q_cursor - timedelta(days=1)
+        q_cursor = prev_end.replace(
+            month=((prev_end.month - 1) // 3) * 3 + 1,
+            day=1,
+        )
     return out
 
 
@@ -174,15 +200,11 @@ def run_kpi_snapshot(
     ``CORTEX_KPI_STORE_S3_URI`` (or *s3_uri*) is set. If S3 is requested
     (``skip_s3`` false) but the URI is unset, the run persists locally and
     records ``s3=skipped_no_uri`` (EFS on ECS) — it does not invent a bucket.
-    ``history_months`` rebuilds month-end trailing windows plus month-close
-    scorecard rows (requires ``--tag`` or ``--metric``).
+    ``history_months`` rebuilds closed periods for every matching generator KPI:
+    month-end trailing windows, month-close scorecard rows, weekly points, and
+    quarter closes. Hourly is skipped (a year of hours is not useful).
     """
     if history_months:
-        if not (tag or (ctx.metric_name_filter or "").strip()):
-            raise ValueError(
-                "--history-months requires --tag or --metric so unrelated "
-                "generators are not stamped onto historical period keys"
-            )
         until = _parse_as_of(ctx.entry_date)
         plan = [
             (as_of, g)
@@ -383,8 +405,9 @@ def add_kpi_snapshot_arguments(ap: argparse.ArgumentParser) -> None:
         default=None,
         metavar="N",
         help=(
-            "Rebuild N completed months of history (month-end trailing windows "
-            "plus month-close KPIs). Requires --tag or --metric."
+            "Rebuild N completed months of history for generator KPIs: "
+            "month-end trailing windows, month-close rows, weekly points, "
+            "and quarter closes. Hourly is omitted."
         ),
     )
 

@@ -5,7 +5,7 @@ Examples::
 
   kpi-snapshot --dry-run
   kpi-snapshot --tag engineering --dry-run
-  kpi-snapshot --tag support --history-months 24 --skip-s3
+  kpi-snapshot --history-months 12 --skip-s3
   kpi-snapshot --skip-s3 --db /tmp/kpi.sqlite
 """
 from __future__ import annotations

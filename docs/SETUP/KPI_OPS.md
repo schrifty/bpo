@@ -64,7 +64,10 @@ If the URI is **unset**, snapshot still persists locally and logs a warning
 
 ### Backfill months a source cannot cover
 
-`kpi-snapshot --history-months N` walks back through closed periods. When a source
+`kpi-snapshot --history-months N` walks back through closed periods for every
+generator KPI: month-end trailing windows (daily grain), month-close scorecard
+rows, weekly points (`N * 52 / 12` weeks), and quarter closes. Hourly KPIs are
+skipped. When a source
 has no data that far back, the generator must **error** for that period rather than
 return `0` — a stored zero is indistinguishable from a real measurement and draws a
 false trend on the deck chart. `PRs Merged` follows this: zero merged PRs across all

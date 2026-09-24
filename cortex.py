@@ -206,8 +206,8 @@ Snapshot / digest / deck
 
 Notes
   --tag filters registry tags (e.g. akkr). kpi-snapshot --dry-run does not write.
-  --history-months N rebuilds month-end trailing windows plus month-close rows
-  (requires --tag or --metric).
+  --history-months N rebuilds month-end trailing windows, month-close rows,
+  weekly points, and quarter closes for generator KPIs. Hourly is omitted.
   kpi --all --mode stored --skip-s3 is one store read for the full catalog.
   kpi add|edit|delete writes config/my-metrics.yaml (--dry-run to preview).
   delete requires --yes when stdin is not a TTY.

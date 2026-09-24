@@ -157,18 +157,26 @@ def test_history_snapshot_plan_includes_until_and_month_ends() -> None:
     assert (date(2026, 9, 1), GRAIN_MONTH) in plan
     assert (date(2026, 7, 31), GRAIN_DAILY) in plan
     assert (date(2026, 8, 1), GRAIN_MONTH) in plan
+    assert (date(2026, 9, 11), GRAIN_WEEKLY) in plan
+    assert (date(2026, 9, 4), GRAIN_WEEKLY) in plan
+    assert (date(2026, 9, 11), GRAIN_QUARTERLY) in plan
+    weekly = [d for d, g in plan if g == GRAIN_WEEKLY]
+    assert len(weekly) == 9
+    assert not any(g == GRAIN_HOURLY for _, g in plan)
 
 
-def test_history_months_requires_tag_or_metric() -> None:
-    with pytest.raises(ValueError, match="--history-months"):
-        run_kpi_snapshot(
-            _ctx(dry_run=True),
-            dry_run=True,
-            registry=_registry(),
-            skip_s3=True,
-            history_months=2,
-            invoke=lambda *a, **k: {"value": 1},
-        )
+def test_history_months_covers_all_generator_kpis() -> None:
+    summary = run_kpi_snapshot(
+        _ctx(dry_run=True),
+        dry_run=True,
+        registry=_registry(),
+        skip_s3=True,
+        history_months=2,
+        invoke=lambda *a, **k: {"value": 1},
+    )
+    assert summary["ok"] is True
+    # 3 daily as-ofs × 1 daily KPI + 3 month as-ofs × 2 monthly KPIs
+    assert summary["considered"] == 9
 
 
 def test_history_months_persists_multiple_period_keys(tmp_path: Path) -> None:
@@ -224,6 +232,40 @@ def test_history_months_skips_sla_gaps_without_failing(tmp_path: Path) -> None:
     keys = {r.period_key for r in daily}
     assert "2026-09-10" in keys
     assert "2026-07-31" not in keys
+
+
+def test_history_months_persists_weekly_period_keys(tmp_path: Path) -> None:
+    db = tmp_path / "kpi.sqlite"
+    registry = yaml.safe_load(
+        """
+metrics:
+  "Weekly Active AI Users":
+    metric-generator: get_weekly_active_ai_users
+    grain: weekly
+    tags: [ai]
+"""
+    )
+
+    def invoke(name, **kwargs):
+        return {"value": 4, "numerator": 4, "denominator": 1}
+
+    summary = run_kpi_snapshot(
+        _ctx(dry_run=False),
+        dry_run=False,
+        registry=registry,
+        db_path=db,
+        skip_s3=True,
+        history_months=2,
+        invoke=invoke,
+    )
+    assert summary["ok"] is True
+    conn = connect(db)
+    weekly = list_kpis(conn, grain=GRAIN_WEEKLY)
+    conn.close()
+    keys = {r.period_key for r in weekly}
+    assert "2026-W37" in keys
+    assert "2026-W36" in keys
+    assert len(keys) == 9
 
 
 def test_generator_error_fails_run_and_still_writes_error_row(tmp_path: Path) -> None:
