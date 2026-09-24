@@ -9,6 +9,7 @@ import yaml
 from starlette.testclient import TestClient
 
 from src.kpi_owners import reset_for_tests
+from src.kpi_store import connect, list_kpis
 from src.kpi_web.app import create_app
 from src.kpi_web.settings import load_kpi_web_settings
 from src.metrics_registry_write import public_metric_entry
@@ -240,6 +241,97 @@ def test_lead_edit_own_and_set_generator(tmp_path: Path) -> None:
     doc = yaml.safe_load(registry.read_text(encoding="utf-8"))
     assert doc["metrics"]["Gamma Eng Lead"]["metric-generator"] == "get_open_help"
     assert doc["metrics"]["Gamma Eng Lead"]["metric-id"] == 55
+
+
+def _value_client(
+    tmp_path: Path,
+    *,
+    actor: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[TestClient, Path]:
+    """Maintain client whose SQLite store lives under *tmp_path*, not the real cache."""
+    cache_root = tmp_path / "cache"
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", cache_root)
+    store = cache_root / "kpi" / "observations.sqlite"
+    connect(store).close()
+    client, _ = _maintain_client(tmp_path, actor=actor)
+    return client, store
+
+
+def test_set_value_writes_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, store = _value_client(
+        tmp_path, actor="marc.schriftman@leandna.com", monkeypatch=monkeypatch
+    )
+    _login(client)
+
+    res = client.put("/api/kpis/Alpha%20Eng/value", json={"value": "12.5"})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["name"] == "Alpha Eng"
+    assert body["grain"] == "daily"
+    assert body["value"] == 12.5
+    assert body["actor"] == "marc.schriftman@leandna.com"
+
+    conn = connect(store)
+    rows = list_kpis(conn, metric_name="Alpha Eng")
+    conn.close()
+    assert len(rows) == 1
+    assert rows[0].observation.value == 12.5
+    assert rows[0].observation.origin == "stored"
+    assert rows[0].observation.meta["edited_by"] == "marc.schriftman@leandna.com"
+    assert rows[0].tags == ("engineering",)
+
+    # A second write replaces the same period rather than appending a reading.
+    again = client.put("/api/kpis/Alpha%20Eng/value", json={"value": 13})
+    assert again.status_code == 200
+    conn = connect(store)
+    rows = list_kpis(conn, metric_name="Alpha Eng")
+    conn.close()
+    assert [r.observation.value for r in rows] == [13.0]
+
+
+def test_set_value_rejects_bad_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _ = _value_client(
+        tmp_path, actor="marc.schriftman@leandna.com", monkeypatch=monkeypatch
+    )
+    _login(client)
+
+    missing = client.put("/api/kpis/Alpha%20Eng/value", json={})
+    assert missing.status_code == 400
+    assert "value is required" in missing.json()["error"]
+
+    not_a_number = client.put("/api/kpis/Alpha%20Eng/value", json={"value": "abc"})
+    assert not_a_number.status_code == 400
+    assert "must be a number" in not_a_number.json()["error"]
+
+    unknown = client.put("/api/kpis/Does%20Not%20Exist/value", json={"value": 1})
+    assert unknown.status_code == 404
+    assert unknown.json()["ok"] is False
+
+
+def test_set_value_ownership_and_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, store = _value_client(
+        tmp_path, actor="lead.eng@leandna.com", monkeypatch=monkeypatch
+    )
+
+    anon = client.put("/api/kpis/Gamma%20Eng%20Lead/value", json={"value": 1})
+    assert anon.status_code == 401
+    assert anon.json()["ok"] is False
+
+    _login(client)
+
+    # Lead may not write a value for Marc's KPI.
+    other = client.put("/api/kpis/Alpha%20Eng/value", json={"value": 1})
+    assert other.status_code == 403
+    assert "may not edit" in other.json()["error"]
+
+    own = client.put("/api/kpis/Gamma%20Eng%20Lead/value", json={"value": 4})
+    assert own.status_code == 200, own.text
+
+    conn = connect(store)
+    names = {r.metric_name for r in list_kpis(conn)}
+    conn.close()
+    assert names == {"Gamma Eng Lead"}
 
 
 def test_unauthenticated_write_fails_loud(tmp_path: Path) -> None:

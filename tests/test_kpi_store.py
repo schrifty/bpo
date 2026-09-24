@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
@@ -18,8 +19,10 @@ from src.kpi_store import (
     dedupe_one_reading_per_day,
     get_kpi,
     list_kpis,
+    period_key_now,
     stored_kpi_from_observation,
     upsert_kpi,
+    upsert_manual_value,
 )
 from src.kpi_store_s3 import (
     KPIStoreS3Error,
@@ -360,6 +363,95 @@ def test_invalid_grain_and_period_key() -> None:
             period_key="2026-13-40",
             observation=_obs(),
         )
+
+
+def test_period_key_now_by_grain() -> None:
+    when = datetime(2026, 9, 24, 15, 30, tzinfo=timezone.utc)
+    assert period_key_now("hourly", when=when) == "2026-09-24T15"
+    assert period_key_now(GRAIN_DAILY, when=when) == "2026-09-24"
+    assert period_key_now("weekly", when=when) == "2026-W39"
+    assert period_key_now(GRAIN_MONTH, when=when) == "2026-09"
+    assert period_key_now("quarterly", when=when) == "2026-Q3"
+
+
+def test_upsert_manual_value_replaces_latest_period(tmp_path: Path) -> None:
+    conn = connect(tmp_path / "kpi.sqlite")
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="Issues Shipped",
+            grain=GRAIN_MONTH,
+            period_key="2026-07",
+            observation=_obs(value=200),
+            generator="get_issues_shipped",
+            tags=["engineering"],
+        ),
+    )
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="Issues Shipped",
+            grain=GRAIN_MONTH,
+            period_key="2026-08",
+            observation=_obs(value=280),
+            generator="get_issues_shipped",
+            tags=["engineering"],
+        ),
+    )
+
+    written = upsert_manual_value(
+        conn,
+        metric_name="Issues Shipped",
+        grain=GRAIN_MONTH,
+        value=305,
+        actor="marc.schriftman@leandna.com",
+    )
+    assert written.period_key == "2026-08"
+    assert written.observation.value == 305
+    assert written.observation.origin == "stored"
+    assert written.observation.meta["edited_by"] == "marc.schriftman@leandna.com"
+    assert written.generator == "get_issues_shipped"
+    assert written.tags == ("engineering",)
+    rows = list_kpis(conn, metric_name="Issues Shipped", grain=GRAIN_MONTH)
+    assert [(r.period_key, r.observation.value) for r in rows] == [
+        ("2026-08", 305),
+        ("2026-07", 200),
+    ]
+    conn.close()
+
+
+def test_upsert_manual_value_inserts_current_period_and_validates(tmp_path: Path) -> None:
+    conn = connect(tmp_path / "kpi.sqlite")
+    written = upsert_manual_value(
+        conn,
+        metric_name="Support FTE",
+        grain=GRAIN_MONTH,
+        value=7,
+    )
+    assert written.period_key == period_key_now(GRAIN_MONTH)
+    assert written.observation.value == 7
+    assert "edited_by" not in written.observation.meta
+
+    explicit = upsert_manual_value(
+        conn,
+        metric_name="Support FTE",
+        grain=GRAIN_MONTH,
+        value=8,
+        period_key="2026-01",
+    )
+    assert explicit.period_key == "2026-01"
+
+    with pytest.raises(KPIStoreError, match="metric_name is required"):
+        upsert_manual_value(conn, metric_name="  ", grain=GRAIN_MONTH, value=1)
+    with pytest.raises(KPIStoreError, match="period_key"):
+        upsert_manual_value(
+            conn,
+            metric_name="Support FTE",
+            grain=GRAIN_MONTH,
+            value=1,
+            period_key="2026-01-05",
+        )
+    conn.close()
 
 
 class _MemoryS3:
