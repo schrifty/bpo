@@ -27,6 +27,7 @@ def create_app(
         Route("/api/health", api.api_health, methods=["GET"]),
         Route("/api/me", api.api_me, methods=["GET"]),
         Route("/api/meta", api.api_meta, methods=["GET"]),
+        Route("/api/situation", api.api_kpi_situation, methods=["GET"]),
         Route("/api/kpis", api.api_list_kpis, methods=["GET"]),
         Route("/api/kpis", api.api_kpi_add, methods=["POST"]),
         Route("/api/kpis/{name:path}/value", api.api_kpi_set_value, methods=["PUT"]),

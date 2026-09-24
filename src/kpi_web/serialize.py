@@ -85,3 +85,8 @@ def resolved_to_dict(row: KPIResolved, *, include_history: bool = True) -> dict[
     if include_history:
         base["history"] = history_to_list(row.recent_stored)
     return base
+
+
+def sort_kpi_dicts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Alphabetical by display name (case-insensitive)."""
+    return sorted(items, key=lambda row: str(row.get("name") or "").casefold())

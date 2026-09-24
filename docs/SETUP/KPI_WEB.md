@@ -18,9 +18,13 @@ CORTEX_KPI_WEB_SKIP_S3=true \
 python3 -m src.kpi_web
 ```
 
-Open http://127.0.0.1:8080 — use **Dev login**, then filter by owner/tag and open a KPI detail.
-The list table shows grain plus owner; `first.last@leandna.com` owners display as
-`First Last` (hover the cell for the email).
+Open http://127.0.0.1:8080 — use **Dev login**. The table is alphabetical by KPI
+name. With no row selected, the right pane is a Claude briefing of stored
+readings vs about a week ago and a month ago (fail-loud if Anthropic or the
+store cannot produce it). Click a row for description, guidance, target, and
+history; the **Cortex KPIs** title returns to the briefing. Filter by owner/tag
+from the funnel. The list table shows grain plus owner; `first.last@leandna.com`
+owners display as `First Last` (hover the cell for the email).
 
 Stored values need a local KPI SQLite DB (from `cortex kpi-snapshot`). With
 `--skip-s3`, the app does not pull from `CORTEX_KPI_STORE_S3_URI`. Live mode runs
@@ -55,10 +59,11 @@ Permissions match CLI ownership rules (enforced server-side via
    background. **Restore** next to an overridden value (and in the detail pane)
    drops the override so the number already in SQLite shows again. It does not
    re-run the generator.
-5. Select a KPI to read description, guidance, target, and history. The pencil
-   in the detail header edits **name, tags, and target** (plus direction/unit,
-   which a target needs). Delete is the trash control at the left of each row
-   (confirmation dialog, then YAML delete).
+5. With no row selected, the right pane is the Claude week/month situation
+   briefing. Select a KPI to read description, guidance, target, and history.
+   The pencil in the detail header edits **name, tags, and target** (plus
+   direction/unit, which a target needs). Delete is the trash control at the
+   left of each row (confirmation dialog, then YAML delete).
 
 Description, grain, owner, metric ID, and `metric-generator` are set when a KPI
 is created and are immutable in the web app; `PATCH` rejects them with 400. Use

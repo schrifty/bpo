@@ -9,7 +9,7 @@
 <body>
   <header class="top">
     <div class="brand">
-      <a href="/" class="brand-link">Cortex KPIs</a>
+      <a href="/" class="brand-link" id="brand-home">Cortex KPIs</a>
     </div>
     <div id="session" class="session hidden">
       <button
@@ -128,7 +128,12 @@
           </div>
         </div>
         <aside id="detail" class="detail-pane">
-          <p class="muted">Select a KPI to see description, guidance, target, value, and history.</p>
+          <div id="situation-root">
+            <h2>Situation</h2>
+            <p class="muted" id="situation-status">Comparing stored KPIs to a week ago and a month ago…</p>
+            <div id="situation-body" class="situation-body" hidden></div>
+            <p id="situation-error" class="error" hidden></p>
+          </div>
         </aside>
       </div>
     </section>

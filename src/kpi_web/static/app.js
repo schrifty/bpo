@@ -11,6 +11,8 @@
     editName: null,
     pendingDelete: null,
     editingValue: null,
+    situation: null,
+    situationPromise: null,
   };
 
   function esc(s) {
@@ -320,7 +322,9 @@
   function renderList(payload) {
     const tbody = $("kpi-table").querySelector("tbody");
     tbody.innerHTML = "";
-    const items = payload.kpis || [];
+    const items = [...(payload.kpis || [])].sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" })
+    );
     $("empty-state").classList.toggle("hidden", items.length > 0);
     setListStatus("");
     state.editingValue = null;
@@ -370,6 +374,82 @@
       tr.addEventListener("click", () => selectKpi(kpi.name));
       tbody.appendChild(tr);
     }
+  }
+
+  function situationMarkup() {
+    return `<div id="situation-root">
+      <h2>Situation</h2>
+      <p class="muted" id="situation-status"></p>
+      <div id="situation-body" class="situation-body" hidden></div>
+      <p id="situation-error" class="error" hidden></p>
+    </div>`;
+  }
+
+  function applySituationView() {
+    const status = $("situation-status");
+    const body = $("situation-body");
+    const err = $("situation-error");
+    if (!status || !body || !err) return;
+    const cached = state.situation;
+    if (!cached) {
+      status.hidden = false;
+      status.textContent = "Comparing stored KPIs to a week ago and a month ago…";
+      body.hidden = true;
+      err.hidden = true;
+      return;
+    }
+    if (cached.error) {
+      status.hidden = true;
+      body.hidden = true;
+      err.hidden = false;
+      err.textContent = cached.error;
+      return;
+    }
+    status.hidden = true;
+    err.hidden = true;
+    body.hidden = false;
+    body.textContent = cached.analysis || "";
+  }
+
+  function showSituationPane() {
+    state.selected = null;
+    const table = $("kpi-table");
+    if (table) {
+      for (const tr of table.querySelectorAll("tbody tr")) {
+        tr.classList.remove("active");
+      }
+    }
+    $("detail").innerHTML = situationMarkup();
+    applySituationView();
+    loadSituation();
+  }
+
+  async function loadSituation() {
+    if (state.situation && state.situation.analysis) {
+      applySituationView();
+      return;
+    }
+    if (state.situation && state.situation.error) {
+      state.situation = null;
+    }
+    if (state.situationPromise) {
+      await state.situationPromise;
+      if (!state.selected) applySituationView();
+      return;
+    }
+    applySituationView();
+    state.situationPromise = api("/api/situation")
+      .then((data) => {
+        state.situation = { analysis: data.analysis, as_of: data.as_of };
+      })
+      .catch((err) => {
+        state.situation = { error: err.message || String(err) };
+      })
+      .finally(() => {
+        state.situationPromise = null;
+        if (!state.selected) applySituationView();
+      });
+    await state.situationPromise;
   }
 
   function beginValueEdit(td, kpi) {
@@ -728,9 +808,8 @@
         `Deleted ${data.change.name} by ${data.change.actor}`,
         false
       );
-      state.selected = null;
-      $("detail").innerHTML =
-        '<p class="muted">KPI deleted. Select another or add a new one.</p>';
+      state.situation = null;
+      showSituationPane();
       const meta = await api("/api/meta");
       state.meta = meta;
       fillFilters(meta);
@@ -850,11 +929,17 @@
       state.meta = meta;
       fillFilters(meta);
       await refreshList();
+      await loadSituation();
     } catch (err) {
       showLogin(status, err.message);
     }
   }
 
+  $("brand-home").addEventListener("click", (ev) => {
+    if ($("app-panel").classList.contains("hidden")) return;
+    ev.preventDefault();
+    showSituationPane();
+  });
   $("user-badge").addEventListener("click", (ev) => {
     ev.stopPropagation();
     setFilterMenuOpen(false);

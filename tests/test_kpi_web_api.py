@@ -28,6 +28,22 @@ topic_packs:
 
 _REGISTRY = """
 metrics:
+  "Zed Last":
+    description: Last alphabetically
+    mgmt_guidance: Keep last.
+    owner: marc.schriftman@leandna.com
+    metric-id: 3
+    metric-generator: null
+    tags: [engineering]
+    target: 1
+    direction: higher
+  "Beta Support":
+    description: Support KPI
+    mgmt_guidance: Keep queue healthy.
+    owner: lead.eng@leandna.com
+    metric-id: null
+    metric-generator: null
+    tags: [support]
   "Alpha Eng":
     description: Eng KPI
     mgmt_guidance: Hit it.
@@ -37,13 +53,6 @@ metrics:
     tags: [engineering]
     target: 10
     direction: higher
-  "Beta Support":
-    description: Support KPI
-    mgmt_guidance: Keep queue healthy.
-    owner: lead.eng@leandna.com
-    metric-id: null
-    metric-generator: null
-    tags: [support]
 """
 
 
@@ -115,7 +124,8 @@ def test_dev_login_and_read_all_for_lead(tmp_path: Path) -> None:
     assert body["resolved"] is False
     names = {k["name"] for k in body["kpis"]}
     # Lead may read Marc's KPI as well as own (read-all).
-    assert names == {"Alpha Eng", "Beta Support"}
+    assert names == {"Alpha Eng", "Beta Support", "Zed Last"}
+    assert [k["name"] for k in body["kpis"]] == ["Alpha Eng", "Beta Support", "Zed Last"]
 
 
 def test_owner_and_tag_filters(tmp_path: Path) -> None:
@@ -124,11 +134,11 @@ def test_owner_and_tag_filters(tmp_path: Path) -> None:
 
     by_owner = client.get("/api/kpis", params={"owner": "marc.schriftman@leandna.com"})
     assert by_owner.status_code == 200
-    assert [k["name"] for k in by_owner.json()["kpis"]] == ["Alpha Eng"]
+    assert [k["name"] for k in by_owner.json()["kpis"]] == ["Alpha Eng", "Zed Last"]
 
     by_me = client.get("/api/kpis", params={"owner": "me"})
     assert by_me.status_code == 200
-    assert [k["name"] for k in by_me.json()["kpis"]] == ["Alpha Eng"]
+    assert [k["name"] for k in by_me.json()["kpis"]] == ["Alpha Eng", "Zed Last"]
 
     by_tag = client.get("/api/kpis", params={"tag": "support"})
     assert by_tag.status_code == 200
@@ -252,9 +262,16 @@ def test_index_serves_ui(tmp_path: Path) -> None:
     assert js.status_code == 200
     assert "restoreOverride" in js.text
     assert "value-restore" in js.text
+    assert "loadSituation" in js.text
+    assert "/api/situation" in js.text
+    assert "Select a KPI to see description" not in html
+    assert 'id="situation-root"' in html
 
 
-def test_stored_values_fail_loud_when_store_missing(tmp_path: Path) -> None:
+def test_stored_values_fail_loud_when_store_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path / "missing-cache")
     client = _client(tmp_path)
     _login(client)
     res = client.get("/api/kpis", params={"mode": "stored", "values": "1"})

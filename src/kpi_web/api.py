@@ -34,6 +34,7 @@ from src.kpi_web.auth import (
     user_from_dev_login,
     user_from_google_info,
 )
+from src.kpi_web.situation import KpiSituationError, build_situation_digest, generate_situation_analysis
 from src.kpi_web.mutations import (
     add_from_body,
     audit_catalog_change,
@@ -43,7 +44,12 @@ from src.kpi_web.mutations import (
     parse_dry_run,
     reject_immutable_edits,
 )
-from src.kpi_web.serialize import catalog_entry_to_dict, history_to_list, resolved_to_dict
+from src.kpi_web.serialize import (
+    catalog_entry_to_dict,
+    history_to_list,
+    resolved_to_dict,
+    sort_kpi_dicts,
+)
 from src.kpi_web.settings import KPIWebSettings
 from src.metrics_latest import DatapointValue
 from src.metrics_registry import (
@@ -249,7 +255,9 @@ async def api_list_kpis(request: Request) -> Response:
     # Catalog-only list (fast) unless values=1.
     if not resolve_values:
         rows = _catalog_rows(reg, owner=owner, tags=tags)
-        items = [catalog_entry_to_dict(name, entry) for name, entry in rows]
+        items = sort_kpi_dicts(
+            [catalog_entry_to_dict(name, entry) for name, entry in rows]
+        )
         return JSONResponse(
             {
                 "ok": True,
@@ -290,7 +298,37 @@ async def api_list_kpis(request: Request) -> Response:
             "resolved": True,
             "count": len(items),
             "filters": {"owner": owner, "tags": tags or []},
-            "kpis": items,
+            "kpis": sort_kpi_dicts(items),
+        }
+    )
+
+
+async def api_kpi_situation(request: Request) -> Response:
+    """GET /api/situation — Claude briefing vs week-ago and month-ago stored readings."""
+    try:
+        require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    settings = _settings(request)
+    store_conn: sqlite3.Connection | None = None
+    try:
+        store_conn = _open_store(settings)
+        digest = build_situation_digest(store_conn, _registry(request))
+        analysis = generate_situation_analysis(digest)
+    except KpiSituationError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("KPI situation briefing failed")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        if store_conn is not None:
+            store_conn.close()
+    return JSONResponse(
+        {
+            "ok": True,
+            "analysis": analysis,
+            "as_of": digest.get("as_of"),
+            "kpi_count": digest.get("kpi_count"),
         }
     )
 

@@ -709,6 +709,12 @@ button.value-restore:hover {
 .detail-pane dt { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.65rem; }
 .detail-pane dd { margin: 0.15rem 0 0; }
 
+.situation-body {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
 .history {
   width: 100%;
   margin-top: 0.5rem;

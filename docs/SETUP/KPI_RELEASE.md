@@ -204,6 +204,7 @@ pytest \
   tests/test_kpi_store.py \
   tests/test_kpi_web_api.py \
   tests/test_kpi_web_maintain.py \
+  tests/test_kpi_web_situation.py \
   tests/test_metrics_registry.py \
   tests/test_metrics_digest.py \
   tests/test_kpi_metric_card.py
