@@ -345,15 +345,54 @@
       state.entities = entitiesPayload.entities;
       renderFrameworkSummary();
       renderEntities(entitiesPayload.source);
-      renderScore();
+      restoreEntitySelection();
+      await loadScore();
     } catch (error) {
       showError(error.message);
     }
   }
 
+  const ENTITY_STORAGE_KEY = "cortex.healthscore.entity";
+
+  function rememberEntity(entityId) {
+    const url = new URL(window.location.href);
+    if (entityId) {
+      url.searchParams.set("entity", entityId);
+      try {
+        window.localStorage.setItem(ENTITY_STORAGE_KEY, entityId);
+      } catch (_) {
+        /* storage unavailable */
+      }
+    } else {
+      url.searchParams.delete("entity");
+      try {
+        window.localStorage.removeItem(ENTITY_STORAGE_KEY);
+      } catch (_) {
+        /* storage unavailable */
+      }
+    }
+    window.history.replaceState(null, "", url);
+  }
+
+  function restoreEntitySelection() {
+    let wanted = new URL(window.location.href).searchParams.get("entity");
+    if (!wanted) {
+      try {
+        wanted = window.localStorage.getItem(ENTITY_STORAGE_KEY);
+      } catch (_) {
+        wanted = null;
+      }
+    }
+    const entity = wanted ? state.entities.find((row) => row.id === wanted) : null;
+    state.entity = entity || null;
+    $("hs-entity").value = entity ? entity.id : "";
+    rememberEntity(entity ? entity.id : null);
+  }
+
   $("hs-entity").addEventListener("change", async (event) => {
     state.entity = state.entities.find((row) => row.id === event.target.value) || null;
     state.selected = null;
+    rememberEntity(state.entity ? state.entity.id : null);
     await loadScore();
   });
   $("user-badge").addEventListener("click", (event) => {
