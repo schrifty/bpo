@@ -242,11 +242,11 @@
       <div class="hs-meta-row">
         ${definition.signal ? `<span class="hs-status">${esc(definition.signal)}</span>` : '<span class="hs-status">override</span>'}
         ${sourceBadge(definition.automation)}
-        <span class="hs-status">${esc(definition.status)}</span>
-        ${isOverride ? "" : definition.weight == null ? '<span class="hs-status">weight TBD</span>' : `<span class="hs-status">${definition.weight}% weight</span>`}
+        ${definition.status ? `<span class="hs-status" title="Framework status from the draft Health Score YAML">${esc(definition.status)}</span>` : ""}
       </div>
       <dl class="hs-detail-grid">
         ${isOverride ? "" : `<dt>Pillar</dt><dd>${esc(definition.pillar)}</dd>`}
+        ${isOverride ? "" : `<dt>Weight</dt><dd>${definition.weight == null ? "TBD" : `${definition.weight}%`}</dd>`}
         <dt>Description</dt><dd>${esc(definition.description)}</dd>
         ${definition.metric ? `<dt>Measurable metric</dt><dd>${esc(definition.metric)}</dd>` : ""}
         ${definition.scoring ? `<dt>Scoring rule</dt><dd>${esc(definition.scoring)}</dd>` : ""}
