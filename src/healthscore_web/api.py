@@ -15,9 +15,9 @@ from src.healthscore_web.framework import component_map, load_framework
 from src.healthscore_web.snapshot import run_usage_level_snapshot
 from src.healthscore_web.store import (
     connect,
-    latest_by_component,
+    latest_by_metric,
     observations_for_entity,
-    upsert_observation,
+    set_override,
 )
 from src.healthscore_web.usage_level import UsageLevelGeneratorError
 from src.kpi_web.auth import KPIWebAuthError, auth_error_response, require_user
@@ -58,7 +58,7 @@ def _active_salesforce_entities() -> list[dict[str, Any]]:
 def _score_payload(
     framework: dict[str, Any], observations: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    latest = latest_by_component(observations)
+    latest = latest_by_metric(observations)
     configured_weight = float(framework["configured_weight"])
     contribution = 0.0
     covered_weight = 0.0
@@ -75,11 +75,11 @@ def _score_payload(
             pillars[str(definition["pillar"])]["configured_weight"] += float(weight)
         if (
             row
-            and row.get("points") is not None
+            and row.get("effective_points") is not None
             and weight is not None
             and max_points not in (None, 0)
         ):
-            points = max(0.0, min(float(row["points"]), float(max_points)))
+            points = max(0.0, min(float(row["effective_points"]), float(max_points)))
             value = points / float(max_points) * float(weight)
             item["contribution"] = round(value, 4)
             contribution += value
@@ -116,26 +116,31 @@ def _score_payload(
 def _score_history(
     framework: dict[str, Any], observations: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    dates = sorted({str(row["period_date"]) for row in observations})
+    periods = sorted({str(row["period_key"]) for row in observations})
     out: list[dict[str, Any]] = []
-    for period in dates:
-        as_of = [row for row in observations if str(row["period_date"]) <= period]
-        latest = latest_by_component(as_of)
+    for period in periods:
+        prior = [row for row in observations if str(row["period_key"]) <= period]
+        latest = latest_by_metric(prior)
         contribution = 0.0
         covered = 0.0
         for definition in framework["inputs"]:
             row = latest.get(str(definition["key"]))
             weight = definition.get("weight")
             max_points = definition.get("max_points")
-            if not row or row.get("points") is None or weight is None or not max_points:
+            if (
+                not row
+                or row.get("effective_points") is None
+                or weight is None
+                or not max_points
+            ):
                 continue
-            points = max(0.0, min(float(row["points"]), float(max_points)))
+            points = max(0.0, min(float(row["effective_points"]), float(max_points)))
             contribution += points / float(max_points) * float(weight)
             covered += float(weight)
         if covered:
             out.append(
                 {
-                    "date": period,
+                    "period_key": period,
                     "score": round(contribution / covered * 100, 2),
                     "covered_weight": round(covered, 2),
                 }
@@ -235,7 +240,7 @@ async def api_set_component(request: Request) -> Response:
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
     entity_id = str(request.path_params.get("entity_id") or "").strip()
-    component_key = str(request.path_params.get("component_key") or "").strip()
+    metric_name = str(request.path_params.get("component_key") or "").strip()
     try:
         raw = await request.json()
     except Exception as exc:  # noqa: BLE001
@@ -250,9 +255,15 @@ async def api_set_component(request: Request) -> Response:
         )
     try:
         framework = load_framework()
-        definition = component_map(framework).get(component_key)
+        definition = component_map(framework).get(metric_name)
         if not definition:
-            raise ValueError(f"unknown Health Score component: {component_key}")
+            raise ValueError(f"unknown Health Score component: {metric_name}")
+        grain = definition.get("grain")
+        if not grain:
+            raise ValueError(
+                f"{metric_name} has no grain yet; the framework defines an event "
+                f"cadence ({definition.get('cadence_note') or 'unspecified'}) instead"
+            )
         entities = _active_salesforce_entities()
         entity = next((row for row in entities if row["id"] == entity_id), None)
         if not entity:
@@ -266,19 +277,22 @@ async def api_set_component(request: Request) -> Response:
             raise ValueError("points cannot be negative")
         if points is not None and max_points is not None and points > float(max_points):
             raise ValueError(f"points cannot exceed {max_points}")
+        value_raw = raw.get("value", raw.get("raw_value"))
+        value = None if value_raw in (None, "") else float(value_raw)
         conn = connect()
         try:
-            saved = upsert_observation(
+            saved = set_override(
                 conn,
                 entity_id=entity_id,
                 entity_name=entity["name"],
-                component_key=component_key,
-                period_date=str(raw.get("period_date") or "").strip() or None,
-                raw_value=raw.get("raw_value"),
+                metric_name=metric_name,
+                grain=grain,
+                as_of=str(raw.get("as_of") or "").strip() or None,
+                period_key=str(raw.get("period_key") or "").strip() or None,
+                value=value,
                 points=points,
-                source_mode="manual",
+                by=user.email,
                 note=str(raw.get("note") or "").strip() or None,
-                entered_by=user.email,
             )
         finally:
             conn.close()

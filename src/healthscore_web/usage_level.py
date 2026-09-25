@@ -1,7 +1,8 @@
 """CSR generator for Health Score ``usage_level`` (breadth & depth).
 
 This is not a KPI-catalog generator. It reads CS Report week rows and scores
-active Salesforce Customer Entities only.
+active Salesforce Customer Entities only. The reading is stored at weekly grain
+with the same period keys the KPI snapshot writes.
 """
 
 from __future__ import annotations
@@ -12,15 +13,17 @@ from datetime import date
 from typing import Any
 
 from src.cs_report_client import _build_csr_site_entry, load_latest_csr_week_rows
-from src.healthscore_web.store import connect, observations_for_entity, upsert_observation
+from src.healthscore_web.store import connect, period_key_for, upsert_reading
 from src.salesforce_client import _customer_label_matches_text
 
 logger = logging.getLogger(__name__)
 
-COMPONENT_KEY = "usage_level"
+METRIC_NAME = "usage_level"
+GRAIN = "weekly"
 GENERATOR_NAME = "get_usage_level"
 OWNER_NAME = "Lindsay Brown"
 OWNER_EMAIL = "lindsay.brown@leandna.com"
+TAGS = ["customer-success", "healthscore", "adoption"]
 
 
 class UsageLevelGeneratorError(RuntimeError):
@@ -114,17 +117,17 @@ def _mean(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 4)
 
 
-def _period_from_sites(sites: list[dict[str, Any]], fallback: date) -> str:
-    dates: list[str] = []
+def _as_of_from_sites(sites: list[dict[str, Any]], fallback: date) -> date:
+    dates: list[date] = []
     for site in sites:
         raw = str(site.get("end_date") or "").strip()[:10]
-        if len(raw) == 10:
-            try:
-                date.fromisoformat(raw)
-            except ValueError:
-                continue
-            dates.append(raw)
-    return max(dates) if dates else fallback.isoformat()
+        if len(raw) != 10:
+            continue
+        try:
+            dates.append(date.fromisoformat(raw))
+        except ValueError:
+            continue
+    return max(dates) if dates else fallback
 
 
 def _csr_week_sites(week_rows: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -147,7 +150,7 @@ def get_usage_level(
     week_rows: list[dict[str, Any]] | None = None,
     as_of: date | None = None,
     persist: bool = False,
-    entered_by: str = GENERATOR_NAME,
+    generator: str = GENERATOR_NAME,
 ) -> dict[str, Any]:
     """Score Usage level for each active Salesforce Customer Entity from CSR."""
     if not entities:
@@ -161,16 +164,10 @@ def get_usage_level(
         )
     today = as_of or date.today()
     unmatched: list[dict[str, str]] = []
-    skipped_manual: list[str] = []
+    overridden: list[str] = []
     readings: list[dict[str, Any]] = []
     conn = connect() if persist else None
     try:
-        existing_by_entity: dict[str, list[dict[str, Any]]] = {}
-        if conn is not None:
-            for entity in entities:
-                existing_by_entity[str(entity["id"])] = observations_for_entity(
-                    conn, str(entity["id"])
-                )
         for entity in entities:
             matched = [site for site in sites if csr_site_matches_entity(site, entity)]
             if not matched:
@@ -195,64 +192,67 @@ def get_usage_level(
                     continue
                 percents.append(pct)
                 sources.add(source)
-            raw_value = _mean(percents)
-            points = usage_level_points(raw_value)
-            period_date = _period_from_sites(matched, today)
-            entity_id = str(entity["id"])
-            if conn is not None:
-                already = [
-                    row
-                    for row in existing_by_entity.get(entity_id, [])
-                    if row.get("component_key") == COMPONENT_KEY
-                    and str(row.get("period_date")) == period_date
-                    and row.get("source_mode") == "manual"
-                ]
-                if already:
-                    skipped_manual.append(entity_id)
-                    continue
-                saved = upsert_observation(
-                    conn,
-                    entity_id=entity_id,
-                    entity_name=str(entity.get("name") or ""),
-                    component_key=COMPONENT_KEY,
-                    period_date=period_date,
-                    raw_value=raw_value,
-                    points=float(points),
-                    source_mode="automated",
-                    note=(
-                        None
-                        if raw_value is not None
-                        else "CSR matched this entity but had no usage percent"
-                    ),
-                    entered_by=entered_by,
-                )
-                readings.append(saved)
-            else:
+            value = _mean(percents)
+            points = usage_level_points(value)
+            day = _as_of_from_sites(matched, today)
+            meta = {
+                "source_fields": sorted(sources),
+                "factory_count": len(matched),
+                "owner": OWNER_EMAIL,
+            }
+            error = (
+                None
+                if value is not None
+                else "CSR matched this entity but had no usage percent"
+            )
+            if conn is None:
                 readings.append(
                     {
-                        "entity_id": entity_id,
+                        "entity_id": str(entity["id"]),
                         "entity_name": entity.get("name"),
-                        "component_key": COMPONENT_KEY,
-                        "period_date": period_date,
-                        "raw_value": raw_value,
+                        "metric_name": METRIC_NAME,
+                        "grain": GRAIN,
+                        "period_key": period_key_for(GRAIN, day),
+                        "as_of": day.isoformat(),
+                        "value": value,
                         "points": points,
-                        "source_mode": "automated",
-                        "source_fields": sorted(sources),
-                        "factory_count": len(matched),
+                        "generator": generator,
+                        "tags": list(TAGS),
+                        "meta": meta,
+                        "error": error,
                     }
                 )
+                continue
+            saved = upsert_reading(
+                conn,
+                entity_id=str(entity["id"]),
+                entity_name=str(entity.get("name") or ""),
+                metric_name=METRIC_NAME,
+                grain=GRAIN,
+                as_of=day,
+                value=value,
+                points=float(points),
+                generator=generator,
+                tags=TAGS,
+                meta=meta,
+                error=error,
+            )
+            if saved.get("overridden"):
+                overridden.append(str(entity["id"]))
+            readings.append(saved)
     finally:
         if conn is not None:
             conn.close()
     return {
         "ok": True,
         "generator": GENERATOR_NAME,
-        "component_key": COMPONENT_KEY,
-        "owner": OWNER_NAME,
-        "owner_email": OWNER_EMAIL,
+        "metric_name": METRIC_NAME,
+        "grain": GRAIN,
+        "owner": OWNER_EMAIL,
+        "owner_display": OWNER_NAME,
         "scored": len(readings),
         "unmatched": len(unmatched),
-        "skipped_manual": len(skipped_manual),
+        "overridden": len(overridden),
         "warnings": unmatched,
         "readings": readings,
     }

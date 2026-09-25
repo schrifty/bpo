@@ -223,6 +223,15 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-kpi-snapshot"
     }
+    # Healthscore usage_level is weekly and CS Report keeps only the latest
+    # workbook, so a missed run is a permanently missing period. Monday after
+    # the CSR dumps and kpi-snapshot.
+    healthscore-snapshot = {
+      schedule_expression = "cron(20 7 ? * MON *)"
+      command             = ["healthscore-snapshot"]
+      enabled             = true
+      rule_name           = "cortex-healthscore-snapshot"
+    }
     pendo-ford-7d = {
       schedule_expression = "cron(0 8 * * ? *)"
       command             = ["pendo-ford-7d"]

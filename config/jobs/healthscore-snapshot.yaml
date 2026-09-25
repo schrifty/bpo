@@ -1,0 +1,12 @@
+name: healthscore-snapshot
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  # Usage level is weekly and CS Report keeps only the latest workbook, so this
+  # run is the only way history accumulates — one period per week. It cannot be
+  # backfilled later (see docs/SETUP/HEALTHSCORE_WEB.md).
+  # Writes to CORTEX_CACHE_ROOT/healthscore/observations.sqlite, separate from
+  # the KPI store.
+  - name: snapshot-usage-level
+    command: healthscore-snapshot
+    component: usage_level

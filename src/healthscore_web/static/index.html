@@ -3,21 +3,41 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Cortex Health Score</title>
+  <title>Cortex Healthscore</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="stylesheet" href="/static/styles.css" />
   <link rel="stylesheet" href="/healthscore/static/healthscore.css" />
 </head>
 <body>
   <header class="top">
-    <a href="/healthscore" class="brand-link">
-      <img src="/static/logo.svg" alt="" class="brand-mark" width="28" height="28" />
-      <span class="brand-word">Cortex<span class="brand-sub">Health Score</span></span>
-    </a>
-    <div id="hs-session" class="session hidden">
-      <button type="button" id="hs-user-badge" class="user-badge" title="Signed in user">
-        <span id="hs-user-initials"></span>
+    <div class="brand">
+      <a href="/healthscore" class="brand-link" id="brand-home">
+        <img src="/static/logo.svg" alt="" class="brand-mark" width="28" height="28" />
+        <span class="brand-word">Cortex<span class="brand-sub">Healthscore</span></span>
+      </a>
+    </div>
+    <div id="session" class="session hidden">
+      <button
+        type="button"
+        id="user-badge"
+        class="user-badge"
+        aria-haspopup="menu"
+        aria-expanded="false"
+        aria-controls="user-menu"
+        title="Account"
+      >
+        <img id="user-badge-img" alt="" referrerpolicy="no-referrer" hidden />
+        <span id="user-badge-initials"></span>
       </button>
+      <div id="user-menu" class="user-menu hidden" role="menu">
+        <div class="user-menu-identity">
+          <div id="user-menu-name" class="user-menu-name"></div>
+          <div id="user-menu-email" class="user-menu-email"></div>
+          <div id="user-menu-role" class="user-menu-role"></div>
+        </div>
+        <a class="user-menu-item" href="/kpis" role="menuitem">KPIs</a>
+        <a id="btn-signout" class="user-menu-item" href="/auth/logout" role="menuitem">Sign out</a>
+      </div>
     </div>
   </header>
 
@@ -32,11 +52,6 @@
 
     <section id="hs-app" class="hidden">
       <div class="hs-hero">
-        <div>
-          <div class="hs-eyebrow">Customer Success · Entity-level model</div>
-          <h1>Customer Health Score <span class="hs-draft">Draft framework</span></h1>
-          <p>Understand every weighted input, what drives the score, where the data came from, and what remains unproven.</p>
-        </div>
         <div class="hs-entity-control">
           <label for="hs-entity">Salesforce Customer Entity</label>
           <select id="hs-entity"><option value="">Choose an active entity…</option></select>

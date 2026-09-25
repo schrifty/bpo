@@ -1,9 +1,31 @@
+# LeanDNA Customer Health Score — draft framework (config/healthscore_framework.yaml)
+#
+# Field names mirror config/my-metrics.yaml so the two catalogs can merge later:
+#   description       — what the input measures
+#   owner             — owner email (defaults to `owner` at the top of this file)
+#   metric-id         — LeanDNA Data API catalog id; null until one exists
+#   metric-generator  — Python generator name; null when no generator exists yet
+#   grain             — hourly | daily | weekly | monthly | quarterly; null when the
+#                       source framework defines an event cadence instead (see
+#                       cadence_note), which also blocks storage of a period key
+#   tags              — lowercase grouping labels
+#
+# Health Score adds the weighting model the KPI registry does not have:
+#   pillar, signal, metric, scoring, max_points, weight, data_source, automation,
+#   status, notes.
+#
+# Weights come from the source PDF. Rows the PDF left unresolved keep a null
+# weight or null max_points and stay unscored; nothing here is invented.
+
 version: 1
 title: LeanDNA Customer Health Score
 scope: Salesforce Customer Entity
 configured_weight: 83
 source_document: LeanDNA_Health_Score_Input_Framework - Input Framework.pdf
 status: draft
+owner: lindsay.brown@leandna.com
+owner_display: Lindsay Brown
+owner_role: Head of Customer Success
 principles:
   - Leading indicators should dominate the score.
   - Missing or undefined inputs remain unscored; they are never silently treated as healthy.
@@ -12,395 +34,495 @@ inputs:
   - key: usage_level
     pillar: Product Adoption & Usage
     name: Usage level (breadth & depth)
-    definition: CSR usage R/Y/G calculation.
+    description: CSR usage R/Y/G calculation.
     signal: leading
     metric: CSR automatic health/usage percentage
     scoring: "No data=0; 0–30%=1; 31–50%=2; 51–65%=3; 66–80%=4; 81–92%=5; 93–100%=6"
     max_points: 6
     weight: 6
     data_source: Apex / CSR
-    cadence: Weekly
+    grain: weekly
     automation: automated
     status: defined
-    generator: get_usage_level
-    owner: Lindsay Brown
-    owner_email: lindsay.brown@leandna.com
-    owner_role: Head of Customer Success
+    owner: lindsay.brown@leandna.com
+    metric-id: null
+    metric-generator: get_usage_level
+    unit: percent
+    tags: [customer-success, healthscore, adoption]
   - key: usage_trend
     pillar: Product Adoption & Usage
     name: Usage trend / velocity
-    definition: Direction and rate of change in usage over the trailing 30/60/90 days.
+    description: Direction and rate of change in usage over the trailing 30/60/90 days.
     signal: leading
     metric: Percent change in active usage over trailing 90 days
     scoring: "Positive=5; flat=3; negative=0; proposed ±10% threshold needs confirmation"
     max_points: 5
     weight: 5
     data_source: CSR or CSR downloads
-    cadence: Weekly
+    grain: weekly
     automation: automated
     status: needs_definition
+    metric-id: null
+    metric-generator: null
+    unit: percent
+    tags: [customer-success, healthscore, adoption]
   - key: product_anchor_adoption
     pillar: Product Adoption & Usage
     name: Product anchor adoption
-    definition: Breadth of adoption across eight core Apex workflows.
+    description: Breadth of adoption across eight core Apex workflows.
     signal: leading
     metric: Number of eight anchor workflows used in last 90 days
     scoring: "0–2=0; 3=2; 4+=5"
     max_points: 5
     weight: 5
     data_source: Pendo
-    cadence: Monthly
+    grain: monthly
     automation: blocked
     status: needs_definition
     notes: CS and Product must define and tag the eight anchors.
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, adoption]
   - key: writeback_usage
     pillar: Product Adoption & Usage
     name: Writeback usage
-    definition: Whether writeback is enabled and used weekly.
+    description: Whether writeback is enabled and used weekly.
     signal: leading
     metric: Weekly writeback use, yes/no
     scoring: "Yes=2; no=0"
     max_points: 2
     weight: 2
     data_source: Apex / CSR
-    cadence: Weekly
+    grain: weekly
     automation: hybrid
     status: needs_source
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, adoption]
   - key: champion_login_continuity
     pillar: Product Adoption & Usage
     name: Champion login continuity
-    definition: Whether named executive sponsor or champion contacts remain active.
+    description: Whether named executive sponsor or champion contacts remain active.
     signal: leading
     metric: Days since last login for named champion contacts
     scoring: "Champion logged in=2; not logged in=0"
     max_points: 2
     weight: 2
     data_source: Pendo + Salesforce contact role
-    cadence: Weekly
+    grain: weekly
     automation: blocked
     status: needs_source
     notes: Salesforce must identify champion contacts.
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, adoption]
   - key: customer_data_delivery
     pillar: Product Adoption & Usage
     name: On-time customer data delivery
-    definition: Whether ERP data feeds are live, fresh, and clean.
+    description: Whether ERP data feeds are live, fresh, and clean.
     signal: leading
     metric: Feed uptime, time since successful sync, and quality/error rate
     scoring: "On time=5; successful <15 minutes late=3; failure scoring needs definition"
     max_points: 5
     weight: 5
     data_source: Apex integration/data-ops logs
-    cadence: Daily
+    grain: daily
     automation: automated
     status: needs_definition
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, adoption, data-integration]
 
   - key: verified_outcomes
     pillar: Value Realization / ROI
     name: Verified outcomes achieved
-    definition: CSM-verified business outcomes logged for the entity.
+    description: CSM-verified business outcomes logged for the entity.
     signal: lagging
     metric: Verified outcomes per quarter
     scoring: "2+=6; 1–2=5; zero/unknown scoring needs clarification"
     max_points: 6
     weight: 6
     data_source: New verified-outcome tracking mechanism
-    cadence: Quarterly
+    grain: quarterly
     automation: manual
     status: needs_source
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, value]
   - key: roi_multiple
     pillar: Value Realization / ROI
     name: ROI multiple
-    definition: Value delivered divided by annualized contract value.
+    description: Value delivered divided by annualized contract value.
     signal: lagging
     metric: Outcome dollars / annualized contract value
     scoring: "7x+=6; 5–<7x=4; 3–<5x=2; <3x=0"
     max_points: 6
-    weight:
+    weight: null
     data_source: Salesforce + Apex savings
-    cadence: Quarterly; reset at renewal
+    grain: quarterly
+    cadence_note: Quarterly; reset at renewal
     automation: automated
     status: needs_weight
     notes: The source framework specifies scoring but no proposed weight.
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, value]
   - key: time_to_first_value
     pillar: Value Realization / ROI
     name: Time to first value
-    definition: Whether onboarding reached its first measurable value milestone on schedule.
+    description: Whether onboarding reached its first measurable value milestone on schedule.
     signal: leading
     metric: Days from go-live to first verified outcome
     scoring: "≤115 days=3; >115 days=0; threshold needs confirmation"
     max_points: 3
     weight: 3
     data_source: Manual until source is defined
-    cadence: Once per onboarding
+    grain: null
+    cadence_note: Once per onboarding
     automation: manual
     status: needs_definition
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, value, onboarding]
   - key: premium_anchor_expansion
     pillar: Value Realization / ROI
     name: Use case / anchor expansion vs. contract
-    definition: Adoption of additional premium modules such as AIOP or DSM.
+    description: Adoption of additional premium modules such as AIOP or DSM.
     signal: leading
     metric: Monthly premium-product usage
     scoring: "Usage=3; no usage=0"
     max_points: 3
     weight: 3
     data_source: Pendo
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: defined
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, value]
 
   - key: executive_sponsorship
     pillar: Relationship & Engagement
     name: Executive sponsorship strength
-    definition: Recency- and frequency-weighted senior executive engagement.
+    description: Recency- and frequency-weighted senior executive engagement.
     signal: leading
     metric: Senior Director+ touches in trailing two quarters and days since last touch
     scoring: Baseline and point thresholds need definition
-    max_points:
+    max_points: null
     weight: 4
     data_source: Salesforce activity + Chorus + Gmail/Calendar
-    cadence: Monthly
+    grain: monthly
     automation: hybrid
     status: needs_definition
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, relationship]
   - key: multithreading_depth
     pillar: Relationship & Engagement
     name: Multi-threading depth
-    definition: Distinct actively engaged Director+ stakeholders.
+    description: Distinct actively engaged Director+ stakeholders.
     signal: leading
     metric: Distinct Director+ contacts engaged in trailing 90 days and trend
     scoring: Point thresholds need definition
-    max_points:
+    max_points: null
     weight: 4
     data_source: Salesforce + Gmail + Chorus
-    cadence: Monthly
+    grain: monthly
     automation: blocked
     status: needs_definition
     notes: Salesforce contact seniority/title must be reliable.
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, relationship]
   - key: meeting_cadence
     pillar: Relationship & Engagement
     name: Meeting cadence adherence
-    definition: Share of scheduled CSM/QBR touchpoints actually held.
+    description: Share of scheduled CSM/QBR touchpoints actually held.
     signal: leading
     metric: Percent held in trailing two quarters
     scoring: "≥80%=2; <80%=0"
     max_points: 2
     weight: 2
     data_source: Salesforce/Calendar + Chorus
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: defined
+    metric-id: null
+    metric-generator: null
+    unit: percent
+    tags: [customer-success, healthscore, relationship]
   - key: champion_turnover
     pillar: Relationship & Engagement
     name: Champion / stakeholder turnover
-    definition: Departure or role change of primary champion or economic buyer.
+    description: Departure or role change of primary champion or economic buyer.
     signal: leading
     metric: Tracked-contact departure or role-change flag
     scoring: "Primary champion leaves=0; economic buyer leaves=0; otherwise=4"
     max_points: 4
     weight: 4
     data_source: Salesforce + external research
-    cadence: Weekly
+    grain: weekly
     automation: blocked
     status: needs_source
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, relationship]
 
   - key: csm_sentiment
     pillar: Voice of Customer / Sentiment
     name: CSM sentiment (structured)
-    definition: Rubric-based CSM view of relationship, renewal confidence, and escalation risk.
+    description: Rubric-based CSM view of relationship, renewal confidence, and escalation risk.
     signal: leading
     metric: Structured red/yellow/green
     scoring: "Red=0; yellow=1; green=3"
     max_points: 3
     weight: 3
     data_source: Apex
-    cadence: Weekly
+    grain: weekly
     automation: manual
     status: defined
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, sentiment]
   - key: email_sentiment
     pillar: Voice of Customer / Sentiment
     name: Email tone / sentiment
-    definition: AI-scored 30-day sentiment trend across customer email threads.
+    description: AI-scored 30-day sentiment trend across customer email threads.
     signal: leading
     metric: Rolling sentiment score from -1 to +1
     scoring: "Positive=2; negative=0; neutral threshold needs definition"
     max_points: 2
     weight: 2
     data_source: Gmail + Claude
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: needs_governance
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, sentiment]
   - key: call_sentiment
     pillar: Voice of Customer / Sentiment
     name: Call sentiment / tone
-    definition: Call-tone sentiment, separate from talk-time ratio.
+    description: Call-tone sentiment, separate from talk-time ratio.
     signal: leading
     metric: Chorus sentiment score and trend
     scoring: "Positive=2; negative=0; neutral threshold needs definition"
     max_points: 2
     weight: 2
     data_source: Chorus or Claude
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: needs_definition
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, sentiment]
   - key: call_talk_ratio
     pillar: Voice of Customer / Sentiment
     name: Call talk-time ratio
-    definition: Share of call time spoken by LeanDNA representatives.
+    description: Share of call time spoken by LeanDNA representatives.
     signal: leading
     metric: Rolling representative talk-time percent
     scoring: "<50%=2; >50%=0; exact neutral boundary needs confirmation"
     max_points: 2
     weight: 2
     data_source: Chorus
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: needs_definition
+    metric-id: null
+    metric-generator: null
+    unit: percent
+    tags: [customer-success, healthscore, sentiment]
 
   - key: ticket_volume_trend
     pillar: Support Experience
     name: Ticket volume & trend
-    definition: Trailing ticket volume and change versus the prior period.
+    description: Trailing ticket volume and change versus the prior period.
     signal: leading
     metric: 90-day ticket count and percent change
     scoring: "Proposed 3x spike=0; remaining points and threshold need data"
-    max_points:
+    max_points: null
     weight: 3
     data_source: Support system
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: needs_definition
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, support]
   - key: sla_adherence
     pillar: Support Experience
     name: SLA adherence
-    definition: Resolution within severity-specific timelines.
+    description: Resolution within severity-specific timelines.
     signal: lagging
     metric: Median and 95th-percentile SLA
     scoring: "Within SLA=3; outside SLA=0; SLA definition needs confirmation"
     max_points: 3
     weight: 3
     data_source: Support system
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: needs_definition
+    metric-id: null
+    metric-generator: null
+    unit: percent
+    tags: [customer-success, healthscore, support]
   - key: escalation_rate
     pillar: Support Experience
     name: Escalation rate & severity mix
-    definition: Share of tickets that are Sev-1/2 or formally escalated.
+    description: Share of tickets that are Sev-1/2 or formally escalated.
     signal: leading
     metric: Sev-1/2 percent and escalated percent
     scoring: Point thresholds need definition
-    max_points:
+    max_points: null
     weight: 2
     data_source: Support system
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: needs_definition
+    metric-id: null
+    metric-generator: null
+    unit: percent
+    tags: [customer-success, healthscore, support, escalation]
 
   - key: time_to_renewal
     pillar: Commercial & Contract Risk
     name: Time to renewal
-    definition: Contract lifecycle context that changes urgency of other risks.
+    description: Contract lifecycle context that changes urgency of other risks.
     signal: leading
     metric: Days until renewal and auto-renew status
     scoring: "Auto-renew at 90–180 days=0; non-auto-renew at 0–120 days=0; otherwise=3"
     max_points: 3
     weight: 3
     data_source: Salesforce
-    cadence: Weekly
+    grain: weekly
     automation: automated
     status: defined
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, commercial]
   - key: contract_value_trend
     pillar: Commercial & Contract Risk
     name: Contract value trend
-    definition: Expansion, flat renewal, or contraction across two renewals.
+    description: Expansion, flat renewal, or contraction across two renewals.
     signal: lagging
     metric: Percent ACV change at renewal
     scoring: "5%+=5; 4%=4; 3%=3; 2%=2; 0–1%=1; contraction=0"
     max_points: 5
     weight: 5
     data_source: Salesforce
-    cadence: Per renewal
+    grain: null
+    cadence_note: Per renewal
     automation: automated
     status: defined
+    metric-id: null
+    metric-generator: null
+    unit: percent
+    tags: [customer-success, healthscore, commercial]
   - key: payment_delinquency
     pillar: Commercial & Contract Risk
     name: Payment / invoice delinquency
-    definition: Late or disputed payments.
+    description: Late or disputed payments.
     signal: leading
     metric: Days past due and dispute status
     scoring: Point thresholds need definition
-    max_points:
+    max_points: null
     weight: 2
     data_source: Finance or Salesforce
-    cadence: Monthly
+    grain: monthly
     automation: blocked
     status: needs_source
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, commercial, finance]
 
   - key: product_ideas
     pillar: Advocacy
     name: Product idea submissions
-    definition: Customer effort invested in shaping the product and the tone of submissions.
+    description: Customer effort invested in shaping the product and the tone of submissions.
     signal: leading
     metric: Ideas in trailing 12 months and sentiment
     scoring: "1+=2; 0=0"
     max_points: 2
     weight: 2
     data_source: Pendo feedback / idea portal
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: defined
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, advocacy]
   - key: reference_willingness
     pillar: Advocacy
     name: Reference / case study willingness
-    definition: Agreed reference, case study, or testimonial.
+    description: Agreed reference, case study, or testimonial.
     signal: leading
     metric: Willingness flag and date of last activity
     scoring: "Yes=2; no=0"
     max_points: 2
     weight: 2
     data_source: Salesforce
-    cadence: Quarterly
+    grain: quarterly
     automation: hybrid
     status: defined
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, advocacy]
   - key: summit_attendance
     pillar: Advocacy
     name: Summit attendance
-    definition: Customer attended Summit in the last 12 months.
+    description: Customer attended Summit in the last 12 months.
     signal: leading
     metric: Attendance in trailing 12 months
     scoring: "Yes=1; no=0"
     max_points: 1
     weight: 1
     data_source: Salesforce
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: defined
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, advocacy]
 
 overrides:
   - key: merger_acquisition
     name: M&A activity / parent company change
-    definition: Mergers, acquisitions, divestitures, or reorganizations affecting the entity.
+    description: Mergers, acquisitions, divestitures, or reorganizations affecting the entity.
     data_source: Web/news research
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: needs_source
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, override]
   - key: champion_departure_external
     name: Champion / executive departure
-    definition: Known champion left the customer company.
+    description: Known champion left the customer company.
     data_source: Manual until a reliable external connector exists
-    cadence: Weekly
+    grain: weekly
     automation: manual
     status: needs_source
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, override]
   - key: financial_distress
     name: Customer financial distress
-    definition: Layoffs, funding issues, restructuring, or public-market deterioration.
+    description: Layoffs, funding issues, restructuring, or public-market deterioration.
     data_source: Web/news research
-    cadence: Monthly
+    grain: monthly
     automation: hybrid
     status: needs_source
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, override]
   - key: competitive_mentions
     name: Competitive mentions
-    definition: Competitor referenced in calls, email, posts, or press.
+    description: Competitor referenced in calls, email, posts, or press.
     data_source: Chorus + Gmail + research
-    cadence: Monthly
+    grain: monthly
     automation: automated
     status: needs_definition
+    metric-id: null
+    metric-generator: null
+    tags: [customer-success, healthscore, override]

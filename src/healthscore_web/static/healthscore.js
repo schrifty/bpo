@@ -38,14 +38,60 @@
     return payload;
   }
 
-  function initials(me) {
+  function userInitials(me) {
     const name = String(me.name || "").trim();
-    if (name) return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-    return String(me.email || "?").slice(0, 2).toUpperCase();
+    if (name) {
+      const parts = name.split(/\s+/).filter(Boolean);
+      if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+      }
+      return name.slice(0, 2).toUpperCase();
+    }
+    const local = String(me.email || "").split("@")[0];
+    const bits = local.split(/[._-]+/).filter(Boolean);
+    if (bits.length >= 2) {
+      return (bits[0][0] + bits[1][0]).toUpperCase();
+    }
+    return (local.slice(0, 2) || "?").toUpperCase();
+  }
+
+  function setUserMenuOpen(open) {
+    const menu = $("user-menu");
+    const badge = $("user-badge");
+    if (!menu || !badge) return;
+    menu.classList.toggle("hidden", !open);
+    badge.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function renderUser(me) {
+    const role = me.is_catalog_admin
+      ? "catalog admin (edit all)"
+      : "lead (edit-own, read-all)";
+    const display = me.name || me.email || "Signed in";
+    $("user-menu-name").textContent = display;
+    $("user-menu-email").textContent = me.email || "";
+    $("user-menu-email").hidden = !me.email || display === me.email;
+    $("user-menu-role").textContent = role;
+    $("user-badge").title = display;
+    $("user-badge").setAttribute("aria-label", `Account menu for ${display}`);
+    const img = $("user-badge-img");
+    const badgeInitials = $("user-badge-initials");
+    if (me.picture) {
+      img.src = me.picture;
+      img.hidden = false;
+      badgeInitials.hidden = true;
+    } else {
+      img.removeAttribute("src");
+      img.hidden = true;
+      badgeInitials.hidden = false;
+      badgeInitials.textContent = userInitials(me);
+    }
+    setUserMenuOpen(false);
   }
 
   function showLogin(status, message) {
-    $("hs-session").classList.add("hidden");
+    setUserMenuOpen(false);
+    $("session").classList.add("hidden");
     $("hs-app").classList.add("hidden");
     $("hs-login").classList.remove("hidden");
     const actions = $("hs-login-actions");
@@ -113,8 +159,8 @@
       .map((component) => {
         const latest = component.latest;
         const points =
-          latest && latest.points != null
-            ? `${latest.points}${component.max_points != null ? ` / ${component.max_points}` : ""}`
+          latest && latest.effective_points != null
+            ? `${latest.effective_points}${component.max_points != null ? ` / ${component.max_points}` : ""}`
             : "—";
         return `<tr data-component="${esc(component.key)}">
           <td><div class="hs-component-name">${esc(component.name)}</div><span class="hs-status">${esc(component.signal)}</span></td>
@@ -132,7 +178,7 @@
     const overrides = score ? score.overrides : state.framework.overrides.map((row) => ({ ...row, latest: null }));
     $("hs-overrides-list").innerHTML = overrides
       .map((item) => {
-        const raised = Boolean(item.latest && item.latest.raw_value);
+        const raised = Boolean(item.latest && item.latest.effective_value);
         return `<button type="button" class="hs-override${raised ? " raised" : ""}" data-component="${esc(item.key)}">${esc(item.name)}${raised ? " · raised" : ""}</button>`;
       })
       .join("");
@@ -154,12 +200,12 @@
 
   function componentHistory(key) {
     const observations = state.score?.observations || [];
-    return observations.filter((row) => row.component_key === key);
+    return observations.filter((row) => row.metric_name === key);
   }
 
   function sparkline(rows, field) {
     const values = (rows || [])
-      .map((row) => ({ date: row.date || row.period_date, value: Number(row[field] ?? row.points) }))
+      .map((row) => ({ date: row.period_key, value: Number(row[field] ?? row.effective_points) }))
       .filter((row) => row.date && Number.isFinite(row.value))
       .sort((a, b) => a.date.localeCompare(b.date));
     if (values.length < 2) return "";
@@ -197,7 +243,7 @@
     const pointsField = isOverride
       ? ""
       : `<label>Points${definition.max_points != null ? ` (0–${definition.max_points})` : " (rule unresolved)"}
-          <input id="hs-entry-points" type="number" min="0" ${definition.max_points != null ? `max="${definition.max_points}"` : ""} step="0.01" value="${latest?.points ?? ""}" />
+          <input id="hs-entry-points" type="number" min="0" ${definition.max_points != null ? `max="${definition.max_points}"` : ""} step="0.01" value="${latest?.effective_points ?? ""}" />
         </label>`;
     $("hs-detail").innerHTML = `
       <h2>${esc(definition.name)}</h2>
@@ -208,33 +254,30 @@
         ${definition.weight == null ? '<span class="hs-status">weight TBD</span>' : `<span class="hs-status">${definition.weight}% weight</span>`}
       </div>
       <dl class="hs-detail-grid">
-        <dt>Definition</dt><dd>${esc(definition.definition)}</dd>
+        <dt>Description</dt><dd>${esc(definition.description)}</dd>
         ${definition.metric ? `<dt>Measurable metric</dt><dd>${esc(definition.metric)}</dd>` : ""}
         ${definition.scoring ? `<dt>Scoring rule</dt><dd>${esc(definition.scoring)}</dd>` : ""}
         <dt>Data source</dt><dd>${esc(definition.data_source)}</dd>
-        <dt>Refresh cadence</dt><dd>${esc(definition.cadence)}</dd>
+        <dt>Owner</dt><dd>${esc(definition.owner)}</dd>
+        <dt>Grain</dt><dd>${esc(definition.grain || definition.cadence_note || "not defined")}</dd>
+        ${definition["metric-generator"] ? `<dt>Generator</dt><dd><code>${esc(definition["metric-generator"])}</code></dd>` : ""}
         ${definition.notes ? `<dt>Open issue</dt><dd class="error">${esc(definition.notes)}</dd>` : ""}
-        <dt>Latest reading</dt><dd>${latest ? `${esc(String(latest.raw_value ?? "—"))} · ${latest.points ?? "unscored"} points · ${esc(latest.source_mode)}<br><span class="muted">${esc(latest.period_date)} by ${esc(latest.entered_by || "unknown")}</span>` : '<span class="muted">No reading yet</span>'}</dd>
+        <dt>Latest reading</dt><dd>${latest ? `${esc(String(latest.effective_value ?? "—"))} · ${latest.effective_points ?? "unscored"} points · ${esc(latest.source_mode)}<br><span class="muted">${esc(latest.period_key)} by ${esc(latest.entered_by || "unknown")}</span>` : '<span class="muted">No reading yet</span>'}</dd>
       </dl>
-      ${sparkline(history, "points")}
-      ${history.length ? `<table class="hs-history"><thead><tr><th>Date</th><th>Value</th><th>Points</th><th>Mode</th></tr></thead><tbody>${history.map((row) => `<tr><td>${esc(row.period_date)}</td><td>${esc(String(row.raw_value ?? "—"))}</td><td>${row.points ?? "—"}</td><td>${esc(row.source_mode)}</td></tr>`).join("")}</tbody></table>` : ""}
-      <form id="hs-entry-form" class="hs-entry-form">
+      ${sparkline(history, "effective_points")}
+      ${history.length ? `<table class="hs-history"><thead><tr><th>Period</th><th>Value</th><th>Points</th><th>Mode</th></tr></thead><tbody>${history.map((row) => `<tr><td>${esc(row.period_key)}</td><td>${esc(String(row.effective_value ?? "—"))}</td><td>${row.effective_points ?? "—"}</td><td>${esc(row.source_mode)}</td></tr>`).join("")}</tbody></table>` : ""}
+      ${definition.grain ? `<form id="hs-entry-form" class="hs-entry-form">
         <h3>Record manual reading</h3>
-        <label>Period date<input id="hs-entry-date" type="date" value="${new Date().toISOString().slice(0, 10)}" required /></label>
-        <label>${isOverride ? "Flag raised (true/false)" : "Raw value"}<input id="hs-entry-value" type="text" value="${esc(latest?.raw_value ?? "")}" /></label>
+        <p class="muted">Overrides the generated reading for the ${esc(definition.grain)} period containing this date; the generated value is kept.</p>
+        <label>Date in period<input id="hs-entry-date" type="date" value="${new Date().toISOString().slice(0, 10)}" required /></label>
+        <label>${isOverride ? "Flag raised (1/0)" : "Value"}<input id="hs-entry-value" type="number" step="any" value="${esc(latest?.override_value ?? "")}" /></label>
         ${pointsField}
         <label>Note<textarea id="hs-entry-note">${esc(latest?.note ?? "")}</textarea></label>
         <button type="submit" ${state.entity ? "" : "disabled"}>Save manual reading</button>
         <p id="hs-entry-error" class="error" hidden></p>
-      </form>`;
+      </form>` : `<p class="muted">No grain yet — the framework defines this as ${esc(definition.cadence_note || "an undefined cadence")}, so readings cannot be stored against a period.</p>`}`;
+    if (!definition.grain) return;
     $("hs-entry-form").addEventListener("submit", saveReading);
-  }
-
-  function parseRawValue(value) {
-    const text = String(value || "").trim();
-    if (/^(true|false)$/i.test(text)) return text.toLowerCase() === "true";
-    const number = Number(text);
-    return text && Number.isFinite(number) ? number : text || null;
   }
 
   async function saveReading(event) {
@@ -247,8 +290,8 @@
       await api(`/healthscore/api/entities/${encodeURIComponent(state.entity.id)}/components/${encodeURIComponent(state.selected)}`, {
         method: "PUT",
         body: JSON.stringify({
-          period_date: $("hs-entry-date").value,
-          raw_value: parseRawValue($("hs-entry-value").value),
+          as_of: $("hs-entry-date").value,
+          value: $("hs-entry-value").value === "" ? null : Number($("hs-entry-value").value),
           points: pointsInput && pointsInput.value !== "" ? Number(pointsInput.value) : null,
           note: $("hs-entry-note").value,
         }),
@@ -290,10 +333,10 @@
     }
     $("hs-login").classList.add("hidden");
     $("hs-app").classList.remove("hidden");
-    $("hs-session").classList.remove("hidden");
+    $("session").classList.remove("hidden");
     try {
       state.me = await api("/api/me");
-      $("hs-user-initials").textContent = initials(state.me);
+      renderUser(state.me);
       const [frameworkPayload, entitiesPayload] = await Promise.all([
         api("/healthscore/api/framework"),
         api("/healthscore/api/entities"),
@@ -312,6 +355,15 @@
     state.entity = state.entities.find((row) => row.id === event.target.value) || null;
     state.selected = null;
     await loadScore();
+  });
+  $("user-badge").addEventListener("click", (event) => {
+    event.stopPropagation();
+    setUserMenuOpen($("user-menu").classList.contains("hidden"));
+  });
+  $("user-menu").addEventListener("click", (event) => event.stopPropagation());
+  document.addEventListener("click", () => setUserMenuOpen(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setUserMenuOpen(false);
   });
 
   boot();

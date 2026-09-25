@@ -54,6 +54,16 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
             "CORTEX_KPI_STORE_S3_URI is set)"
         ),
     },
+    "healthscore-snapshot": {
+        "schedule_expression": "cron(20 7 ? * MON *)",
+        "command": ["healthscore-snapshot"],
+        "enabled": True,
+        "rule_name": "cortex-healthscore-snapshot",
+        "summary": (
+            "Weekly Healthscore usage_level from CS Report; a missed run is a "
+            "permanently missing period because CSR keeps only the latest workbook"
+        ),
+    },
     "pendo-ford-7d": {
         "schedule_expression": "cron(0 8 * * ? *)",
         "command": ["pendo-ford-7d"],

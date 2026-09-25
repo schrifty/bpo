@@ -1,9 +1,9 @@
-# Customer Health Score web app
+# Healthscore web app
 
 `/healthscore` is an experimental Customer Success product served by the
-existing Cortex web service. It intentionally shares only authentication and
-deployment with `/kpis`; its framework, API namespace, static bundle, and
-SQLite observations are separate.
+existing Cortex web service. It intentionally shares only authentication,
+header chrome, and deployment with `/kpis`; its framework, API namespace,
+static bundle, and SQLite observations are separate.
 
 ## Current model
 
@@ -16,22 +16,64 @@ SQLite observations are separate.
 - The displayed score is provisional and normalized only across inputs that
   have observations. Weight coverage is always shown against the configured
   83%.
-- Each reading records the period, raw value, points, manual/automated
-  provenance, note, actor, and write time.
 - Observations live at
   `CORTEX_CACHE_ROOT/healthscore/observations.sqlite`, separate from KPI data.
 
-The first automated generator is **Usage level (breadth & depth)**, owned by
-Lindsay Brown. `get_usage_level` reads CS Report week factories, matches them
-to active Salesforce Customer Entities, and scores Weekly Active Buyers %
-(or a named Usage component inside `automatedHealthScores`) with the draft
-bands: no data=0; 0–30%=1; 31–50%=2; 51–65%=3; 66–80%=4; 81–92%=5; 93–100%=6.
-Join misses are warnings; they are not scored from CSR customer lists.
-A manual reading for the same period is left in place.
+## Schema alignment with `/kpis`
+
+The two catalogs are meant to merge, so Healthscore uses the KPI field names.
+
+`config/healthscore_framework.yaml` components carry `description`, `owner`
+(email, defaulting to the framework-level owner), `metric-id`,
+`metric-generator`, `grain`, and `tags` exactly as `config/my-metrics.yaml`
+does. `grain` is one of the KPI grains, or `null` for the few inputs the
+source framework defines by event instead of by period (`Once per onboarding`,
+`Per renewal`); those keep the prose in `cadence_note`, cannot be stored
+against a period, and the UI says so rather than inventing a grain.
+
+`healthscore_observation` mirrors `kpi_observation` — `metric_name`, `grain`,
+`period_key`, `captured_at`, `value`, `generator`, `tags_json`, `meta_json`,
+`error`, `as_of`, `override_value`, `override_by`, `override_at` — and adds
+only `entity_id`, `entity_name`, the weighted `points`, `override_points`, and
+`override_note`. Period keys come from `src.kpi_snapshot.period_key_for`, so
+weekly Healthscore rows and weekly KPI rows use identical keys.
+
+Manual entry follows the KPI override model: a human reading is written to the
+`override_*` columns, shadows the generated value in the score, and never
+overwrites what the generator wrote.
+
+The first automated generator is **Usage level (breadth & depth)**, weekly,
+owned by Lindsay Brown (`lindsay.brown@leandna.com`). `get_usage_level` reads
+CS Report week factories, matches them to active Salesforce Customer Entities,
+and scores Weekly Active Buyers % (or a named Usage component inside
+`automatedHealthScores`) with the draft bands: no data=0; 0–30%=1; 31–50%=2;
+51–65%=3; 66–80%=4; 81–92%=5; 93–100%=6. Join misses are warnings; they are
+not scored from CSR customer lists.
+
+### History depth
+
+The CS Report connector reads only the most recent workbook in the Drive
+folder (`_fetch_latest_report` takes `files[0]` after sorting by
+`modifiedTime desc`), and each `delta = "week"` row carries only that week's
+`startValue`/`endValue`. There is therefore **no year of weekly history to
+backfill from** — history accumulates one period per run, and a missed run is
+a permanently missing period.
+
+`config/jobs/healthscore-snapshot.yaml` runs weekly on EventBridge
+(`cortex-healthscore-snapshot`, `cron(20 7 ? * MON *)`), after the CSR dumps
+and `kpi-snapshot`. It uses the `decks` secret profile because it needs both
+Google (CS Report via Drive) and Salesforce.
+
+```bash
+cortex run-job --job healthscore-snapshot --dry-run
+```
 
 ```bash
 cortex healthscore-snapshot --dry-run
 ```
+
+Both the CLI and the job exit non-zero when CS Report or Salesforce is
+unreachable. They never substitute a placeholder reading.
 
 Authenticated UI/API: `POST /healthscore/api/generate/usage_level`.
 
@@ -42,7 +84,7 @@ weights, sources, and governance rules are validated.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/healthscore` | Separate Health Score UI |
+| GET | `/healthscore` | Separate Healthscore UI |
 | GET | `/healthscore/api/framework` | Validated draft framework |
 | GET | `/healthscore/api/entities` | Active Salesforce Customer Entities |
 | GET | `/healthscore/api/entities/{id}/score` | Score, coverage, influence, history |

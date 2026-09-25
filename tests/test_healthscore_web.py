@@ -9,8 +9,14 @@ import pytest
 from starlette.testclient import TestClient
 
 from src.healthscore_web.framework import load_framework
-from src.healthscore_web.store import connect, observations_for_entity
+from src.healthscore_web.store import (
+    connect,
+    observations_for_entity,
+    set_override,
+    upsert_reading,
+)
 from src.healthscore_web.usage_level import get_usage_level, usage_level_points
+from src.kpi_store import GRAINS
 from src.kpi_web.app import create_app
 from src.kpi_web.settings import load_kpi_web_settings
 from tests.test_kpi_web_api import _OWNERS_YAML, _REGISTRY, _login
@@ -59,9 +65,24 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert roi["weight"] is None
     assert roi["status"] == "needs_weight"
     usage = next(row for row in framework["inputs"] if row["key"] == "usage_level")
-    assert usage["generator"] == "get_usage_level"
-    assert usage["owner"] == "Lindsay Brown"
-    assert usage["owner_email"] == "lindsay.brown@leandna.com"
+    assert usage["metric-generator"] == "get_usage_level"
+    assert usage["owner"] == "lindsay.brown@leandna.com"
+    assert usage["grain"] == "weekly"
+
+
+def test_framework_uses_kpi_registry_field_names() -> None:
+    """The two catalogs merge later, so field names and grains must line up."""
+    framework = load_framework()
+    for row in [*framework["inputs"], *framework["overrides"]]:
+        assert row["description"], row["key"]
+        assert "definition" not in row, row["key"]
+        assert "cadence" not in row, row["key"]
+        assert row["owner"].endswith("@leandna.com"), row["key"]
+        assert row["grain"] is None or row["grain"] in GRAINS, row["key"]
+        if row["grain"] is None:
+            assert row["cadence_note"], row["key"]
+        assert isinstance(row["tags"], list) and row["tags"], row["key"]
+        assert "metric-id" in row and "metric-generator" in row, row["key"]
 
 
 def test_healthscore_store_is_separate_and_tracks_history(
@@ -69,22 +90,69 @@ def test_healthscore_store_is_separate_and_tracks_history(
 ) -> None:
     monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
     conn = connect()
-    conn.execute(
-        """
-        INSERT INTO healthscore_observation (
-            entity_id, entity_name, component_key, period_date, raw_value_json,
-            points, source_mode, note, entered_by, entered_at
-        ) VALUES ('001', 'Acme', 'usage_level', '2026-09-01', '95', 6, 'manual',
-                  'baseline', 'lead@leandna.com', '2026-09-01T00:00:00Z')
-        """
+    upsert_reading(
+        conn,
+        entity_id="001",
+        entity_name="Acme",
+        metric_name="usage_level",
+        grain="weekly",
+        as_of="2026-09-01",
+        value=95,
+        points=6,
+        generator="get_usage_level",
+        tags=["healthscore"],
+        meta={"factory_count": 2},
     )
-    conn.commit()
     rows = observations_for_entity(conn, "001")
     conn.close()
-    assert rows[0]["raw_value"] == 95
-    assert rows[0]["source_mode"] == "manual"
+    assert rows[0]["period_key"] == "2026-W36"
+    assert rows[0]["effective_value"] == 95
+    assert rows[0]["tags"] == ["healthscore"]
+    assert rows[0]["meta"]["factory_count"] == 2
+    assert rows[0]["source_mode"] == "automated"
     assert (tmp_path / "healthscore" / "observations.sqlite").is_file()
     assert not (tmp_path / "kpi" / "observations.sqlite").exists()
+
+
+def test_healthscore_store_columns_match_kpi_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    from src.kpi_store import connect as kpi_connect
+
+    hs = connect()
+    kpi = kpi_connect(tmp_path / "kpi" / "observations.sqlite")
+    try:
+        hs_cols = {row[1] for row in hs.execute("PRAGMA table_info(healthscore_observation)")}
+        kpi_cols = {row[1] for row in kpi.execute("PRAGMA table_info(kpi_observation)")}
+    finally:
+        hs.close()
+        kpi.close()
+    shared = {
+        "metric_name",
+        "grain",
+        "period_key",
+        "captured_at",
+        "value",
+        "generator",
+        "tags_json",
+        "meta_json",
+        "error",
+        "as_of",
+        "override_value",
+        "override_by",
+        "override_at",
+    }
+    assert shared <= hs_cols
+    assert shared <= kpi_cols
+    # Health Score only adds the entity dimension and the weighted points.
+    assert hs_cols - kpi_cols == {
+        "entity_id",
+        "entity_name",
+        "points",
+        "override_points",
+        "override_note",
+    }
 
 
 def test_healthscore_routes_and_manual_component_history(
@@ -94,7 +162,9 @@ def test_healthscore_routes_and_manual_component_history(
     client = _client(tmp_path, monkeypatch)
     assert client.get("/", follow_redirects=False).headers["location"] == "/kpis"
     assert "Cortex KPIs" in client.get("/kpis").text
-    assert "Cortex Health Score" in client.get("/healthscore").text
+    healthscore = client.get("/healthscore").text
+    assert "Cortex Healthscore" in healthscore
+    assert "Customer Success · Entity-level model" not in healthscore
     assert client.get("/healthscore/api/framework").status_code == 401
 
     _login(client)
@@ -105,22 +175,13 @@ def test_healthscore_routes_and_manual_component_history(
 
     first = client.put(
         "/healthscore/api/entities/001-active/components/usage_level",
-        json={
-            "period_date": "2026-08-31",
-            "raw_value": 95,
-            "points": 6,
-            "note": "August close",
-        },
+        json={"as_of": "2026-08-31", "value": 95, "points": 6, "note": "August close"},
     )
     assert first.status_code == 200, first.text
+    assert first.json()["observation"]["period_key"] == "2026-W36"
     second = client.put(
         "/healthscore/api/entities/001-active/components/usage_level",
-        json={
-            "period_date": "2026-09-30",
-            "raw_value": 50,
-            "points": 2,
-            "note": "September close",
-        },
+        json={"as_of": "2026-09-30", "value": 50, "points": 2, "note": "September close"},
     )
     assert second.status_code == 200, second.text
 
@@ -131,7 +192,8 @@ def test_healthscore_routes_and_manual_component_history(
     assert body["covered_weight"] == 6
     assert body["coverage_pct"] == pytest.approx(7.23, abs=0.01)
     usage = next(row for row in body["components"] if row["key"] == "usage_level")
-    assert usage["latest"]["period_date"] == "2026-09-30"
+    assert usage["latest"]["period_key"] == "2026-W40"
+    assert usage["latest"]["override_by"] == "marc.schriftman@leandna.com"
     assert usage["contribution"] == 2
     assert len(body["history"]) == 2
     assert len(body["observations"]) == 2
@@ -203,14 +265,16 @@ def test_get_usage_level_scores_csr_match_and_warns_on_join_miss(
         },
     ]
     dry = get_usage_level(entities=entities, week_rows=week_rows, persist=False)
-    assert dry["owner"] == "Lindsay Brown"
+    assert dry["owner"] == "lindsay.brown@leandna.com"
+    assert dry["grain"] == "weekly"
     assert dry["scored"] == 1
     assert dry["unmatched"] == 1
     assert dry["warnings"][0]["id"] == "001-unmatched"
     reading = dry["readings"][0]
-    assert reading["raw_value"] == pytest.approx(67.5)
+    assert reading["value"] == pytest.approx(67.5)
     assert reading["points"] == 4
-    assert reading["period_date"] == "2026-09-21"
+    assert reading["period_key"] == "2026-W39"
+    assert reading["as_of"] == "2026-09-21"
 
     persisted = get_usage_level(entities=entities, week_rows=week_rows, persist=True)
     assert persisted["scored"] == 1
@@ -218,26 +282,28 @@ def test_get_usage_level_scores_csr_match_and_warns_on_join_miss(
     rows = observations_for_entity(conn, "001-active")
     conn.close()
     assert rows[0]["source_mode"] == "automated"
-    assert rows[0]["entered_by"] == "get_usage_level"
+    assert rows[0]["generator"] == "get_usage_level"
     assert rows[0]["points"] == 4
+    assert rows[0]["meta"]["factory_count"] == 2
 
 
-def test_usage_level_generator_does_not_clobber_manual_reading(
+def test_manual_override_shadows_generated_reading_without_erasing_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
     conn = connect()
-    conn.execute(
-        """
-        INSERT INTO healthscore_observation (
-            entity_id, entity_name, component_key, period_date, raw_value_json,
-            points, source_mode, note, entered_by, entered_at
-        ) VALUES ('001-active', 'Acme Entity', 'usage_level', '2026-09-21', '10',
-                  1, 'manual', 'CS override', 'lindsay.brown@leandna.com',
-                  '2026-09-21T00:00:00Z')
-        """
+    set_override(
+        conn,
+        entity_id="001-active",
+        entity_name="Acme Entity",
+        metric_name="usage_level",
+        grain="weekly",
+        as_of="2026-09-21",
+        value=10,
+        points=1,
+        by="lindsay.brown@leandna.com",
+        note="CS override",
     )
-    conn.commit()
     conn.close()
     week_rows = [
         {
@@ -250,12 +316,18 @@ def test_usage_level_generator_does_not_clobber_manual_reading(
         }
     ]
     result = get_usage_level(entities=_entities(), week_rows=week_rows, persist=True)
-    assert result["skipped_manual"] == 1
+    assert result["overridden"] == 1
     conn = connect()
     rows = observations_for_entity(conn, "001-active")
     conn.close()
+    assert len(rows) == 1
     assert rows[0]["source_mode"] == "manual"
-    assert rows[0]["raw_value"] == 10
+    assert rows[0]["effective_value"] == 10
+    assert rows[0]["effective_points"] == 1
+    assert rows[0]["note"] == "CS override"
+    # The generated reading survives underneath the override.
+    assert rows[0]["value"] == pytest.approx(99)
+    assert rows[0]["generator"] == "get_usage_level"
 
 
 def test_generate_usage_level_api_is_authenticated(

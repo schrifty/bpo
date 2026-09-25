@@ -9,7 +9,7 @@ from datetime import date
 from typing import Any, Sequence
 
 from src.healthscore_web.usage_level import (
-    COMPONENT_KEY,
+    METRIC_NAME,
     UsageLevelGeneratorError,
     get_usage_level,
 )
@@ -53,16 +53,16 @@ def run_healthscore_snapshot_cli(
     )
     parser.add_argument(
         "--component",
-        default=COMPONENT_KEY,
+        default=METRIC_NAME,
         help="Health Score component generator to run (default: usage_level)",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--date", dest="as_of", default=None, help="YYYY-MM-DD fallback period")
     args = parser.parse_args(list(argv) if argv is not None else None)
-    if args.component != COMPONENT_KEY:
+    if args.component != METRIC_NAME:
         print(
             f"error: unknown Health Score component {args.component!r} "
-            f"(supported: {COMPONENT_KEY})",
+            f"(supported: {METRIC_NAME})",
             file=sys.stderr,
         )
         return 2
