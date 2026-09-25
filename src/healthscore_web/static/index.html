@@ -101,6 +101,33 @@
   <footer class="foot">
     <span>Experimental model · Salesforce is the customer system of record</span>
   </footer>
+
+  <dialog id="hs-component-dialog">
+    <form id="hs-component-form" method="dialog">
+      <h2 id="hs-form-title">Edit component</h2>
+      <p class="muted form-note">Catalog admin only. Changes are written to the framework file and re-weight every entity.</p>
+      <p id="hs-form-error" class="error" hidden></p>
+      <div class="form-grid">
+        <label class="span-2">
+          Input
+          <input type="text" id="hs-f-name" required autocomplete="off" />
+        </label>
+        <label id="hs-f-pillar-wrap">
+          Pillar
+          <input type="text" id="hs-f-pillar" list="hs-pillar-options" autocomplete="off" />
+          <datalist id="hs-pillar-options"></datalist>
+        </label>
+        <label id="hs-f-weight-wrap">
+          Weight <span class="muted">(blank = TBD)</span>
+          <input type="text" id="hs-f-weight" inputmode="decimal" autocomplete="off" />
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="button" id="hs-form-cancel" class="secondary">Cancel</button>
+        <button type="submit">Save changes</button>
+      </div>
+    </form>
+  </dialog>
   <script src="/healthscore/static/healthscore.js"></script>
 </body>
 </html>

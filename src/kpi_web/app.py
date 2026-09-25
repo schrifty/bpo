@@ -29,6 +29,11 @@ def create_app(
         Route("/kpis", api.index_page, methods=["GET"]),
         Route("/healthscore", healthscore_api.index_page, methods=["GET"]),
         Route("/healthscore/api/framework", healthscore_api.api_framework, methods=["GET"]),
+        Route(
+            "/healthscore/api/framework/components/{component_key}",
+            healthscore_api.api_update_framework_component,
+            methods=["PUT"],
+        ),
         Route("/healthscore/api/entities", healthscore_api.api_entities, methods=["GET"]),
         Route(
             "/healthscore/api/entities/{entity_id}/score",

@@ -11,12 +11,20 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
-from src.healthscore_web.framework import component_map, load_framework
+from src.healthscore_web.framework import (
+    HealthScoreFrameworkError,
+    _UNSET,
+    component_map,
+    load_framework,
+    update_component,
+)
 from src.healthscore_web.snapshot import run_usage_level_snapshot
 from src.healthscore_web.store import (
+    clear_override,
     connect,
     latest_by_metric,
     observations_for_entity,
+    period_key_for,
     set_override,
 )
 from src.healthscore_web.usage_level import UsageLevelGeneratorError
@@ -279,16 +287,33 @@ async def api_set_component(request: Request) -> Response:
             raise ValueError(f"points cannot exceed {max_points}")
         value_raw = raw.get("value", raw.get("raw_value"))
         value = None if value_raw in (None, "") else float(value_raw)
+        as_of = str(raw.get("as_of") or "").strip() or None
+        period_key = str(raw.get("period_key") or "").strip() or None
         conn = connect()
         try:
+            if value is None and points is None:
+                # Same contract as the KPI page: a null override drops the
+                # manual reading so the generated one shows again.
+                key = period_key or period_key_for(grain, _as_date(as_of))
+                clear_override(
+                    conn,
+                    entity_id=entity_id,
+                    metric_name=metric_name,
+                    grain=grain,
+                    period_key=key,
+                )
+                latest = latest_by_metric(observations_for_entity(conn, entity_id))
+                row = latest.get(metric_name)
+                saved = row if row and row.get("period_key") == key else None
+                return JSONResponse({"ok": True, "cleared": True, "observation": saved})
             saved = set_override(
                 conn,
                 entity_id=entity_id,
                 entity_name=entity["name"],
                 metric_name=metric_name,
                 grain=grain,
-                as_of=str(raw.get("as_of") or "").strip() or None,
-                period_key=str(raw.get("period_key") or "").strip() or None,
+                as_of=as_of,
+                period_key=period_key,
                 value=value,
                 points=points,
                 by=user.email,
@@ -302,6 +327,59 @@ async def api_set_component(request: Request) -> Response:
         logger.exception("Health Score component write failed")
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     return JSONResponse({"ok": True, "observation": saved})
+
+
+def _as_date(raw: str | None):
+    from datetime import date
+
+    if not raw:
+        return date.today()
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError as exc:
+        raise ValueError("as_of must be YYYY-MM-DD") from exc
+
+
+async def api_update_framework_component(request: Request) -> Response:
+    """Catalog admins may rename an input and change its pillar or weight."""
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    if not user.is_catalog_admin:
+        return JSONResponse(
+            {"ok": False, "error": "only the catalog admin can edit the framework"},
+            status_code=403,
+        )
+    key = str(request.path_params.get("component_key") or "").strip()
+    try:
+        raw = await request.json()
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            {"ok": False, "error": f"request body must be JSON: {exc}"},
+            status_code=400,
+        )
+    if not isinstance(raw, dict):
+        return JSONResponse(
+            {"ok": False, "error": "request body must be a JSON object"},
+            status_code=400,
+        )
+    try:
+        framework = update_component(
+            key,
+            name=raw["name"] if "name" in raw else _UNSET,
+            pillar=raw["pillar"] if "pillar" in raw else _UNSET,
+            weight=raw["weight"] if "weight" in raw else _UNSET,
+        )
+    except HealthScoreFrameworkError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score framework edit failed")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    logger.info("Health Score framework %s edited by %s: %s", key, user.email, sorted(raw))
+    return JSONResponse(
+        {"ok": True, "framework": framework, "component": component_map(framework).get(key)}
+    )
 
 
 async def api_generate_usage_level(request: Request) -> Response:

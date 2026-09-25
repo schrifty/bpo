@@ -229,66 +229,213 @@
     const latest = componentLatest(key);
     const history = componentHistory(key);
     const isOverride = !Object.prototype.hasOwnProperty.call(definition, "pillar");
-    const pointsField = isOverride
-      ? ""
-      : `<label>Points${definition.max_points != null ? ` (0–${definition.max_points})` : " (rule unresolved)"}
-          <input id="hs-entry-points" type="number" min="0" ${definition.max_points != null ? `max="${definition.max_points}"` : ""} step="0.01" value="${latest?.effective_points ?? ""}" />
-        </label>`;
+    const editBtn = isAdmin()
+      ? `<button type="button" id="hs-detail-edit" class="icon-btn" title="${isOverride ? "Edit name" : "Edit input, pillar, and weight"}" aria-label="Edit ${esc(definition.name)}">
+           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+         </button>`
+      : "";
     $("hs-detail").innerHTML = `
-      <h2>${esc(definition.name)}</h2>
+      <div class="detail-head">
+        <h2>${esc(definition.name)}</h2>
+        ${editBtn}
+      </div>
       <div class="hs-meta-row">
         ${definition.signal ? `<span class="hs-status">${esc(definition.signal)}</span>` : '<span class="hs-status">override</span>'}
         ${sourceBadge(definition.automation)}
         <span class="hs-status">${esc(definition.status)}</span>
-        ${definition.weight == null ? '<span class="hs-status">weight TBD</span>' : `<span class="hs-status">${definition.weight}% weight</span>`}
+        ${isOverride ? "" : definition.weight == null ? '<span class="hs-status">weight TBD</span>' : `<span class="hs-status">${definition.weight}% weight</span>`}
       </div>
       <dl class="hs-detail-grid">
+        ${isOverride ? "" : `<dt>Pillar</dt><dd>${esc(definition.pillar)}</dd>`}
         <dt>Description</dt><dd>${esc(definition.description)}</dd>
         ${definition.metric ? `<dt>Measurable metric</dt><dd>${esc(definition.metric)}</dd>` : ""}
         ${definition.scoring ? `<dt>Scoring rule</dt><dd>${esc(definition.scoring)}</dd>` : ""}
         <dt>Data source</dt><dd>${esc(definition.data_source)}</dd>
         <dt>Owner</dt><dd>${esc(definition.owner)}</dd>
         <dt>Grain</dt><dd>${esc(definition.grain || definition.cadence_note || "not defined")}</dd>
-        ${definition["metric-generator"] ? `<dt>Generator</dt><dd><code>${esc(definition["metric-generator"])}</code></dd>` : ""}
         ${definition.notes ? `<dt>Open issue</dt><dd class="error">${esc(definition.notes)}</dd>` : ""}
-        <dt>Latest reading</dt><dd>${latest ? `${esc(String(latest.effective_value ?? "—"))} · ${latest.effective_points ?? "unscored"} points · ${esc(latest.source_mode)}<br><span class="muted">${esc(latest.period_key)} by ${esc(latest.entered_by || "unknown")}</span>` : '<span class="muted">No reading yet</span>'}</dd>
+        ${definition.grain ? `<dt>${isOverride ? "Flag raised" : "Points"}${latest ? ` <span class="hs-period">${esc(latest.period_key)}</span>` : ""}</dt><dd id="hs-points-cell">${pointsCell(definition, latest)}</dd>` : ""}
       </dl>
       ${sparkline(history, "effective_points")}
       ${history.length ? `<table class="hs-history"><thead><tr><th>Period</th><th>Value</th><th>Points</th><th>Mode</th></tr></thead><tbody>${history.map((row) => `<tr><td>${esc(row.period_key)}</td><td>${esc(String(row.effective_value ?? "—"))}</td><td>${row.effective_points ?? "—"}</td><td>${esc(row.source_mode)}</td></tr>`).join("")}</tbody></table>` : ""}
-      ${definition.grain ? `<form id="hs-entry-form" class="hs-entry-form">
-        <h3>Record manual reading</h3>
-        <p class="muted">Overrides the generated reading for the ${esc(definition.grain)} period containing this date; the generated value is kept.</p>
-        <label>Date in period<input id="hs-entry-date" type="date" value="${new Date().toISOString().slice(0, 10)}" required /></label>
-        <label>${isOverride ? "Flag raised (1/0)" : "Value"}<input id="hs-entry-value" type="number" step="any" value="${esc(latest?.override_value ?? "")}" /></label>
-        ${pointsField}
-        <label>Note<textarea id="hs-entry-note">${esc(latest?.note ?? "")}</textarea></label>
-        <button type="submit" ${state.entity ? "" : "disabled"}>Save manual reading</button>
-        <p id="hs-entry-error" class="error" hidden></p>
-      </form>` : `<p class="muted">No grain yet — the framework defines this as ${esc(definition.cadence_note || "an undefined cadence")}, so readings cannot be stored against a period.</p>`}`;
-    if (!definition.grain) return;
-    $("hs-entry-form").addEventListener("submit", saveReading);
+      ${definition.grain ? "" : `<p class="muted">No grain yet — the framework defines this as ${esc(definition.cadence_note || "an undefined cadence")}, so readings cannot be stored against a period.</p>`}
+      <p id="hs-entry-error" class="error" hidden></p>`;
+    const edit = $("hs-detail-edit");
+    if (edit) edit.addEventListener("click", () => openComponentForm(definition));
+    if (definition.grain) wirePointsCell(definition, latest);
   }
 
-  async function saveReading(event) {
-    event.preventDefault();
-    if (!state.entity || !state.selected) return;
+  function isAdmin() {
+    return Boolean(state.me && state.me.is_catalog_admin);
+  }
+
+  function overrideField(definition) {
+    return Object.prototype.hasOwnProperty.call(definition, "pillar") ? "points" : "value";
+  }
+
+  function fmtNum(value) {
+    if (value == null || value === "") return "—";
+    const n = Number(value);
+    return Number.isFinite(n) ? String(n) : String(value);
+  }
+
+  function overrideTip(definition, latest) {
+    const field = overrideField(definition);
+    const generated = latest[field];
+    const generatedText = generated == null ? (latest.error ? `error: ${latest.error}` : "none") : fmtNum(generated);
+    const who = latest.override_by ? ` by ${latest.override_by}` : "";
+    const when = latest.override_at ? ` on ${String(latest.override_at).slice(0, 10)}` : "";
+    const note = latest.override_note ? ` — ${latest.override_note}` : "";
+    return `Manual override${who}${when} — generated ${field}: ${generatedText}${note}`;
+  }
+
+  function pointsCell(definition, latest) {
+    const field = overrideField(definition);
+    const max = field === "points" && definition.max_points != null ? ` / ${definition.max_points}` : "";
+    if (!state.entity) return '<span class="muted">Choose an entity to record a reading</span>';
+    if (latest && latest.overridden) {
+      return `<span class="value-wrap"><span class="value-override hs-points-value" title="${esc(overrideTip(definition, latest))}">${esc(fmtNum(latest[`override_${field}`]))}${max}</span><button type="button" class="value-restore" title="Show the generated reading again">Restore</button></span>`;
+    }
+    const current = latest ? latest[field] : null;
+    const shown = current == null ? "—" : `${fmtNum(current)}${max}`;
+    const tip = latest && latest.generator ? `Generated by ${latest.generator} · click to override` : "Click to record a manual reading";
+    return `<span class="value-wrap"><span class="value-ok hs-points-value" title="${esc(tip)}">${esc(shown)}</span></span>`;
+  }
+
+  function wirePointsCell(definition, latest) {
+    const cell = $("hs-points-cell");
+    if (!cell || !state.entity) return;
+    const value = cell.querySelector(".hs-points-value");
+    if (value) value.addEventListener("click", () => beginPointsEdit(cell, definition, latest));
+    const restore = cell.querySelector(".value-restore");
+    if (restore) restore.addEventListener("click", () => savePoints(definition, latest, null));
+  }
+
+  function beginPointsEdit(cell, definition, latest) {
+    if (cell.querySelector("input")) return;
+    const field = overrideField(definition);
+    const prior = latest && latest.overridden ? fmtNum(latest[`override_${field}`]) : latest && latest[field] != null ? fmtNum(latest[field]) : "";
+    const max = field === "points" && definition.max_points != null ? definition.max_points : field === "value" ? 1 : null;
+    cell.innerHTML = `<input class="value-input" type="text" inputmode="decimal" aria-label="Override ${field} for ${esc(definition.name)}" title="Clear the box to drop the override and show the generated reading" /><span class="muted hs-points-hint">${max != null ? `0–${max} · ` : ""}Enter saves · Esc cancels</span>`;
+    const input = cell.querySelector("input");
+    input.value = prior === "—" ? "" : prior;
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      const typed = input.value.trim();
+      if (!save || typed === (prior === "—" ? "" : prior)) {
+        cell.innerHTML = pointsCell(definition, latest);
+        wirePointsCell(definition, latest);
+        return;
+      }
+      let n = null;
+      if (typed) {
+        n = Number(typed);
+        if (!Number.isFinite(n)) {
+          cell.innerHTML = pointsCell(definition, latest);
+          wirePointsCell(definition, latest);
+          showEntryError(`Invalid number: ${typed}`);
+          return;
+        }
+      }
+      await savePoints(definition, latest, n);
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
+  }
+
+  function showEntryError(message) {
     const error = $("hs-entry-error");
-    error.hidden = true;
-    const pointsInput = $("hs-entry-points");
+    if (!error) return;
+    error.hidden = !message;
+    error.textContent = message || "";
+  }
+
+  async function savePoints(definition, latest, number) {
+    if (!state.entity) return;
+    const field = overrideField(definition);
+    const body = { note: null };
+    if (latest && latest.period_key) body.period_key = latest.period_key;
+    else body.as_of = new Date().toISOString().slice(0, 10);
+    body[field] = number;
+    showEntryError("");
     try {
-      await api(`/healthscore/api/entities/${encodeURIComponent(state.entity.id)}/components/${encodeURIComponent(state.selected)}`, {
+      await api(`/healthscore/api/entities/${encodeURIComponent(state.entity.id)}/components/${encodeURIComponent(definition.key)}`, {
         method: "PUT",
-        body: JSON.stringify({
-          as_of: $("hs-entry-date").value,
-          value: $("hs-entry-value").value === "" ? null : Number($("hs-entry-value").value),
-          points: pointsInput && pointsInput.value !== "" ? Number(pointsInput.value) : null,
-          note: $("hs-entry-note").value,
-        }),
+        body: JSON.stringify(body),
       });
       await loadScore();
     } catch (saveError) {
-      error.hidden = false;
-      error.textContent = saveError.message;
+      const cell = $("hs-points-cell");
+      if (cell) {
+        cell.innerHTML = pointsCell(definition, latest);
+        wirePointsCell(definition, latest);
+      }
+      showEntryError(saveError.message);
+    }
+  }
+
+  function pillarOptions() {
+    const names = [...new Set(state.framework.inputs.map((row) => row.pillar).filter(Boolean))];
+    return names.map((name) => `<option value="${esc(name)}"></option>`).join("");
+  }
+
+  function openComponentForm(definition) {
+    if (!isAdmin()) return;
+    const isOverride = !Object.prototype.hasOwnProperty.call(definition, "pillar");
+    const dialog = $("hs-component-dialog");
+    $("hs-form-title").textContent = `Edit: ${definition.name}`;
+    $("hs-form-error").hidden = true;
+    $("hs-f-name").value = definition.name || "";
+    $("hs-f-pillar").value = definition.pillar || "";
+    $("hs-f-weight").value = definition.weight == null ? "" : String(definition.weight);
+    $("hs-f-pillar-wrap").hidden = isOverride;
+    $("hs-f-weight-wrap").hidden = isOverride;
+    $("hs-pillar-options").innerHTML = pillarOptions();
+    dialog.dataset.component = definition.key;
+    dialog.showModal();
+  }
+
+  async function submitComponentForm(event) {
+    event.preventDefault();
+    const dialog = $("hs-component-dialog");
+    const key = dialog.dataset.component;
+    const definition = componentDefinition(key);
+    if (!definition) return;
+    const isOverride = !Object.prototype.hasOwnProperty.call(definition, "pillar");
+    const payload = { name: $("hs-f-name").value.trim() };
+    if (!isOverride) {
+      payload.pillar = $("hs-f-pillar").value.trim();
+      const weight = $("hs-f-weight").value.trim();
+      payload.weight = weight === "" ? null : Number(weight);
+      if (weight !== "" && !Number.isFinite(payload.weight)) {
+        $("hs-form-error").hidden = false;
+        $("hs-form-error").textContent = `Invalid weight: ${weight}`;
+        return;
+      }
+    }
+    try {
+      const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(key)}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      state.framework = result.framework;
+      dialog.close();
+      await loadScore();
+    } catch (saveError) {
+      $("hs-form-error").hidden = false;
+      $("hs-form-error").textContent = saveError.message;
     }
   }
 
@@ -383,6 +530,8 @@
     rememberEntity(state.entity ? state.entity.id : null);
     await loadScore();
   });
+  $("hs-component-form").addEventListener("submit", submitComponentForm);
+  $("hs-form-cancel").addEventListener("click", () => $("hs-component-dialog").close());
   $("user-badge").addEventListener("click", (event) => {
     event.stopPropagation();
     setUserMenuOpen($("user-menu").classList.contains("hidden"));

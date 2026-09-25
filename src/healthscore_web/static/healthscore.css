@@ -247,39 +247,41 @@
   margin: 0.55rem 0 0.9rem;
 }
 
-.hs-entry-form {
-  display: grid;
-  gap: 0.55rem;
-  margin-top: 1rem;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--line);
+.hs-period {
+  font-family: var(--mono);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 0.3rem;
 }
 
-.hs-entry-form h3 {
-  margin: 0;
-  font-size: 1rem;
+.hs-points-value {
+  cursor: text;
+  font-family: var(--mono);
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
 }
 
-.hs-entry-form label {
-  display: grid;
-  gap: 0.2rem;
-  font-size: 0.73rem;
-  color: var(--muted);
+.hs-points-value.value-ok:hover {
+  background: var(--accent-soft);
 }
 
-.hs-entry-form input,
-.hs-entry-form textarea {
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0.48rem 0.55rem;
-  font: inherit;
-  color: var(--ink);
+.hs-points-hint {
+  font-size: 0.72rem;
+  margin-left: 0.5rem;
 }
 
-.hs-entry-form textarea {
-  min-height: 64px;
-  resize: vertical;
+#hs-component-form {
+  padding: 1rem 1.15rem 1.15rem;
+}
+
+#hs-component-form h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+}
+
+#hs-entry-error {
+  margin-top: 0.6rem;
 }
 
 .hs-chart {

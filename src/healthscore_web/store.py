@@ -329,11 +329,16 @@ def _row(row: sqlite3.Row) -> dict[str, Any]:
     payload["meta"] = _json_or(payload.pop("meta_json", None), {})
     overridden = payload.get("override_value") is not None or payload.get("override_points") is not None
     payload["overridden"] = overridden
+    # A points-only override still shows the generated value, and vice versa.
     payload["effective_value"] = (
-        payload["override_value"] if overridden else payload.get("value")
+        payload["override_value"]
+        if payload.get("override_value") is not None
+        else payload.get("value")
     )
     payload["effective_points"] = (
-        payload["override_points"] if overridden else payload.get("points")
+        payload["override_points"]
+        if payload.get("override_points") is not None
+        else payload.get("points")
     )
     payload["source_mode"] = "manual" if overridden else ("automated" if payload.get("generator") else "manual")
     payload["entered_by"] = payload.get("override_by") or payload.get("generator")

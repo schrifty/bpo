@@ -40,7 +40,17 @@ weekly Healthscore rows and weekly KPI rows use identical keys.
 
 Manual entry follows the KPI override model: a human reading is written to the
 `override_*` columns, shadows the generated value in the score, and never
-overwrites what the generator wrote.
+overwrites what the generator wrote. In the detail pane, click the Points value
+(or the flag value for override flags) to type an override for the latest
+period; Enter saves, Escape cancels, an empty box or **Restore** clears the
+override (`PUT` with `points: null, value: null`) so the generated reading shows
+again.
+
+The catalog admin from `config/kpi_owners.yaml` also sees a pencil in the
+detail pane. It edits the input name, pillar, and weight through
+`PUT /healthscore/api/framework/components/{key}`, which rewrites
+`config/healthscore_framework.yaml` (header comments preserved) and recomputes
+`configured_weight`. Other users get 403.
 
 The first automated generator is **Usage level (breadth & depth)**, weekly,
 owned by Lindsay Brown (`lindsay.brown@leandna.com`). `get_usage_level` reads

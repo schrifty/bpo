@@ -95,6 +95,116 @@ def load_framework(path: Path | None = None) -> dict[str, Any]:
     return payload
 
 
+_UNSET: Any = object()
+
+# Fields a catalog admin may change from the UI. Everything else in the
+# framework stays a hand-edited YAML decision.
+EDITABLE_INPUT_FIELDS = ("name", "pillar", "weight")
+EDITABLE_OVERRIDE_FIELDS = ("name",)
+
+
+def _split_header(text: str) -> str:
+    """Leading comment/blank lines, kept verbatim when the file is rewritten."""
+    header: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if line.strip() == "" or line.lstrip().startswith("#"):
+            header.append(line)
+            continue
+        break
+    return "".join(header)
+
+
+def _clean_weight(raw: Any) -> float | int | None:
+    if raw in (None, ""):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise HealthScoreFrameworkError(f"weight must be a number or null, got {raw!r}") from exc
+    if value < 0:
+        raise HealthScoreFrameworkError("weight cannot be negative")
+    return int(value) if value.is_integer() else value
+
+
+def update_component(
+    key: str,
+    *,
+    name: Any = _UNSET,
+    pillar: Any = _UNSET,
+    weight: Any = _UNSET,
+    path: Path | None = None,
+) -> dict[str, Any]:
+    """Rewrite one component's name / pillar / weight in the framework YAML.
+
+    ``configured_weight`` is recomputed from the input weights so the file keeps
+    validating. Returns the reloaded framework. Raises
+    :class:`HealthScoreFrameworkError` and leaves the file untouched on any
+    invalid edit.
+    """
+    source = path or framework_path()
+    try:
+        original = source.read_text(encoding="utf-8")
+        payload = yaml.safe_load(original)
+    except (OSError, yaml.YAMLError) as exc:
+        raise HealthScoreFrameworkError(
+            f"could not load Health Score framework {source}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise HealthScoreFrameworkError("Health Score framework must be a YAML object")
+    inputs = payload.get("inputs") or []
+    overrides = payload.get("overrides") or []
+    target: dict[str, Any] | None = None
+    is_input = False
+    for row in inputs:
+        if isinstance(row, dict) and str(row.get("key")) == key:
+            target, is_input = row, True
+            break
+    if target is None:
+        for row in overrides:
+            if isinstance(row, dict) and str(row.get("key")) == key:
+                target = row
+                break
+    if target is None:
+        raise HealthScoreFrameworkError(f"unknown Health Score component: {key}")
+
+    changed: dict[str, Any] = {}
+    if name is not _UNSET:
+        clean = str(name or "").strip()
+        if not clean:
+            raise HealthScoreFrameworkError("name cannot be empty")
+        changed["name"] = clean
+    if pillar is not _UNSET:
+        if not is_input:
+            raise HealthScoreFrameworkError("override flags have no pillar")
+        clean = str(pillar or "").strip()
+        if not clean:
+            raise HealthScoreFrameworkError("pillar cannot be empty")
+        changed["pillar"] = clean
+    if weight is not _UNSET:
+        if not is_input:
+            raise HealthScoreFrameworkError("override flags carry no weight")
+        changed["weight"] = _clean_weight(weight)
+    if not changed:
+        raise HealthScoreFrameworkError("no editable field supplied (name, pillar, weight)")
+    target.update(changed)
+
+    total = 0.0
+    for row in inputs:
+        if isinstance(row, dict) and row.get("weight") is not None:
+            total += float(row["weight"])
+    payload["configured_weight"] = int(total) if total.is_integer() else total
+
+    body = yaml.safe_dump(
+        payload, sort_keys=False, allow_unicode=True, width=100, default_flow_style=False
+    )
+    source.write_text(_split_header(original) + body, encoding="utf-8")
+    try:
+        return load_framework(source)
+    except HealthScoreFrameworkError:
+        source.write_text(original, encoding="utf-8")
+        raise
+
+
 def component_map(framework: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
         str(row["key"]): row

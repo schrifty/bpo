@@ -22,7 +22,12 @@ from src.kpi_web.settings import load_kpi_web_settings
 from tests.test_kpi_web_api import _OWNERS_YAML, _REGISTRY, _login
 
 
-def _client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def _client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    dev_user: str = "marc.schriftman@leandna.com",
+) -> TestClient:
     owners = tmp_path / "owners.yaml"
     owners.write_text(_OWNERS_YAML, encoding="utf-8")
     registry = tmp_path / "metrics.yaml"
@@ -30,7 +35,7 @@ def _client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path / "cache")
     env = {
         "CORTEX_KPI_WEB_ALLOW_DEV_AUTH": "true",
-        "CORTEX_KPI_WEB_DEV_USER": "marc.schriftman@leandna.com",
+        "CORTEX_KPI_WEB_DEV_USER": dev_user,
         "CORTEX_KPI_WEB_BASE_URL": "http://testserver",
         "CORTEX_KPI_WEB_SESSION_SECRET": "test-session-secret-for-healthscore",
         "CORTEX_KPI_WEB_ALLOWED_DOMAINS": "leandna.com",
@@ -328,6 +333,116 @@ def test_manual_override_shadows_generated_reading_without_erasing_it(
     # The generated reading survives underneath the override.
     assert rows[0]["value"] == pytest.approx(99)
     assert rows[0]["generator"] == "get_usage_level"
+
+
+def test_null_override_clears_manual_reading_like_kpi_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    conn = connect()
+    upsert_reading(
+        conn,
+        entity_id="001-active",
+        entity_name="Acme Entity",
+        metric_name="usage_level",
+        grain="weekly",
+        as_of="2026-09-21",
+        value=95,
+        points=6,
+        generator="get_usage_level",
+    )
+    conn.close()
+    over = client.put(
+        "/healthscore/api/entities/001-active/components/usage_level",
+        json={"period_key": "2026-W39", "points": 2},
+    )
+    assert over.status_code == 200, over.text
+    assert over.json()["observation"]["overridden"] is True
+    assert over.json()["observation"]["effective_points"] == 2
+
+    cleared = client.put(
+        "/healthscore/api/entities/001-active/components/usage_level",
+        json={"period_key": "2026-W39", "points": None, "value": None},
+    )
+    assert cleared.status_code == 200, cleared.text
+    body = cleared.json()
+    assert body["cleared"] is True
+    assert body["observation"]["overridden"] is False
+    assert body["observation"]["effective_points"] == 6
+    assert body["observation"]["override_by"] is None
+
+
+def _framework_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    from src.healthscore_web.framework import DEFAULT_FRAMEWORK_PATH
+
+    target = tmp_path / "framework.yaml"
+    target.write_text(DEFAULT_FRAMEWORK_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setenv("CORTEX_HEALTHSCORE_FRAMEWORK", str(target))
+    return target
+
+
+def test_update_component_rewrites_yaml_and_reweights(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.healthscore_web.framework import HealthScoreFrameworkError, update_component
+
+    target = _framework_copy(tmp_path, monkeypatch)
+    framework = update_component(
+        "usage_level", name="Usage breadth", pillar="Adoption", weight=8, path=target
+    )
+    usage = next(row for row in framework["inputs"] if row["key"] == "usage_level")
+    assert usage["name"] == "Usage breadth"
+    assert usage["pillar"] == "Adoption"
+    assert usage["weight"] == 8
+    assert framework["configured_weight"] == 85
+    text = target.read_text(encoding="utf-8")
+    assert text.startswith("# LeanDNA Customer Health Score")
+    assert "configured_weight: 85" in text
+    # Untouched rows keep their fields.
+    roi = next(row for row in framework["inputs"] if row["key"] == "roi_multiple")
+    assert roi["weight"] is None
+
+    blank = update_component("usage_level", weight=None, path=target)
+    assert blank["configured_weight"] == 77
+
+    with pytest.raises(HealthScoreFrameworkError):
+        update_component("usage_level", name="", path=target)
+    with pytest.raises(HealthScoreFrameworkError):
+        update_component("merger_acquisition", weight=3, path=target)
+    with pytest.raises(HealthScoreFrameworkError):
+        update_component("missing_component", name="x", path=target)
+    # Overrides can still be renamed.
+    renamed = update_component("merger_acquisition", name="M&A", path=target)
+    assert next(row for row in renamed["overrides"] if row["key"] == "merger_acquisition")["name"] == "M&A"
+
+
+def test_framework_edit_api_requires_catalog_admin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
+    _framework_copy(tmp_path, monkeypatch)
+    client = _client(tmp_path, monkeypatch)
+    assert client.put("/healthscore/api/framework/components/usage_level", json={"weight": 7}).status_code == 401
+    _login(client)  # marc.schriftman is catalog_admin in _OWNERS_YAML
+    res = client.put(
+        "/healthscore/api/framework/components/usage_level",
+        json={"name": "Usage level", "pillar": "Product Adoption & Usage", "weight": 7},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["component"]["weight"] == 7
+    assert res.json()["framework"]["configured_weight"] == 84
+    bad = client.put("/healthscore/api/framework/components/usage_level", json={"weight": "seven"})
+    assert bad.status_code == 400
+
+    # A lead who is not the catalog admin is refused.
+    lead = _client(tmp_path, monkeypatch, dev_user="lead.eng@leandna.com")
+    _login(lead)
+    assert lead.get("/api/me").json()["is_catalog_admin"] is False
+    denied = lead.put("/healthscore/api/framework/components/usage_level", json={"weight": 1})
+    assert denied.status_code == 403
+    assert "catalog admin" in denied.json()["error"]
 
 
 def test_generate_usage_level_api_is_authenticated(
