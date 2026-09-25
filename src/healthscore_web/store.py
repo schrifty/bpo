@@ -289,6 +289,20 @@ def observations_for_entity(
     return [_row(row) for row in rows]
 
 
+def observations_for_metric(
+    conn: sqlite3.Connection, entity_id: str, metric_name: str
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT * FROM healthscore_observation
+        WHERE entity_id = ? AND metric_name = ?
+        ORDER BY period_key ASC
+        """,
+        (entity_id, metric_name),
+    ).fetchall()
+    return [_row(row) for row in rows]
+
+
 def latest_by_metric(
     observations: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:

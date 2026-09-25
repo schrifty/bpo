@@ -242,7 +242,6 @@
       <div class="hs-meta-row">
         ${definition.signal ? `<span class="hs-status">${esc(definition.signal)}</span>` : '<span class="hs-status">override</span>'}
         ${sourceBadge(definition.automation)}
-        ${definition.status ? `<span class="hs-status" title="Framework status from the draft Health Score YAML">${esc(definition.status)}</span>` : ""}
       </div>
       <dl class="hs-detail-grid">
         ${isOverride ? "" : `<dt>Pillar</dt><dd>${esc(definition.pillar)}</dd>`}

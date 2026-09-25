@@ -299,6 +299,145 @@ def check_reachable() -> None:
         ).execute()
 
 
+def _csr_folder_list_kwargs(page_token: str | None = None) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "q": f"'{_CS_REPORT_FOLDER_ID}' in parents and trashed = false",
+        "fields": "nextPageToken, files(id, name, modifiedTime)",
+        "includeItemsFromAllDrives": True,
+        "supportsAllDrives": True,
+        "corpora": "drive",
+        "driveId": _DATA_EXPORTS_DRIVE_ID,
+        "pageSize": 100,
+        "orderBy": "modifiedTime desc",
+    }
+    if page_token:
+        kwargs["pageToken"] = page_token
+    return kwargs
+
+
+def list_csr_report_files() -> list[dict[str, str]]:
+    """All CS Report workbooks in Data Exports, newest first."""
+    from .network_utils import network_timeout
+
+    with network_timeout(60.0, "Drive CS Report folder list"):
+        drive = _get_drive()
+        files: list[dict[str, str]] = []
+        page_token: str | None = None
+        while True:
+            results = drive.files().list(**_csr_folder_list_kwargs(page_token)).execute()
+            files.extend(results.get("files") or [])
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+    return files
+
+
+def csr_file_as_of(name: str, modified_time: str | None = None) -> date | None:
+    """Workbook date from ``customer-success-report-YYYY-MM-DDT…`` names."""
+    marker = "customer-success-report-"
+    if marker in name:
+        stamp = name.split(marker, 1)[-1][:10]
+        try:
+            return date.fromisoformat(stamp)
+        except ValueError:
+            pass
+    if modified_time:
+        try:
+            return date.fromisoformat(str(modified_time)[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def latest_csr_file_per_iso_week(
+    files: list[dict[str, str]], *, weeks: int
+) -> list[dict[str, Any]]:
+    """One workbook per ISO week: the latest file that week, newest weeks first."""
+    from src.healthscore_web.store import period_key_for
+
+    by_week: dict[str, dict[str, Any]] = {}
+    for item in files:
+        name = str(item.get("name") or "")
+        as_of = csr_file_as_of(name, str(item.get("modifiedTime") or ""))
+        if as_of is None:
+            continue
+        key = period_key_for("weekly", as_of)
+        prev = by_week.get(key)
+        if prev is None or as_of > prev["as_of"]:
+            by_week[key] = {
+                "period_key": key,
+                "as_of": as_of,
+                "id": str(item["id"]),
+                "name": name,
+                "modifiedTime": str(item.get("modifiedTime") or ""),
+            }
+    ordered = sorted(by_week.values(), key=lambda row: str(row["period_key"]), reverse=True)
+    return ordered[: max(0, int(weeks))]
+
+
+def _download_csr_xlsx(file_id: str, *, timeout: float = 120.0) -> io.BytesIO:
+    from .network_utils import network_timeout
+    from googleapiclient.http import MediaIoBaseDownload
+
+    with network_timeout(timeout, "Drive CS Report download"):
+        drive = _get_drive()
+        request = drive.files().export_media(
+            fileId=file_id,
+            mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        chunk_count = 0
+        while not done:
+            _, done = downloader.next_chunk()
+            chunk_count += 1
+            if chunk_count > 100:
+                raise TimeoutError("CS Report download exceeded max chunks (100)")
+    buf.seek(0)
+    return buf
+
+
+def _parse_csr_xlsx(buf: io.BytesIO) -> tuple[list[dict[str, Any]], int]:
+    try:
+        import openpyxl
+    except ImportError as e:
+        raise ImportError(
+            "CS Report XLSX parsing requires openpyxl; add it to your environment "
+            "(e.g. pip install openpyxl or pip install -r requirements.txt)."
+        ) from e
+    wb = openpyxl.load_workbook(buf, read_only=True)
+    ws = wb[wb.sheetnames[0]]
+    headers: list[str] = []
+    rows: list[dict[str, Any]] = []
+    for ri, row in enumerate(ws.iter_rows()):
+        cells = list(row)
+        if ri == 0:
+            headers = [str(c.value) if c.value else "" for c in cells]
+            continue
+        vals: dict[str, Any] = {}
+        for i, c in enumerate(cells):
+            if i < len(headers) and headers[i]:
+                vals[headers[i]] = c.value
+        if vals.get("customer"):
+            rows.append(vals)
+    wb.close()
+    return rows, len(headers)
+
+
+def load_csr_report_by_file_id(file_id: str, *, name: str | None = None) -> list[dict[str, Any]]:
+    """Download and parse one CS Report workbook. Does not touch the latest-file cache."""
+    buf = _download_csr_xlsx(file_id)
+    rows, columns = _parse_csr_xlsx(buf)
+    logger.info(
+        "Loaded %d rows from CS Report %s (%d columns)",
+        len(rows),
+        name or file_id,
+        columns,
+    )
+    return rows
+
+
 def _fetch_latest_report() -> list[dict[str, Any]]:
     """Download the latest CS Report from Drive and parse all rows.
 
@@ -310,81 +449,24 @@ def _fetch_latest_report() -> list[dict[str, Any]]:
         return _cache["rows"]
 
     with _cache_lock:
-        # Double-check after acquiring lock (another thread may have populated it)
         if _cache is not None:
             return _cache["rows"]
 
-        from .network_utils import network_timeout
-        with network_timeout(30.0, "Drive CS Report download"):
-            drive = _get_drive()
-
-            q = f"'{_CS_REPORT_FOLDER_ID}' in parents and trashed = false"
-            results = drive.files().list(
-                q=q,
-                fields="files(id, name, modifiedTime)",
-                includeItemsFromAllDrives=True,
-                supportsAllDrives=True,
-                corpora="drive",
-                driveId=_DATA_EXPORTS_DRIVE_ID,
-                pageSize=5,
-                orderBy="modifiedTime desc",
-            ).execute()
-            files = results.get("files", [])
-            if not files:
-                logger.warning(
-                    "No CS Report found in Data Exports drive "
-                    "(folder=%s drive=%s; listed as impersonated Drive owner)",
-                    _CS_REPORT_FOLDER_ID,
-                    _DATA_EXPORTS_DRIVE_ID,
-                )
-                return []
-
-            latest = files[0]
-            logger.info("Fetching CS Report: %s (%s)", latest["name"], latest["modifiedTime"][:10])
-
-            request = drive.files().export_media(
-                fileId=latest["id"],
-                mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        files = list_csr_report_files()
+        if not files:
+            logger.warning(
+                "No CS Report found in Data Exports drive "
+                "(folder=%s drive=%s; listed as impersonated Drive owner)",
+                _CS_REPORT_FOLDER_ID,
+                _DATA_EXPORTS_DRIVE_ID,
             )
-            buf = io.BytesIO()
-            from googleapiclient.http import MediaIoBaseDownload
-            downloader = MediaIoBaseDownload(buf, request)
-            done = False
-            chunk_count = 0
-            while not done:
-                _, done = downloader.next_chunk()
-                chunk_count += 1
-                if chunk_count > 100:  # Safety limit: max 100 chunks
-                    raise TimeoutError(f"CS Report download exceeded max chunks (100)")
+            return []
 
-        buf.seek(0)
-        try:
-            import openpyxl
-        except ImportError as e:
-            raise ImportError(
-                "CS Report XLSX parsing requires openpyxl; add it to your environment "
-                "(e.g. pip install openpyxl or pip install -r requirements.txt)."
-            ) from e
-        wb = openpyxl.load_workbook(buf, read_only=True)
-        ws = wb[wb.sheetnames[0]]
-
-        headers: list[str] = []
-        rows: list[dict[str, Any]] = []
-        for ri, row in enumerate(ws.iter_rows()):
-            cells = list(row)
-            if ri == 0:
-                headers = [str(c.value) if c.value else "" for c in cells]
-                continue
-            vals: dict[str, Any] = {}
-            for i, c in enumerate(cells):
-                if i < len(headers) and headers[i]:
-                    vals[headers[i]] = c.value
-            if vals.get("customer"):
-                rows.append(vals)
-        wb.close()
-
+        latest = files[0]
+        logger.info("Fetching CS Report: %s (%s)", latest["name"], latest["modifiedTime"][:10])
+        rows, columns = _parse_csr_xlsx(_download_csr_xlsx(latest["id"]))
         _cache = {"rows": rows, "file": latest["name"], "modified": latest["modifiedTime"]}
-        logger.info("Loaded %d rows from CS Report (%d columns)", len(rows), len(headers))
+        logger.info("Loaded %d rows from CS Report (%d columns)", len(rows), columns)
         return rows
 
 

@@ -60,14 +60,21 @@ and scores Weekly Active Buyers % (or a named Usage component inside
 51–65%=3; 66–80%=4; 81–92%=5; 93–100%=6. Join misses are warnings; they are
 not scored from CSR customer lists.
 
+**Usage trend / velocity** (`get_usage_trend`) does not read CSR again. It
+uses the generated `usage_level` percent (`value`, not a points override)
+over a trailing 13 ISO weeks, or fewer if the store is still filling in.
+Percent change is oldest usable week → newest. `>+10%` = 5, within `±10%` =
+3, `<-10%` = 0. A rise from a 0% baseline is treated as +100% (5 points).
+Fewer than two numeric weeks stays unscored (`points` null) with a warning.
+The Monday job runs usage_level first, then usage_trend.
+
 ### History depth
 
-The CS Report connector reads only the most recent workbook in the Drive
-folder (`_fetch_latest_report` takes `files[0]` after sorting by
-`modifiedTime desc`), and each `delta = "week"` row carries only that week's
-`startValue`/`endValue`. There is therefore **no year of weekly history to
-backfill from** — history accumulates one period per run, and a missed run is
-a permanently missing period.
+The live Monday job still reads **this week's** workbook (newest file). Daily
+CS Report files in Data Exports go back months; `--history-weeks N` takes the
+latest file in each of the newest *N* ISO weeks and writes `usage_level` for
+those periods. Weeks with no workbook stay missing. Each workbook's `delta=week`
+rows are still that week's start/end, not a nested 15-week series.
 
 `config/jobs/healthscore-snapshot.yaml` runs weekly on EventBridge
 (`cortex-healthscore-snapshot`, `cron(20 7 ? * MON *)`), after the CSR dumps

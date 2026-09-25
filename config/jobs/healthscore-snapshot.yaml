@@ -10,3 +10,6 @@ steps:
   - name: snapshot-usage-level
     command: healthscore-snapshot
     component: usage_level
+  - name: snapshot-usage-trend
+    command: healthscore-snapshot
+    component: usage_trend

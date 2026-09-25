@@ -55,15 +55,16 @@ inputs:
     description: Direction and rate of change in usage over the trailing 30/60/90 days.
     signal: leading
     metric: Percent change in active usage over trailing 90 days
-    scoring: "Positive=5; flat=3; negative=0; proposed ±10% threshold needs confirmation"
+    scoring: "Percent change of stored CSR usage % over trailing 13 weeks (or as many weekly points as exist, min 2). >+10%=5; within ±10%=3; <-10%=0. Insufficient history stays unscored."
     max_points: 5
     weight: 5
     data_source: CSR or CSR downloads
     grain: weekly
     automation: automated
-    status: needs_definition
+    status: defined
+    owner: lindsay.brown@leandna.com
     metric-id: null
-    metric-generator: null
+    metric-generator: get_usage_trend
     unit: percent
     tags: [customer-success, healthscore, adoption]
   - key: product_anchor_adoption

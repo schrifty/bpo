@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,11 @@ from src.healthscore_web.store import (
     upsert_reading,
 )
 from src.healthscore_web.usage_level import get_usage_level, usage_level_points
+from src.healthscore_web.usage_trend import (
+    get_usage_trend,
+    percent_change,
+    usage_trend_points,
+)
 from src.kpi_store import GRAINS
 from src.kpi_web.app import create_app
 from src.kpi_web.settings import load_kpi_web_settings
@@ -73,6 +79,10 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert usage["metric-generator"] == "get_usage_level"
     assert usage["owner"] == "lindsay.brown@leandna.com"
     assert usage["grain"] == "weekly"
+    trend = next(row for row in framework["inputs"] if row["key"] == "usage_trend")
+    assert trend["metric-generator"] == "get_usage_trend"
+    assert trend["status"] == "defined"
+    assert trend["grain"] == "weekly"
 
 
 def test_framework_uses_kpi_registry_field_names() -> None:
@@ -222,6 +232,53 @@ def test_healthscore_rejects_non_salesforce_entity_and_excess_points(
     )
     assert excess.status_code == 400
     assert "cannot exceed 6" in excess.json()["error"]
+
+
+def test_latest_csr_file_per_iso_week_picks_newest_file_in_week() -> None:
+    from src.cs_report_client import latest_csr_file_per_iso_week
+
+    files = [
+        {
+            "id": "old-thu",
+            "name": "customer-success-report-2026-09-24T04:00:00Z",
+            "modifiedTime": "2026-09-24T04:00:00.000Z",
+        },
+        {
+            "id": "new-fri",
+            "name": "customer-success-report-2026-09-25T04:00:00Z",
+            "modifiedTime": "2026-09-25T04:00:00.000Z",
+        },
+        {
+            "id": "w37",
+            "name": "customer-success-report-2026-09-13T04:00:00Z",
+            "modifiedTime": "2026-09-13T04:00:00.000Z",
+        },
+    ]
+    one = latest_csr_file_per_iso_week(files, weeks=1)
+    assert [row["id"] for row in one] == ["new-fri"]
+    assert one[0]["period_key"] == "2026-W39"
+    two = latest_csr_file_per_iso_week(files, weeks=2)
+    assert [row["id"] for row in two] == ["new-fri", "w37"]
+
+
+def test_backfill_usage_level_fails_loud_when_weeks_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.healthscore_web.snapshot import backfill_usage_level_history
+    from src.healthscore_web.usage_level import UsageLevelGeneratorError
+
+    monkeypatch.setattr(
+        "src.cs_report_client.list_csr_report_files",
+        lambda: [
+            {
+                "id": "only",
+                "name": "customer-success-report-2026-09-25T04:00:00Z",
+                "modifiedTime": "2026-09-25T04:00:00.000Z",
+            }
+        ],
+    )
+    with pytest.raises(UsageLevelGeneratorError, match="need 15"):
+        backfill_usage_level_history(weeks=15, dry_run=True, entities=_entities())
 
 
 def test_usage_level_points_follow_framework_bands() -> None:
@@ -443,6 +500,100 @@ def test_framework_edit_api_requires_catalog_admin(
     denied = lead.put("/healthscore/api/framework/components/usage_level", json={"weight": 1})
     assert denied.status_code == 403
     assert "catalog admin" in denied.json()["error"]
+
+
+def test_usage_trend_points_follow_confirmed_band() -> None:
+    assert usage_trend_points(None) is None
+    assert usage_trend_points(10) == 3
+    assert usage_trend_points(-10) == 3
+    assert usage_trend_points(10.1) == 5
+    assert usage_trend_points(-10.1) == 0
+    assert percent_change(80, 72) == pytest.approx(-10)
+    assert percent_change(0, 0) == 0
+    assert percent_change(0, 40) == 100
+
+
+def test_get_usage_trend_needs_two_weeks_then_scores_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    conn = connect()
+    upsert_reading(
+        conn,
+        entity_id="001-active",
+        entity_name="Acme Entity",
+        metric_name="usage_level",
+        grain="weekly",
+        as_of="2026-09-01",
+        value=80,
+        points=4,
+        generator="get_usage_level",
+    )
+    conn.close()
+    dry = get_usage_trend(entities=_entities(), as_of=date.fromisoformat("2026-09-24"), persist=False)
+    assert dry["scored"] == 0
+    assert dry["insufficient"] == 1
+    assert dry["readings"][0]["points"] is None
+    assert "insufficient" in (dry["readings"][0]["error"] or "")
+
+    conn = connect()
+    upsert_reading(
+        conn,
+        entity_id="001-active",
+        entity_name="Acme Entity",
+        metric_name="usage_level",
+        grain="weekly",
+        as_of="2026-09-24",
+        value=96,
+        points=6,
+        generator="get_usage_level",
+    )
+    # A points override on usage_level must not change the trend series.
+    set_override(
+        conn,
+        entity_id="001-active",
+        entity_name="Acme Entity",
+        metric_name="usage_level",
+        grain="weekly",
+        as_of="2026-09-24",
+        value=10,
+        points=1,
+        by="tester@leandna.com",
+    )
+    conn.close()
+    persisted = get_usage_trend(
+        entities=_entities(), as_of=date.fromisoformat("2026-09-24"), persist=True
+    )
+    assert persisted["scored"] == 1
+    reading = persisted["readings"][0]
+    assert reading["value"] == pytest.approx(20)
+    assert reading["points"] == 5
+    assert reading["meta"]["baseline_usage_pct"] == 80
+    assert reading["meta"]["current_usage_pct"] == 96
+    assert reading["meta"]["weeks_used"] == 2
+
+
+def test_generate_usage_trend_api_is_authenticated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
+    monkeypatch.setattr(
+        "src.healthscore_web.api.run_usage_trend_snapshot",
+        lambda **kwargs: {
+            "ok": True,
+            "generator": "get_usage_trend",
+            "scored": 1,
+            "insufficient": 0,
+            "warnings": [],
+            "readings": [],
+        },
+    )
+    client = _client(tmp_path, monkeypatch)
+    assert client.post("/healthscore/api/generate/usage_trend").status_code == 401
+    _login(client)
+    res = client.post("/healthscore/api/generate/usage_trend")
+    assert res.status_code == 200
+    assert res.json()["generator"] == "get_usage_trend"
 
 
 def test_generate_usage_level_api_is_authenticated(

@@ -149,6 +149,7 @@ def get_usage_level(
     entities: list[dict[str, Any]],
     week_rows: list[dict[str, Any]] | None = None,
     as_of: date | None = None,
+    period_as_of: date | None = None,
     persist: bool = False,
     generator: str = GENERATOR_NAME,
 ) -> dict[str, Any]:
@@ -194,7 +195,7 @@ def get_usage_level(
                 sources.add(source)
             value = _mean(percents)
             points = usage_level_points(value)
-            day = _as_of_from_sites(matched, today)
+            day = period_as_of or _as_of_from_sites(matched, today)
             meta = {
                 "source_fields": sorted(sources),
                 "factory_count": len(matched),

@@ -18,7 +18,10 @@ from src.healthscore_web.framework import (
     load_framework,
     update_component,
 )
-from src.healthscore_web.snapshot import run_usage_level_snapshot
+from src.healthscore_web.snapshot import (
+    run_usage_level_snapshot,
+    run_usage_trend_snapshot,
+)
 from src.healthscore_web.store import (
     clear_override,
     connect,
@@ -28,6 +31,7 @@ from src.healthscore_web.store import (
     set_override,
 )
 from src.healthscore_web.usage_level import UsageLevelGeneratorError
+from src.healthscore_web.usage_trend import UsageTrendGeneratorError
 from src.kpi_web.auth import KPIWebAuthError, auth_error_response, require_user
 from src.salesforce_client import SalesforceClient, _CHURNED_CONTRACT_STATUS_LOWER
 
@@ -395,6 +399,24 @@ async def api_generate_usage_level(request: Request) -> Response:
         logger.exception("Health Score usage_level generate failed")
         return JSONResponse(
             {"ok": False, "error": f"usage_level generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_usage_trend(request: Request) -> Response:
+    try:
+        require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    try:
+        result = run_usage_trend_snapshot(dry_run=False)
+    except UsageTrendGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score usage_trend generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"usage_trend generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

@@ -87,14 +87,6 @@
   margin: 0;
 }
 
-.hs-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-  color: var(--muted);
-  font-size: 0.75rem;
-}
-
 .dot {
   display: inline-block;
   width: 8px;

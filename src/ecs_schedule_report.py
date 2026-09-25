@@ -60,8 +60,8 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "enabled": True,
         "rule_name": "cortex-healthscore-snapshot",
         "summary": (
-            "Weekly Healthscore usage_level from CS Report; a missed run is a "
-            "permanently missing period because CSR keeps only the latest workbook"
+            "Weekly Healthscore usage_level then usage_trend from CS Report; a missed run is a "
+            "permanently missing usage_level period because CSR keeps only the latest workbook"
         ),
     },
     "pendo-ford-7d": {
