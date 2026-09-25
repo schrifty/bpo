@@ -53,37 +53,15 @@
     <section id="hs-app" class="hidden">
       <div class="hs-hero">
         <div class="hs-entity-control">
-          <label for="hs-entity">Salesforce Customer Entity</label>
-          <span id="hs-entity-source" class="muted"></span>
+          <div class="hs-entity-heading">
+            <label for="hs-entity">Salesforce Customer Entity</label>
+            <span id="hs-entity-source" class="hs-entity-source"></span>
+          </div>
           <select id="hs-entity"><option value="">Choose an active entity…</option></select>
         </div>
       </div>
 
       <p id="hs-global-error" class="error" hidden></p>
-
-      <div class="hs-score-strip">
-        <div class="hs-score-card">
-          <span class="hs-stat-label">Provisional score</span>
-          <strong id="hs-score">—</strong>
-          <span class="muted">across observed weighted inputs</span>
-          <div id="hs-score-trend"></div>
-        </div>
-        <div class="hs-score-card">
-          <span class="hs-stat-label">Weight coverage</span>
-          <strong id="hs-coverage">0%</strong>
-          <span class="muted" id="hs-coverage-detail">0 of 83 configured</span>
-        </div>
-        <div class="hs-score-card">
-          <span class="hs-stat-label">Framework</span>
-          <strong id="hs-input-count">27 inputs</strong>
-          <span class="muted" id="hs-override-count">4 override flags</span>
-        </div>
-        <div class="hs-score-card hs-warning-card">
-          <span class="hs-stat-label">Important</span>
-          <strong>Not validated</strong>
-          <span class="muted">Do not use for customer decisions yet.</span>
-        </div>
-      </div>
 
       <div class="hs-layout">
         <section class="panel hs-components-panel">

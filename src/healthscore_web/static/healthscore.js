@@ -119,13 +119,6 @@
     return `<span class="hs-source-badge"><i class="dot ${esc(value)}"></i>${esc(value)}</span>`;
   }
 
-  function renderFrameworkSummary() {
-    const framework = state.framework;
-    $("hs-input-count").textContent = `${framework.input_count} inputs`;
-    $("hs-override-count").textContent = `${framework.override_count} override flags`;
-    $("hs-coverage-detail").textContent = `0 of ${framework.configured_weight} configured`;
-  }
-
   function renderEntities(source) {
     const select = $("hs-entity");
     select.innerHTML = '<option value="">Choose an active entity…</option>';
@@ -151,10 +144,6 @@
   function renderScore() {
     const score = state.score;
     const components = score ? score.components : state.framework.inputs.map((row) => ({ ...row, latest: null, contribution: null }));
-    $("hs-score").textContent = score && score.score != null ? `${score.score}%` : "—";
-    $("hs-coverage").textContent = score ? `${score.coverage_pct}%` : "0%";
-    $("hs-coverage-detail").textContent = `${score ? score.covered_weight : 0} of ${state.framework.configured_weight} configured`;
-    $("hs-score-trend").innerHTML = score ? sparkline(score.history, "score") : "";
     $("hs-components-body").innerHTML = components
       .map((component) => {
         const latest = component.latest;
@@ -343,7 +332,6 @@
       ]);
       state.framework = frameworkPayload.framework;
       state.entities = entitiesPayload.entities;
-      renderFrameworkSummary();
       renderEntities(entitiesPayload.source);
       restoreEntitySelection();
       await loadScore();
