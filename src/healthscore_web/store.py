@@ -63,8 +63,23 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     target.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(target)
     conn.row_factory = sqlite3.Row
+    _ensure_current_schema(conn)
     conn.executescript(SCHEMA)
     return conn
+
+
+def _ensure_current_schema(conn: sqlite3.Connection) -> None:
+    """Replace the pre-KPI-alignment table. CREATE TABLE IF NOT EXISTS cannot add columns."""
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='healthscore_observation'"
+    ).fetchone()
+    if row is None:
+        return
+    cols = {item[1] for item in conn.execute("PRAGMA table_info(healthscore_observation)")}
+    if "grain" in cols and "metric_name" in cols:
+        return
+    conn.execute("DROP TABLE healthscore_observation")
+    conn.commit()
 
 
 def period_key_for(grain: str, as_of: date) -> str:

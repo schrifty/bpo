@@ -62,9 +62,9 @@ def main():
         if e.resp.status == 403:
             try:
                 with open(creds_path) as f:
-                    proj = json.load(f).get("project_id", "bpo-slides")
+                    proj = json.load(f).get("project_id", "tensile-tenure-485500-b5")
             except Exception:
-                proj = "bpo-slides"
+                proj = "tensile-tenure-485500-b5"
             # Get service account email for gcloud command
             sa_email = ""
             try:
@@ -75,7 +75,7 @@ def main():
             if "storageQuotaExceeded" in str(e) or "storage quota" in str(e).lower():
                 print("\nFIX: Service account Drive is full. Use domain-wide delegation:")
                 print("  1. Create or pick your QBR Generator folder in Google Drive")
-                print("  2. Share it with bpo-slides-account@bpo-slides.iam.gserviceaccount.com (Editor)")
+                print(f"  2. Share it with {sa_email or '<cortex service account email>'} (Editor)")
                 print("  3. Add to .env: GOOGLE_QBR_GENERATOR_FOLDER_ID=<folder-id>")
                 print("  4. Enable domain-wide delegation (see README) and add GOOGLE_DRIVE_OWNER_EMAIL=<cortex-robot@domain>")
                 return 1
