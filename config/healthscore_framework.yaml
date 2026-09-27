@@ -103,19 +103,20 @@ inputs:
   - key: champion_login_continuity
     pillar: Product Adoption & Usage
     name: Champion login continuity
-    description: Whether named executive sponsor or champion contacts remain active.
+    description: Whether the Salesforce Account executive sponsor logged in during the trailing 7 days.
     signal: leading
-    metric: Days since last login for named champion contacts
-    scoring: "Champion logged in=2; not logged in=0"
+    metric: Days since the executive sponsor's last login
+    scoring: "Last login within 7 days=2; named sponsor with no login in that window=0; no named executive sponsor stays unscored"
     max_points: 2
     weight: 2
-    data_source: Pendo + Salesforce contact role
+    data_source: Salesforce Account executive sponsor
     grain: weekly
-    automation: blocked
-    status: needs_source
-    notes: Salesforce must identify champion contacts.
+    automation: automated
+    status: defined
+    owner: lindsay.brown@leandna.com
     metric-id: null
-    metric-generator: null
+    metric-generator: get_champion_login_continuity
+    unit: days
     tags: [customer-success, healthscore, adoption]
   - key: customer_data_delivery
     pillar: Product Adoption & Usage

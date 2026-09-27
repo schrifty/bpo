@@ -18,7 +18,9 @@ from src.healthscore_web.framework import (
     load_framework,
     update_component,
 )
+from src.healthscore_web.champion_login import ChampionLoginGeneratorError
 from src.healthscore_web.snapshot import (
+    run_champion_login_snapshot,
     run_usage_level_snapshot,
     run_usage_trend_snapshot,
 )
@@ -417,6 +419,24 @@ async def api_generate_usage_trend(request: Request) -> Response:
         logger.exception("Health Score usage_trend generate failed")
         return JSONResponse(
             {"ok": False, "error": f"usage_trend generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_champion_login(request: Request) -> Response:
+    try:
+        require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    try:
+        result = run_champion_login_snapshot(dry_run=False)
+    except ChampionLoginGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score champion_login_continuity generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"champion_login_continuity generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

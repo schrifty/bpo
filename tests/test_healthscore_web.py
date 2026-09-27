@@ -9,6 +9,11 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
+from src.healthscore_web.champion_login import (
+    ChampionLoginGeneratorError,
+    champion_login_points,
+    get_champion_login_continuity,
+)
 from src.healthscore_web.framework import load_framework
 from src.healthscore_web.store import (
     connect,
@@ -83,6 +88,12 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert trend["metric-generator"] == "get_usage_trend"
     assert trend["status"] == "defined"
     assert trend["grain"] == "weekly"
+    champion = next(row for row in framework["inputs"] if row["key"] == "champion_login_continuity")
+    assert champion["metric-generator"] == "get_champion_login_continuity"
+    assert champion["status"] == "defined"
+    assert champion["automation"] == "automated"
+    assert "trailing 7 days" in champion["description"]
+    assert champion["data_source"] == "Salesforce Account executive sponsor"
 
 
 def test_framework_uses_kpi_registry_field_names() -> None:
@@ -617,4 +628,93 @@ def test_generate_usage_level_api_is_authenticated(
     res = client.post("/healthscore/api/generate/usage_level")
     assert res.status_code == 200
     assert res.json()["generator"] == "get_usage_level"
+
+
+def test_champion_login_points_follow_framework_bands() -> None:
+    assert champion_login_points(named=True, days_since_login=0) == 2
+    assert champion_login_points(named=True, days_since_login=7) == 2
+    assert champion_login_points(named=True, days_since_login=8) == 0
+    assert champion_login_points(named=True, days_since_login=None) == 0
+    assert champion_login_points(named=False, days_since_login=None) is None
+
+
+def test_get_champion_login_continuity_scores_sponsor_login(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    entities = [
+        {"id": "001-recent", "name": "Recent Sponsor"},
+        {"id": "001-stale", "name": "Stale Sponsor"},
+        {"id": "001-none", "name": "No Sponsor"},
+    ]
+    rows = [
+        {
+            "Id": "001-recent",
+            "Executive_Sponsor__c": "003-recent",
+            "Executive_Sponsor_Last_Login__c": "2026-09-22T15:00:00.000+0000",
+        },
+        {
+            "Id": "001-stale",
+            "Executive_Sponsor_Email__c": "sponsor@example.com",
+            "Executive_Sponsor_Last_Login__c": "2026-09-01T15:00:00.000+0000",
+        },
+        {"Id": "001-none"},
+    ]
+    dry = get_champion_login_continuity(
+        entities=entities,
+        sponsor_rows=rows,
+        as_of=date.fromisoformat("2026-09-25"),
+        persist=False,
+    )
+    by_id = {row["entity_id"]: row for row in dry["readings"]}
+    assert dry["scored"] == 2
+    assert dry["unscored"] == 1
+    assert by_id["001-recent"]["points"] == 2
+    assert by_id["001-recent"]["value"] == 3
+    assert by_id["001-stale"]["points"] == 0
+    assert by_id["001-stale"]["value"] == 24
+    assert by_id["001-none"]["points"] is None
+    assert by_id["001-none"]["error"] == "Salesforce Account has no executive sponsor"
+    assert dry["warnings"][0]["id"] == "001-none"
+
+    persisted = get_champion_login_continuity(
+        entities=entities[:1],
+        sponsor_rows=rows[:1],
+        as_of=date.fromisoformat("2026-09-25"),
+        persist=True,
+    )
+    assert persisted["readings"][0]["generator"] == "get_champion_login_continuity"
+    assert persisted["readings"][0]["points"] == 2
+
+
+def test_champion_login_fails_loud_when_salesforce_returns_no_rows() -> None:
+    with pytest.raises(ChampionLoginGeneratorError, match="no Customer Entity"):
+        get_champion_login_continuity(
+            entities=_entities(),
+            sponsor_rows=[],
+            as_of=date.fromisoformat("2026-09-25"),
+        )
+
+
+def test_generate_champion_login_api_is_authenticated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
+    monkeypatch.setattr(
+        "src.healthscore_web.api.run_champion_login_snapshot",
+        lambda **kwargs: {
+            "ok": True,
+            "generator": "get_champion_login_continuity",
+            "scored": 1,
+            "unscored": 0,
+            "warnings": [],
+            "readings": [],
+        },
+    )
+    client = _client(tmp_path, monkeypatch)
+    assert client.post("/healthscore/api/generate/champion_login_continuity").status_code == 401
+    _login(client)
+    res = client.post("/healthscore/api/generate/champion_login_continuity")
+    assert res.status_code == 200
+    assert res.json()["generator"] == "get_champion_login_continuity"
 

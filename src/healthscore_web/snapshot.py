@@ -8,6 +8,11 @@ import sys
 from datetime import date
 from typing import Any, Sequence
 
+from src.healthscore_web.champion_login import (
+    METRIC_NAME as CHAMPION_LOGIN_METRIC,
+    ChampionLoginGeneratorError,
+    get_champion_login_continuity,
+)
 from src.healthscore_web.usage_level import (
     METRIC_NAME as USAGE_LEVEL_METRIC,
     UsageLevelGeneratorError,
@@ -19,7 +24,7 @@ from src.healthscore_web.usage_trend import (
     get_usage_trend,
 )
 
-SUPPORTED = (USAGE_LEVEL_METRIC, USAGE_TREND_METRIC, "all")
+SUPPORTED = (USAGE_LEVEL_METRIC, USAGE_TREND_METRIC, CHAMPION_LOGIN_METRIC, "all")
 
 
 def _active_entities() -> list[dict[str, Any]]:
@@ -45,6 +50,23 @@ def run_usage_level_snapshot(
     return get_usage_level(
         entities=entities,
         week_rows=week_rows,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
+def run_champion_login_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    sponsor_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_champion_login_continuity(
+        entities=entities,
+        sponsor_rows=sponsor_rows,
         as_of=as_of,
         persist=not dry_run,
     )
@@ -144,6 +166,10 @@ def run_healthscore_snapshot(
         results[USAGE_TREND_METRIC] = run_usage_trend_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (CHAMPION_LOGIN_METRIC, "all"):
+        results[CHAMPION_LOGIN_METRIC] = run_champion_login_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     return results
 
 
@@ -156,14 +182,14 @@ def run_healthscore_snapshot_cli(
         prog=prog,
         description=(
             "Run Health Score generators into the Health Score store. "
-            "Does not write KPI observations. Default runs usage_level then "
-            "usage_trend so the trend sees this week's stored usage percent."
+            "Does not write KPI observations. Default runs usage_level, then "
+            "usage_trend, then champion_login_continuity."
         ),
     )
     parser.add_argument(
         "--component",
         default="all",
-        help="usage_level, usage_trend, or all (default: all)",
+        help="usage_level, usage_trend, champion_login_continuity, or all (default: all)",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--date", dest="as_of", default=None, help="YYYY-MM-DD fallback period")
@@ -192,7 +218,11 @@ def run_healthscore_snapshot_cli(
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    except (UsageLevelGeneratorError, UsageTrendGeneratorError) as exc:
+    except (
+        UsageLevelGeneratorError,
+        UsageTrendGeneratorError,
+        ChampionLoginGeneratorError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(result, default=str, indent=2))

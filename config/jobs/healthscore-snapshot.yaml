@@ -13,3 +13,6 @@ steps:
   - name: snapshot-usage-trend
     command: healthscore-snapshot
     component: usage_trend
+  - name: snapshot-champion-login
+    command: healthscore-snapshot
+    component: champion_login_continuity

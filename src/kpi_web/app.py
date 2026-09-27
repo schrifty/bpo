@@ -55,6 +55,11 @@ def create_app(
             healthscore_api.api_generate_usage_trend,
             methods=["POST"],
         ),
+        Route(
+            "/healthscore/api/generate/champion_login_continuity",
+            healthscore_api.api_generate_champion_login,
+            methods=["POST"],
+        ),
         Route("/api/health", api.api_health, methods=["GET"]),
         Route("/api/me", api.api_me, methods=["GET"]),
         Route("/api/meta", api.api_meta, methods=["GET"]),

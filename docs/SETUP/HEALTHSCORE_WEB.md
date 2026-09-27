@@ -68,6 +68,15 @@ Percent change is oldest usable week → newest. `>+10%` = 5, within `±10%` =
 Fewer than two numeric weeks stays unscored (`points` null) with a warning.
 The Monday job runs usage_level first, then usage_trend.
 
+**Champion login continuity** (`get_champion_login_continuity`) reads the
+Salesforce Customer Entity Account executive sponsor (`Executive_Sponsor__c`,
+plus email or first name when the lookup is blank) and
+`Executive_Sponsor_Last_Login__c`. The stored value is days since that login.
+Last login within 7 days scores 2; a named sponsor with no login in that
+window scores 0. An Account with no named executive sponsor stays unscored
+and is reported as a warning. HubSpot buying-role "Champion" contacts are not
+used; Salesforce does not store a login time for them.
+
 ### History depth
 
 The live Monday job still reads **this week's** workbook (newest file). Daily
@@ -92,7 +101,9 @@ cortex healthscore-snapshot --dry-run
 Both the CLI and the job exit non-zero when CS Report or Salesforce is
 unreachable. They never substitute a placeholder reading.
 
-Authenticated UI/API: `POST /healthscore/api/generate/usage_level`.
+Authenticated UI/API: `POST /healthscore/api/generate/usage_level`,
+`POST /healthscore/api/generate/usage_trend`, and
+`POST /healthscore/api/generate/champion_login_continuity`.
 
 Do not use this draft score for customer decisions until the framework,
 weights, sources, and governance rules are validated.
@@ -107,6 +118,8 @@ weights, sources, and governance rules are validated.
 | GET | `/healthscore/api/entities/{id}/score` | Score, coverage, influence, history |
 | PUT | `/healthscore/api/entities/{id}/components/{key}` | Record a manual observation |
 | POST | `/healthscore/api/generate/usage_level` | Run the CSR usage-level generator |
+| POST | `/healthscore/api/generate/usage_trend` | Run the usage-trend generator |
+| POST | `/healthscore/api/generate/champion_login_continuity` | Run the executive-sponsor login generator |
 
 All API routes require the same Google Workspace session as `/kpis`.
 Salesforce inventory failures return an error; the app does not substitute
