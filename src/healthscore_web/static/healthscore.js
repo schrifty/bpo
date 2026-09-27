@@ -114,9 +114,24 @@
     error.textContent = message || "";
   }
 
-  function sourceBadge(mode) {
-    const value = String(mode || "unknown");
-    return `<span class="hs-source-badge"><i class="dot ${esc(value)}"></i>${esc(value)}</span>`;
+  const STATUS_LABEL = { automated: "Automated", manual: "Manual", blocked: "Blocked" };
+
+  function sourcesOf(component) {
+    const raw = component && component.data_source;
+    const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    return list.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  function sourceChips(component) {
+    const sources = sourcesOf(component);
+    if (!sources.length) return "—";
+    return `<span class="hs-sources">${sources.map((item) => `<span class="hs-source-chip">${esc(item)}</span>`).join("")}</span>`;
+  }
+
+  function statusBadge(automation) {
+    const key = String(automation || "").toLowerCase();
+    const label = STATUS_LABEL[key] || "Unknown";
+    return `<span class="hs-source-badge ${esc(key)}"><i class="dot ${esc(key)}"></i>${esc(label)}</span>`;
   }
 
   function renderEntities(source) {
@@ -146,18 +161,13 @@
     const components = score ? score.components : state.framework.inputs.map((row) => ({ ...row, latest: null, contribution: null }));
     $("hs-components-body").innerHTML = components
       .map((component) => {
-        const latest = component.latest;
-        const points =
-          latest && latest.effective_points != null
-            ? `${latest.effective_points}${component.max_points != null ? ` / ${component.max_points}` : ""}`
-            : "—";
         return `<tr data-component="${esc(component.key)}">
           <td><div class="hs-component-name">${esc(component.name)}</div><span class="hs-status">${esc(component.signal)}</span></td>
           <td>${esc(component.pillar)}</td>
           <td>${component.weight == null ? '<span class="hs-status">TBD</span>' : `${component.weight}%`}</td>
-          <td>${points}</td>
           <td>${influenceCell(component)}</td>
-          <td>${sourceBadge(latest ? latest.source_mode : component.automation)}</td>
+          <td>${sourceChips(component)}</td>
+          <td>${statusBadge(component.automation)}</td>
         </tr>`;
       })
       .join("");
@@ -241,7 +251,7 @@
       </div>
       <div class="hs-meta-row">
         ${definition.signal ? `<span class="hs-status">${esc(definition.signal)}</span>` : '<span class="hs-status">override</span>'}
-        ${sourceBadge(definition.automation)}
+        ${statusBadge(definition.automation)}
       </div>
       <dl class="hs-detail-grid">
         ${isOverride ? "" : `<dt>Pillar</dt><dd>${esc(definition.pillar)}</dd>`}
@@ -249,7 +259,7 @@
         <dt>Description</dt><dd>${esc(definition.description)}</dd>
         ${definition.metric ? `<dt>Measurable metric</dt><dd>${esc(definition.metric)}</dd>` : ""}
         ${definition.scoring ? `<dt>Scoring rule</dt><dd>${esc(definition.scoring)}</dd>` : ""}
-        <dt>Data source</dt><dd>${esc(definition.data_source)}</dd>
+        <dt>Source</dt><dd>${sourceChips(definition)}</dd>
         <dt>Owner</dt><dd>${esc(definition.owner)}</dd>
         <dt>Grain</dt><dd>${esc(definition.grain || definition.cadence_note || "not defined")}</dd>
         ${definition.notes ? `<dt>Open issue</dt><dd class="error">${esc(definition.notes)}</dd>` : ""}

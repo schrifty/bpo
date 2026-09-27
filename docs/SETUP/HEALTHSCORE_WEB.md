@@ -46,6 +46,16 @@ period; Enter saves, Escape cancels, an empty box or **Restore** clears the
 override (`PUT` with `points: null, value: null`) so the generated reading shows
 again.
 
+Every component `description` states what is measured, where the number comes
+from, over what window, and how it becomes points, in plain language. It has
+to be specific enough to write a generator from and readable by someone
+outside engineering. When a source or threshold is not yet defined, the
+description says so rather than implying the data exists.
+
+The component list has two separate columns. **Source** is `data_source`, a
+list, so a component can name more than one system. **Status** is
+`automation`: Automated, Manual, or Blocked.
+
 The catalog admin from `config/kpi_owners.yaml` also sees a pencil in the
 detail pane. It edits the input name, pillar, and weight through
 `PUT /healthscore/api/framework/components/{key}`, which rewrites

@@ -93,7 +93,8 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert champion["status"] == "defined"
     assert champion["automation"] == "automated"
     assert "trailing 7 days" in champion["description"]
-    assert champion["data_source"] == "Salesforce Account executive sponsor"
+    assert champion["data_source"] == ["Salesforce"]
+    assert champion["automation"] == "automated"
 
 
 def test_framework_uses_kpi_registry_field_names() -> None:
@@ -109,6 +110,8 @@ def test_framework_uses_kpi_registry_field_names() -> None:
             assert row["cadence_note"], row["key"]
         assert isinstance(row["tags"], list) and row["tags"], row["key"]
         assert "metric-id" in row and "metric-generator" in row, row["key"]
+        assert isinstance(row["data_source"], list) and row["data_source"], row["key"]
+        assert row["automation"] in ("automated", "manual", "blocked"), row["key"]
 
 
 def test_healthscore_store_is_separate_and_tracks_history(

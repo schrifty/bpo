@@ -15,6 +15,8 @@ import yaml
 
 from src.kpi_store import GRAINS
 
+AUTOMATION_VALUES = ("automated", "manual", "blocked")
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FRAMEWORK_PATH = PROJECT_ROOT / "config" / "healthscore_framework.yaml"
 
@@ -40,12 +42,31 @@ def _normalize_component(row: dict[str, Any], default_owner: str) -> dict[str, A
     tags = row.get("tags") or []
     if not isinstance(tags, list):
         raise HealthScoreFrameworkError(f"component {row.get('key')!r} tags must be a list")
+    sources = row.get("data_source")
+    if isinstance(sources, str) and sources.strip():
+        sources = [sources.strip()]
+    if (
+        not isinstance(sources, list)
+        or not sources
+        or any(not str(item).strip() for item in sources)
+    ):
+        raise HealthScoreFrameworkError(
+            f"component {row.get('key')!r} data_source must be a non-empty list"
+        )
+    automation = str(row.get("automation") or "").strip().lower()
+    if automation not in AUTOMATION_VALUES:
+        raise HealthScoreFrameworkError(
+            f"component {row.get('key')!r} automation must be one of "
+            f"{list(AUTOMATION_VALUES)}, got {row.get('automation')!r}"
+        )
     return {
         **row,
         "grain": grain,
         "owner": str(row.get("owner") or default_owner).strip(),
         "metric-id": row.get("metric-id"),
         "metric-generator": row.get("metric-generator"),
+        "data_source": [str(item).strip() for item in sources],
+        "automation": automation,
         "tags": [str(tag).strip().lower() for tag in tags],
     }
 

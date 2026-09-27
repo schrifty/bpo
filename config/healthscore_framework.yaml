@@ -1,7 +1,11 @@
 # LeanDNA Customer Health Score — draft framework (config/healthscore_framework.yaml)
 #
 # Field names mirror config/my-metrics.yaml so the two catalogs can merge later:
-#   description       — what the input measures
+#   description       — what is measured, where the number comes from, over what
+#                       window, and how it turns into points. Specific enough to
+#                       build a generator from; plain enough for a non-technical
+#                       reader. Say plainly when a source or threshold is not
+#                       yet defined instead of implying it exists.
 #   owner             — owner email (defaults to `owner` at the top of this file)
 #   metric-id         — LeanDNA Data API catalog id; null until one exists
 #   metric-generator  — Python generator name; null when no generator exists yet
@@ -11,7 +15,8 @@
 #   tags              — lowercase grouping labels
 #
 # Health Score adds the weighting model the KPI registry does not have:
-#   pillar, signal, metric, scoring, max_points, weight, data_source, automation,
+#   pillar, signal, metric, scoring, max_points, weight, data_source (a list;
+#   one component can have several), automation (automated | manual | blocked),
 #   status, notes.
 #
 # Weights come from the source PDF. Rows the PDF left unresolved keep a null
@@ -34,13 +39,13 @@ inputs:
   - key: usage_level
     pillar: Product Adoption & Usage
     name: Usage level (breadth & depth)
-    description: CSR usage R/Y/G calculation.
+    description: "Share of the entity's buyers who were active in LeanDNA this week, from the CS Report week rows (a named Usage health component when present, otherwise Weekly Active Buyers %), averaged across the entity's factories and banded into 0–6 points."
     signal: leading
     metric: CSR automatic health/usage percentage
     scoring: "No data=0; 0–30%=1; 31–50%=2; 51–65%=3; 66–80%=4; 81–92%=5; 93–100%=6"
     max_points: 6
     weight: 6
-    data_source: Apex / CSR
+    data_source: [Apex, CS Report]
     grain: weekly
     automation: automated
     status: defined
@@ -52,13 +57,13 @@ inputs:
   - key: usage_trend
     pillar: Product Adoption & Usage
     name: Usage trend / velocity
-    description: Direction and rate of change in usage over the trailing 30/60/90 days.
+    description: "Whether usage is rising, flat, or falling: percent change in the stored weekly Usage level percent from the oldest to the newest week inside the trailing 13 weeks. Needs at least two weekly readings; more than +10% is rising, more than -10% is falling."
     signal: leading
     metric: Percent change in active usage over trailing 90 days
     scoring: "Percent change of stored CSR usage % over trailing 13 weeks (or as many weekly points as exist, min 2). >+10%=5; within ±10%=3; <-10%=0. Insufficient history stays unscored."
     max_points: 5
     weight: 5
-    data_source: CSR or CSR downloads
+    data_source: [CS Report]
     grain: weekly
     automation: automated
     status: defined
@@ -70,13 +75,13 @@ inputs:
   - key: product_anchor_adoption
     pillar: Product Adoption & Usage
     name: Product anchor adoption
-    description: Breadth of adoption across eight core Apex workflows.
+    description: "How many of the eight core Apex anchor workflows the entity used in the trailing 90 days, counted from Pendo feature usage. The eight anchors are not yet named or tagged in Pendo, so nothing can be counted until they are."
     signal: leading
     metric: Number of eight anchor workflows used in last 90 days
     scoring: "0–2=0; 3=2; 4+=5"
     max_points: 5
     weight: 5
-    data_source: Pendo
+    data_source: [Pendo]
     grain: monthly
     automation: blocked
     status: needs_definition
@@ -87,15 +92,15 @@ inputs:
   - key: writeback_usage
     pillar: Product Adoption & Usage
     name: Writeback usage
-    description: Whether writeback is enabled and used weekly.
+    description: "Whether the entity wrote data back to its ERP through Apex at least once during the week. Neither Apex nor the CS Report exposes a writeback signal today, so the yes/no is entered by hand."
     signal: leading
     metric: Weekly writeback use, yes/no
     scoring: "Yes=2; no=0"
     max_points: 2
     weight: 2
-    data_source: Apex / CSR
+    data_source: [Apex, CS Report]
     grain: weekly
-    automation: hybrid
+    automation: manual
     status: needs_source
     metric-id: null
     metric-generator: null
@@ -103,13 +108,13 @@ inputs:
   - key: champion_login_continuity
     pillar: Product Adoption & Usage
     name: Champion login continuity
-    description: Whether the Salesforce Account executive sponsor logged in during the trailing 7 days.
+    description: "Whether the executive sponsor named on the Salesforce Customer Entity Account logged in to LeanDNA during the trailing 7 days, measured as days since the Account's executive-sponsor last-login timestamp. Accounts with no named sponsor stay unscored."
     signal: leading
     metric: Days since the executive sponsor's last login
     scoring: "Last login within 7 days=2; named sponsor with no login in that window=0; no named executive sponsor stays unscored"
     max_points: 2
     weight: 2
-    data_source: Salesforce Account executive sponsor
+    data_source: [Salesforce]
     grain: weekly
     automation: automated
     status: defined
@@ -121,16 +126,17 @@ inputs:
   - key: customer_data_delivery
     pillar: Product Adoption & Usage
     name: On-time customer data delivery
-    description: Whether ERP data feeds are live, fresh, and clean.
+    description: "Whether the entity's daily ERP data sync succeeded, how many minutes late it was, and how many records errored. On time scores 5 and under 15 minutes late scores 3; how a failed feed scores is not yet defined. Blocked until an Apex log of daily sync success, lateness, and record errors is available."
     signal: leading
     metric: Feed uptime, time since successful sync, and quality/error rate
     scoring: "On time=5; successful <15 minutes late=3; failure scoring needs definition"
     max_points: 5
     weight: 5
-    data_source: Apex integration/data-ops logs
+    data_source: [Apex integration logs]
     grain: daily
-    automation: automated
-    status: needs_definition
+    automation: blocked
+    status: needs_source
+    notes: Waiting on an Apex log of daily sync success, lateness, and record errors.
     metric-id: null
     metric-generator: null
     tags: [customer-success, healthscore, adoption, data-integration]
@@ -138,13 +144,13 @@ inputs:
   - key: verified_outcomes
     pillar: Value Realization / ROI
     name: Verified outcomes achieved
-    description: CSM-verified business outcomes logged for the entity.
+    description: "Number of business outcomes the CSM verified and logged for the entity during the quarter. No system records these yet, so the count is entered by hand; two or more score 6, one scores 5, and how zero or unknown scores is still open."
     signal: lagging
     metric: Verified outcomes per quarter
     scoring: "2+=6; 1–2=5; zero/unknown scoring needs clarification"
     max_points: 6
     weight: 6
-    data_source: New verified-outcome tracking mechanism
+    data_source: [Verified-outcome log]
     grain: quarterly
     automation: manual
     status: needs_source
@@ -154,13 +160,13 @@ inputs:
   - key: roi_multiple
     pillar: Value Realization / ROI
     name: ROI multiple
-    description: Value delivered divided by annualized contract value.
+    description: "Value delivered compared with what the customer pays: Apex-reported savings dollars for the quarter divided by the Salesforce annualized contract value, reset at each renewal. Seven times or more scores 6, under three times scores 0. No weight is set yet, so it does not count toward the score."
     signal: lagging
     metric: Outcome dollars / annualized contract value
     scoring: "7x+=6; 5–<7x=4; 3–<5x=2; <3x=0"
     max_points: 6
     weight: null
-    data_source: Salesforce + Apex savings
+    data_source: [Salesforce, Apex]
     grain: quarterly
     cadence_note: Quarterly; reset at renewal
     automation: automated
@@ -172,13 +178,13 @@ inputs:
   - key: time_to_first_value
     pillar: Value Realization / ROI
     name: Time to first value
-    description: Whether onboarding reached its first measurable value milestone on schedule.
+    description: "Days from the entity's go-live to its first verified outcome, measured once per onboarding. Within the proposed 115 days scores 3, longer scores 0. The source and the threshold are not yet confirmed, so the date is entered by hand."
     signal: leading
     metric: Days from go-live to first verified outcome
     scoring: "≤115 days=3; >115 days=0; threshold needs confirmation"
     max_points: 3
     weight: 3
-    data_source: Manual until source is defined
+    data_source: [Not yet defined]
     grain: null
     cadence_note: Once per onboarding
     automation: manual
@@ -189,13 +195,13 @@ inputs:
   - key: premium_anchor_expansion
     pillar: Value Realization / ROI
     name: Use case / anchor expansion vs. contract
-    description: Adoption of additional premium modules such as AIOP or DSM.
+    description: "Whether the entity used a premium module such as AIOP or DSM during the month, from Pendo feature usage. Any use scores 3, none scores 0."
     signal: leading
     metric: Monthly premium-product usage
     scoring: "Usage=3; no usage=0"
     max_points: 3
     weight: 3
-    data_source: Pendo
+    data_source: [Pendo]
     grain: monthly
     automation: automated
     status: defined
@@ -206,15 +212,15 @@ inputs:
   - key: executive_sponsorship
     pillar: Relationship & Engagement
     name: Executive sponsorship strength
-    description: Recency- and frequency-weighted senior executive engagement.
+    description: "How engaged the customer's senior executives (Senior Director and above) are with LeanDNA: number of touches in the trailing two quarters and days since the last one, from Salesforce activity, Chorus calls, and Gmail/Calendar, weighted toward recent contact. Point thresholds are not yet defined."
     signal: leading
     metric: Senior Director+ touches in trailing two quarters and days since last touch
     scoring: Baseline and point thresholds need definition
     max_points: null
     weight: 4
-    data_source: Salesforce activity + Chorus + Gmail/Calendar
+    data_source: [Salesforce, Chorus, Gmail, Calendar]
     grain: monthly
-    automation: hybrid
+    automation: manual
     status: needs_definition
     metric-id: null
     metric-generator: null
@@ -222,13 +228,13 @@ inputs:
   - key: multithreading_depth
     pillar: Relationship & Engagement
     name: Multi-threading depth
-    description: Distinct actively engaged Director+ stakeholders.
+    description: "How many different Director-and-above contacts at the customer engaged with LeanDNA in the trailing 90 days, and whether that number is growing, from Salesforce, Gmail, and Chorus. Depends on reliable contact titles in Salesforce; point thresholds are not yet defined."
     signal: leading
     metric: Distinct Director+ contacts engaged in trailing 90 days and trend
     scoring: Point thresholds need definition
     max_points: null
     weight: 4
-    data_source: Salesforce + Gmail + Chorus
+    data_source: [Salesforce, Gmail, Chorus]
     grain: monthly
     automation: blocked
     status: needs_definition
@@ -239,13 +245,13 @@ inputs:
   - key: meeting_cadence
     pillar: Relationship & Engagement
     name: Meeting cadence adherence
-    description: Share of scheduled CSM/QBR touchpoints actually held.
+    description: "Share of scheduled CSM and QBR meetings that were actually held in the trailing two quarters, from Salesforce/Calendar events and Chorus recordings. 80% or more scores 2, less scores 0."
     signal: leading
     metric: Percent held in trailing two quarters
     scoring: "≥80%=2; <80%=0"
     max_points: 2
     weight: 2
-    data_source: Salesforce/Calendar + Chorus
+    data_source: [Salesforce, Calendar, Chorus]
     grain: monthly
     automation: automated
     status: defined
@@ -256,13 +262,13 @@ inputs:
   - key: champion_turnover
     pillar: Relationship & Engagement
     name: Champion / stakeholder turnover
-    description: Departure or role change of primary champion or economic buyer.
+    description: "Whether the entity's primary champion or economic buyer left the company or changed role during the week, from Salesforce contact changes and external research. Either departure scores 0; otherwise 4. The change signal is not yet sourced."
     signal: leading
     metric: Tracked-contact departure or role-change flag
     scoring: "Primary champion leaves=0; economic buyer leaves=0; otherwise=4"
     max_points: 4
     weight: 4
-    data_source: Salesforce + external research
+    data_source: [Salesforce, External research]
     grain: weekly
     automation: blocked
     status: needs_source
@@ -273,13 +279,13 @@ inputs:
   - key: csm_sentiment
     pillar: Voice of Customer / Sentiment
     name: CSM sentiment (structured)
-    description: Rubric-based CSM view of relationship, renewal confidence, and escalation risk.
+    description: "The CSM's weekly red/yellow/green rating of the relationship, renewal confidence, and escalation risk, scored against a fixed rubric and recorded in Apex. Red scores 0, yellow 1, green 3."
     signal: leading
     metric: Structured red/yellow/green
     scoring: "Red=0; yellow=1; green=3"
     max_points: 3
     weight: 3
-    data_source: Apex
+    data_source: [Apex]
     grain: weekly
     automation: manual
     status: defined
@@ -289,13 +295,13 @@ inputs:
   - key: email_sentiment
     pillar: Voice of Customer / Sentiment
     name: Email tone / sentiment
-    description: AI-scored 30-day sentiment trend across customer email threads.
+    description: "Tone of the customer's email threads over the trailing 30 days, scored by Claude from Gmail on a -1 to +1 scale and tracked as a trend. Positive scores 2, negative 0; the neutral cut-off and the data-governance approval to read email are still open."
     signal: leading
     metric: Rolling sentiment score from -1 to +1
     scoring: "Positive=2; negative=0; neutral threshold needs definition"
     max_points: 2
     weight: 2
-    data_source: Gmail + Claude
+    data_source: [Gmail, Claude]
     grain: monthly
     automation: automated
     status: needs_governance
@@ -305,13 +311,13 @@ inputs:
   - key: call_sentiment
     pillar: Voice of Customer / Sentiment
     name: Call sentiment / tone
-    description: Call-tone sentiment, separate from talk-time ratio.
+    description: "Tone of recorded customer calls during the month, from the Chorus sentiment score (or Claude on transcripts) and its trend, separate from who did the talking. Positive scores 2, negative 0; the neutral cut-off is not yet defined."
     signal: leading
     metric: Chorus sentiment score and trend
     scoring: "Positive=2; negative=0; neutral threshold needs definition"
     max_points: 2
     weight: 2
-    data_source: Chorus or Claude
+    data_source: [Chorus, Claude]
     grain: monthly
     automation: automated
     status: needs_definition
@@ -321,13 +327,13 @@ inputs:
   - key: call_talk_ratio
     pillar: Voice of Customer / Sentiment
     name: Call talk-time ratio
-    description: Share of call time spoken by LeanDNA representatives.
+    description: "Share of recorded call time spoken by LeanDNA staff rather than the customer, from Chorus, rolling over the month. Under 50% scores 2 (the customer is doing most of the talking); over 50% scores 0."
     signal: leading
     metric: Rolling representative talk-time percent
     scoring: "<50%=2; >50%=0; exact neutral boundary needs confirmation"
     max_points: 2
     weight: 2
-    data_source: Chorus
+    data_source: [Chorus]
     grain: monthly
     automation: automated
     status: needs_definition
@@ -339,13 +345,13 @@ inputs:
   - key: ticket_volume_trend
     pillar: Support Experience
     name: Ticket volume & trend
-    description: Trailing ticket volume and change versus the prior period.
+    description: "Number of support tickets the entity opened in the trailing 90 days and the percent change from the 90 days before, from the support system. A spike to three times the prior period is proposed to score 0; the other bands need data before they can be set."
     signal: leading
     metric: 90-day ticket count and percent change
     scoring: "Proposed 3x spike=0; remaining points and threshold need data"
     max_points: null
     weight: 3
-    data_source: Support system
+    data_source: [Support system]
     grain: monthly
     automation: automated
     status: needs_definition
@@ -355,13 +361,13 @@ inputs:
   - key: sla_adherence
     pillar: Support Experience
     name: SLA adherence
-    description: Resolution within severity-specific timelines.
+    description: "Whether the entity's support tickets were resolved within the SLA for their severity during the month, tracked as median and 95th-percentile resolution time from the support system. Within SLA scores 3, outside 0; the SLA targets themselves are not yet confirmed."
     signal: lagging
     metric: Median and 95th-percentile SLA
     scoring: "Within SLA=3; outside SLA=0; SLA definition needs confirmation"
     max_points: 3
     weight: 3
-    data_source: Support system
+    data_source: [Support system]
     grain: monthly
     automation: automated
     status: needs_definition
@@ -372,13 +378,13 @@ inputs:
   - key: escalation_rate
     pillar: Support Experience
     name: Escalation rate & severity mix
-    description: Share of tickets that are Sev-1/2 or formally escalated.
+    description: "Share of the entity's tickets in the month that were Sev-1 or Sev-2, and the share that were formally escalated, from the support system. Point thresholds are not yet defined."
     signal: leading
     metric: Sev-1/2 percent and escalated percent
     scoring: Point thresholds need definition
     max_points: null
     weight: 2
-    data_source: Support system
+    data_source: [Support system]
     grain: monthly
     automation: automated
     status: needs_definition
@@ -390,13 +396,13 @@ inputs:
   - key: time_to_renewal
     pillar: Commercial & Contract Risk
     name: Time to renewal
-    description: Contract lifecycle context that changes urgency of other risks.
+    description: "Days until the Salesforce contract end date and whether the contract auto-renews, checked weekly. Auto-renew contracts 90–180 days out and non-auto-renew contracts within 120 days score 0 because other risks matter most then; otherwise 3."
     signal: leading
     metric: Days until renewal and auto-renew status
     scoring: "Auto-renew at 90–180 days=0; non-auto-renew at 0–120 days=0; otherwise=3"
     max_points: 3
     weight: 3
-    data_source: Salesforce
+    data_source: [Salesforce]
     grain: weekly
     automation: automated
     status: defined
@@ -406,13 +412,13 @@ inputs:
   - key: contract_value_trend
     pillar: Commercial & Contract Risk
     name: Contract value trend
-    description: Expansion, flat renewal, or contraction across two renewals.
+    description: "Percent change in annual contract value at each Salesforce renewal compared with the prior term. Growth of 5% or more scores 5, smaller growth scores 1–4 by percent, and any contraction scores 0."
     signal: lagging
     metric: Percent ACV change at renewal
     scoring: "5%+=5; 4%=4; 3%=3; 2%=2; 0–1%=1; contraction=0"
     max_points: 5
     weight: 5
-    data_source: Salesforce
+    data_source: [Salesforce]
     grain: null
     cadence_note: Per renewal
     automation: automated
@@ -424,13 +430,13 @@ inputs:
   - key: payment_delinquency
     pillar: Commercial & Contract Risk
     name: Payment / invoice delinquency
-    description: Late or disputed payments.
+    description: "Whether the entity's invoices are past due or in dispute: days past due and dispute status, checked monthly from Finance or Salesforce. No source is connected and point thresholds are not yet defined."
     signal: leading
     metric: Days past due and dispute status
     scoring: Point thresholds need definition
     max_points: null
     weight: 2
-    data_source: Finance or Salesforce
+    data_source: [Finance, Salesforce]
     grain: monthly
     automation: blocked
     status: needs_source
@@ -441,13 +447,13 @@ inputs:
   - key: product_ideas
     pillar: Advocacy
     name: Product idea submissions
-    description: Customer effort invested in shaping the product and the tone of submissions.
+    description: "Number of product ideas the customer submitted through the Pendo feedback / idea portal in the trailing 12 months, and their tone. One or more scores 2, none scores 0."
     signal: leading
     metric: Ideas in trailing 12 months and sentiment
     scoring: "1+=2; 0=0"
     max_points: 2
     weight: 2
-    data_source: Pendo feedback / idea portal
+    data_source: [Pendo]
     grain: monthly
     automation: automated
     status: defined
@@ -457,15 +463,15 @@ inputs:
   - key: reference_willingness
     pillar: Advocacy
     name: Reference / case study willingness
-    description: Agreed reference, case study, or testimonial.
+    description: "Whether the customer has agreed to act as a reference, case study, or testimonial, from the Salesforce willingness flag and the date of the last reference activity, checked quarterly. Yes scores 2, no scores 0."
     signal: leading
     metric: Willingness flag and date of last activity
     scoring: "Yes=2; no=0"
     max_points: 2
     weight: 2
-    data_source: Salesforce
+    data_source: [Salesforce]
     grain: quarterly
-    automation: hybrid
+    automation: manual
     status: defined
     metric-id: null
     metric-generator: null
@@ -473,13 +479,13 @@ inputs:
   - key: summit_attendance
     pillar: Advocacy
     name: Summit attendance
-    description: Customer attended Summit in the last 12 months.
+    description: "Whether anyone from the customer attended LeanDNA Summit in the trailing 12 months, from Salesforce attendance records. Yes scores 1, no scores 0."
     signal: leading
     metric: Attendance in trailing 12 months
     scoring: "Yes=1; no=0"
     max_points: 1
     weight: 1
-    data_source: Salesforce
+    data_source: [Salesforce]
     grain: monthly
     automation: automated
     status: defined
@@ -490,8 +496,8 @@ inputs:
 overrides:
   - key: merger_acquisition
     name: M&A activity / parent company change
-    description: Mergers, acquisitions, divestitures, or reorganizations affecting the entity.
-    data_source: Web/news research
+    description: "Flag raised when web or news research finds a merger, acquisition, divestiture, or reorganization affecting the entity or its parent, reviewed monthly. No research connector is wired yet."
+    data_source: [Web research]
     grain: monthly
     automation: automated
     status: needs_source
@@ -500,8 +506,8 @@ overrides:
     tags: [customer-success, healthscore, override]
   - key: champion_departure_external
     name: Champion / executive departure
-    description: Known champion left the customer company.
-    data_source: Manual until a reliable external connector exists
+    description: "Flag raised when a known champion is confirmed to have left the customer company, from external signals such as a job change, reviewed weekly. Entered by hand until a reliable connector exists."
+    data_source: [External research]
     grain: weekly
     automation: manual
     status: needs_source
@@ -510,18 +516,18 @@ overrides:
     tags: [customer-success, healthscore, override]
   - key: financial_distress
     name: Customer financial distress
-    description: Layoffs, funding issues, restructuring, or public-market deterioration.
-    data_source: Web/news research
+    description: "Flag raised when web or news research finds layoffs, funding problems, restructuring, or public-market deterioration at the customer, reviewed monthly. Research can be automated; a person confirms before the flag is raised."
+    data_source: [Web research]
     grain: monthly
-    automation: hybrid
+    automation: manual
     status: needs_source
     metric-id: null
     metric-generator: null
     tags: [customer-success, healthscore, override]
   - key: competitive_mentions
     name: Competitive mentions
-    description: Competitor referenced in calls, email, posts, or press.
-    data_source: Chorus + Gmail + research
+    description: "Flag raised when a competitor is named in Chorus calls, Gmail threads, public posts, or press about the customer during the month. Which mentions count has not yet been defined."
+    data_source: [Chorus, Gmail, Web research]
     grain: monthly
     automation: automated
     status: needs_definition

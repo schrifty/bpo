@@ -97,7 +97,7 @@
 
 .dot.automated { background: var(--ok); }
 .dot.manual { background: #315f9c; }
-.dot.blocked { background: var(--warn); }
+.dot.blocked { background: var(--danger); }
 
 .hs-table-scroll {
   flex: 1;
@@ -144,6 +144,23 @@
   font-weight: 600;
 }
 
+.hs-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.hs-source-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.38rem;
+  border-radius: 999px;
+  background: #f4f1ea;
+  color: var(--ink);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
 .hs-source-badge,
 .hs-status {
   display: inline-flex;
@@ -155,6 +172,21 @@
   color: var(--muted);
   font-size: 0.68rem;
   white-space: nowrap;
+}
+
+.hs-source-badge.automated {
+  background: #e5f2ee;
+  color: var(--ok);
+}
+
+.hs-source-badge.manual {
+  background: #e7eef8;
+  color: #315f9c;
+}
+
+.hs-source-badge.blocked {
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .hs-influence {
