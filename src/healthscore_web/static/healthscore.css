@@ -160,13 +160,8 @@
   color: var(--muted);
 }
 
-.hs-components tbody tr.blocked,
-.hs-components tbody tr.blocked:hover,
-.hs-components tbody tr.blocked.active {
-  background: #fbf1f1;
-}
-
 .hs-components tbody tr.active {
+  background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
@@ -360,6 +355,20 @@
 .hs-points-hint {
   font-size: 0.72rem;
   margin-left: 0.5rem;
+}
+
+.hs-weight-value {
+  cursor: text;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.hs-weight-value:hover {
+  background: var(--accent-soft);
+}
+
+.hs-weight-input {
+  max-width: 5rem;
 }
 
 .hs-pillar-select {

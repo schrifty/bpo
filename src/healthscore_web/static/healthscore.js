@@ -207,8 +207,7 @@
     for (const group of groups) {
       rows.push(pillarHeader(group.name, group.total));
       for (const component of group.items) {
-        const status = String(component.automation || "").toLowerCase();
-        rows.push(`<tr data-component="${esc(component.key)}" class="${status === "blocked" ? "blocked" : ""}">
+        rows.push(`<tr data-component="${esc(component.key)}" class="${component.key === state.selected ? "active" : ""}">
           <td><div class="hs-component-name">${esc(component.name)}</div><span class="hs-status">${esc(component.signal)}</span></td>
           <td>${component.weight == null ? '<span class="hs-status">TBD</span>' : formatWeight(component.weight)}</td>
           <td>${influenceCell(component)}</td>
@@ -232,7 +231,7 @@
     for (const button of $("hs-overrides-list").querySelectorAll("button")) {
       button.addEventListener("click", () => selectComponent(button.dataset.component));
     }
-    if (state.selected) selectComponent(state.selected, false);
+    if (state.selected) selectComponent(state.selected);
   }
 
   function componentDefinition(key) {
@@ -275,14 +274,12 @@
     </svg>`;
   }
 
-  function selectComponent(key, markActive = true) {
+  function selectComponent(key) {
     state.selected = key;
     const definition = componentDefinition(key);
     if (!definition) return;
-    if (markActive) {
-      for (const row of $("hs-components-body").querySelectorAll("tr[data-component]")) {
-        row.classList.toggle("active", row.dataset.component === key);
-      }
+    for (const row of $("hs-components-body").querySelectorAll("tr[data-component]")) {
+      row.classList.toggle("active", row.dataset.component === key);
     }
     const latest = componentLatest(key);
     const history = componentHistory(key);
@@ -303,7 +300,7 @@
       </div>
       <dl class="hs-detail-grid">
         ${isOverride ? "" : `<dt>Pillar</dt><dd id="hs-pillar-cell">${pillarCell(definition)}</dd>`}
-        ${isOverride ? "" : `<dt>Weight</dt><dd>${definition.weight == null ? "TBD" : `${definition.weight}%`}</dd>`}
+        ${isOverride ? "" : `<dt>Weight</dt><dd id="hs-weight-cell">${weightCell(definition)}</dd>`}
         <dt>Description</dt><dd>${esc(definition.description)}</dd>
         ${definition.metric ? `<dt>Measurable metric</dt><dd>${esc(definition.metric)}</dd>` : ""}
         ${definition.scoring ? `<dt>Scoring rule</dt><dd>${esc(definition.scoring)}</dd>` : ""}
@@ -319,8 +316,83 @@
       <p id="hs-entry-error" class="error" hidden></p>`;
     const edit = $("hs-detail-edit");
     if (edit) edit.addEventListener("click", () => openComponentForm(definition));
-    if (!isOverride) wirePillarCell(definition);
+    if (!isOverride) {
+      wirePillarCell(definition);
+      wireWeightCell(definition);
+    }
     if (definition.grain) wirePointsCell(definition, latest);
+  }
+
+  function weightText(definition) {
+    return definition.weight == null ? "TBD" : formatWeight(definition.weight);
+  }
+
+  function weightCell(definition) {
+    if (!isAdmin()) return weightText(definition);
+    return `<span class="hs-weight-value value-ok" title="Click to change the weight">${weightText(definition)}</span>`;
+  }
+
+  function wireWeightCell(definition) {
+    const cell = $("hs-weight-cell");
+    if (!cell) return;
+    const value = cell.querySelector(".hs-weight-value");
+    if (value) value.addEventListener("click", () => beginWeightEdit(cell, definition));
+  }
+
+  function beginWeightEdit(cell, definition) {
+    if (cell.querySelector("input")) return;
+    const prior = definition.weight == null ? "" : String(definition.weight);
+    cell.innerHTML = `<input class="value-input hs-weight-input" type="text" inputmode="decimal" aria-label="Weight for ${esc(definition.name)}" title="Clear the box to mark the weight TBD" /><span class="muted hs-points-hint">% · Enter saves · Esc cancels</span>`;
+    const input = cell.querySelector("input");
+    input.value = prior;
+    input.focus();
+    input.select();
+    let done = false;
+    const restore = () => {
+      cell.innerHTML = weightCell(definition);
+      wireWeightCell(definition);
+    };
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      const typed = input.value.trim().replace(/%$/, "");
+      if (!save || typed === prior) {
+        restore();
+        return;
+      }
+      let weight = null;
+      if (typed) {
+        weight = Number(typed);
+        if (!Number.isFinite(weight) || weight < 0) {
+          restore();
+          showEntryError(`Invalid weight: ${typed}`);
+          return;
+        }
+      }
+      showEntryError("");
+      input.disabled = true;
+      try {
+        const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(definition.key)}`, {
+          method: "PUT",
+          body: JSON.stringify({ weight }),
+        });
+        state.framework = result.framework;
+        await loadScore();
+      } catch (saveError) {
+        restore();
+        showEntryError(saveError.message);
+      }
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
   }
 
   function pillarCell(definition) {
