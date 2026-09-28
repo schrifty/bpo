@@ -210,7 +210,7 @@
 }
 
 .hs-components tbody tr.active {
-  background: var(--accent-soft);
+  background: #e6e6e6;
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
