@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from src.jira_client import compute_eng_flow, compute_status_timeline, summarize_status_flow
+from src.jira_engineering_portfolio import _rollup_in_flight
 
 _NOW = datetime(2026, 6, 10, 0, 0, 0, tzinfo=timezone.utc)
 
@@ -121,3 +122,30 @@ def test_flagged_drives_blocked_count_and_ranks_first() -> None:
     assert flow["blocked_count"] == 1
     # Flagged item ranks ahead of the merely-old one.
     assert flow["attention_items"][0]["key"] == "L-FLAG"
+
+
+def test_rollup_in_flight_splits_theme_and_abandoned_work() -> None:
+    from datetime import date
+
+    today = date(2026, 6, 1)
+    in_flight = [
+        {
+            "key": "L-1", "summary": "[Kei] thing", "parent_summary": "",
+            "status": "In Progress", "type": "Bug", "priority": "Critical",
+            "assignee": "Ada", "updated": "2026-05-20",
+        },
+        {
+            "key": "L-2", "summary": "no prefix", "parent_summary": "[Old] Parent epic",
+            "status": "Open", "type": "Story", "priority": "Medium",
+            "assignee": "Ada", "updated": "2025-01-01",
+        },
+    ]
+    roll = _rollup_in_flight(in_flight, today=today)
+    themes = {row["theme"]: row["total"] for row in roll["themes"]}
+    assert themes == {"Kei": 1, "Parent epic": 1}
+    assert roll["open_bugs"][0]["key"] == "L-1"
+    assert roll["blocker_critical"][0]["key"] == "L-1"
+    assert roll["backlog_staleness"]["fresh_open"] == 1
+    assert roll["backlog_staleness"]["abandoned_open"] == 1
+    assert roll["by_assignee_active"]["Ada"] == 1
+    assert roll["by_assignee_stale"]["Ada"] == 1
