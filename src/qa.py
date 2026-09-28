@@ -149,7 +149,7 @@ class QARegistry:
         else:
             legacy = (
                 "Pendo", "CS Report", "Atlassian Jira", "Atlassian Teams",
-                "Salesforce", "Cursor", "GitHub", "Aha", "LeanDNA",
+                "Salesforce", "Cursor", "GitHub", "Aha", "Chorus", "LeanDNA",
             )
             data_sources = {k: full_sources[k] for k in legacy if k in full_sources}
         gov = (report or {}).get("_governance") or {}
@@ -213,6 +213,19 @@ class QARegistry:
         return "ok"
 
     @staticmethod
+    def _chorus_source_status(report: dict | None) -> str:
+        if not report or not isinstance(report, dict):
+            return "unavailable"
+        block = report.get("chorus")
+        if not isinstance(block, dict) or not block:
+            return "unavailable"
+        if block.get("configured") is False:
+            return "unavailable"
+        if (block.get("error") or "").strip():
+            return "unavailable"
+        return "ok"
+
+    @staticmethod
     def _github_source_status(report: dict | None) -> str:
         if not report or not isinstance(report, dict):
             return "unavailable"
@@ -239,6 +252,7 @@ class QARegistry:
             "Cursor": "unavailable",
             "GitHub": QARegistry._github_source_status(report),
             "Aha": QARegistry._aha_source_status(report),
+            "Chorus": QARegistry._chorus_source_status(report),
             "LeanDNA": QARegistry._leandna_source_status(report),
         }
         for f in flags:
@@ -265,6 +279,7 @@ class QARegistry:
                 pass
         sources["GitHub"] = QARegistry._github_source_status(report)
         sources["Aha"] = QARegistry._aha_source_status(report)
+        sources["Chorus"] = QARegistry._chorus_source_status(report)
         sources["LeanDNA"] = QARegistry._leandna_source_status(report)
         return sources
 

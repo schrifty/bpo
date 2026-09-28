@@ -287,6 +287,14 @@ if os.environ.get("CORTEX_ATLASSIAN_TEAMS_CACHE_DISABLED", "").strip().lower() i
 CORTEX_AHA_API_KEY = os.environ.get("CORTEX_AHA_API_KEY", "").strip() or None
 CORTEX_AHA_DOMAIN = (os.environ.get("CORTEX_AHA_DOMAIN", "leandna1").strip() or "leandna1")
 
+# Chorus REST API (optional). Personal token from Chorus Settings → Personal
+# Settings → API Access. Sent as the raw Authorization value (no Bearer prefix).
+CHORUS_API_KEY = os.environ.get("CHORUS_API_KEY", "").strip() or None
+CHORUS_API_BASE_URL = (
+    os.environ.get("CHORUS_API_BASE_URL", "https://chorus.ai").strip().rstrip("/")
+    or "https://chorus.ai"
+)
+
 # Slack (optional — bot token for customer channel conversation digests)
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip() or None
 SLACK_API_BASE_URL = (

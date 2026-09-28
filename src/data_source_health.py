@@ -108,6 +108,16 @@ def check_aha() -> tuple[bool, str | None]:
         return False, f"Aha: {str(e)[:120]}"
 
 
+def check_chorus() -> tuple[bool, str | None]:
+    """Return (True, None) when Chorus is unset or GET /api/v1/users/me succeeds."""
+    try:
+        from .chorus_client import check_chorus_api
+        return check_chorus_api()
+    except Exception as e:
+        logger.warning("Chorus preflight failed: %s", e)
+        return False, f"Chorus: {str(e)[:120]}"
+
+
 def check_slack() -> tuple[bool, str | None]:
     """Return (True, None) if Slack is not configured or ``auth.test`` succeeds."""
     try:
@@ -162,6 +172,8 @@ def _run_preflight(source: str) -> tuple[bool, str | None]:
         return check_slack()
     if source == "aha":
         return check_aha()
+    if source == "chorus":
+        return check_chorus()
     if source == "cs_report":
         return check_cs_report()
     if source == "jira":
@@ -207,6 +219,7 @@ def check_required_for_job(job_name: str) -> list[str]:
 def integration_freshness_metadata() -> dict[str, object]:
     """Integration configuration and cache freshness for run summaries / unattended gates."""
     from .config import (
+        CHORUS_API_KEY,
         CORTEX_AHA_API_KEY,
         CORTEX_JIRA_CACHE_TTL_SECONDS,
         CORTEX_PENDO_DISK_CACHE_TTL_SECONDS,
@@ -231,6 +244,7 @@ def integration_freshness_metadata() -> dict[str, object]:
         "pendo_disk_cache_ttl_h": round(CORTEX_PENDO_DISK_CACHE_TTL_SECONDS / 3600.0, 2),
         "jira_cache_ttl_h": round(CORTEX_JIRA_CACHE_TTL_SECONDS / 3600.0, 2),
         "aha_configured": bool(CORTEX_AHA_API_KEY),
+        "chorus_configured": bool(CHORUS_API_KEY),
         "slack_configured": bool(SLACK_BOT_TOKEN),
         "slack_cache_ttl_h": round(CORTEX_SLACK_CACHE_TTL_SECONDS / 3600.0, 2),
     }

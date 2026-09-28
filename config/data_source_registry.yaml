@@ -119,6 +119,39 @@ sources:
       - name: idea_portals
         method: GET
         path: /idea_portals
+  chorus:
+    display_name: Chorus
+    authority: enrichment
+    env_required: []
+    env_optional: [CHORUS_API_KEY, CHORUS_API_BASE_URL]
+    endpoints:
+      - name: me
+        method: GET
+        path: /api/v1/users/me
+      - name: users
+        method: GET
+        path: /v3/users
+      - name: engagements
+        method: GET
+        path: /v3/engagements
+      - name: conversation
+        method: GET
+        path: /api/v1/conversations/{id}
+      - name: emails
+        method: GET
+        path: /api/v1/emails
+      - name: scorecards
+        method: GET
+        path: /api/v1/scorecards
+      - name: playlists
+        method: GET
+        path: /api/v1/playlists
+      - name: teams
+        method: GET
+        path: /api/v1/teams
+      - name: moments
+        method: GET
+        path: /api/v1/moments
   leandna:
     display_name: LeanDNA
     healthscore_label: Data API
@@ -184,4 +217,5 @@ source_display_order:
   - github
   - slack
   - aha
+  - chorus
   - leandna

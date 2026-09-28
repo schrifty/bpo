@@ -11,8 +11,9 @@ def test_build_cortex_meta_report_static_shape() -> None:
     gb = meta["graph_breadth"]
     assert gb["data_elements"] > 100
     assert gb["aliases_terms"] >= gb["data_elements"]
-    assert gb["source_systems"] == 10
+    assert gb["source_systems"] == 11
     assert "aha" in gb["enrichment_sources"]
+    assert "chorus" in gb["enrichment_sources"]
     assert gb["system_of_record"] == ["salesforce"]
     assert "salesforce" not in gb["enrichment_sources"]
     assert gb["report_blobs_mapped"] > 0
