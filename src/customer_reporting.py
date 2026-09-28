@@ -11,6 +11,7 @@ import threading
 
 import yaml
 
+from .config import logger
 from .config_paths import CS_REPORT_CUSTOMER_ALIASES_FILE
 from .salesforce_reporting import resolve_corporate_label
 
