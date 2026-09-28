@@ -16,6 +16,7 @@ sources:
     env_optional: [CSR_SHEET_ID]
   atlassian_jira:
     display_name: Atlassian Jira
+    healthscore_label: JIRA
     authority: enrichment
     aliases: [JIRA, Jira]
     env_required: [JIRA_URL, JIRA_API_TOKEN]
