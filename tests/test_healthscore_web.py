@@ -112,6 +112,10 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert "Attended" in summit["description"]
     known = {name.casefold() for name in framework["available_data_sources"]}
     assert {"salesforce", "cs report", "pendo", "aha"} <= known
+    labels = framework["available_source_labels"]
+    assert "Aha" in labels
+    assert "JIRA" not in labels
+    assert labels.index("Pendo") < labels.index("Salesforce") < labels.index("Aha")
     verified = next(row for row in framework["inputs"] if row["key"] == "verified_outcomes")
     assert verified["data_source"] == ["Verified-outcome log"]
     assert "verified-outcome log" not in known

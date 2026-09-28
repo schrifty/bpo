@@ -176,6 +176,24 @@
   color: var(--danger);
 }
 
+.hs-sources-dialog {
+  padding: 1rem 1.15rem 1.15rem;
+}
+
+.hs-sources-dialog h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+}
+
+.hs-sources-list {
+  list-style: none;
+  margin: 0.85rem 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
 .hs-source-badge,
 .hs-status {
   display: inline-flex;

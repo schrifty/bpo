@@ -552,8 +552,19 @@
     rememberEntity(state.entity ? state.entity.id : null);
     await loadScore();
   });
+  function openAvailableSources() {
+    setUserMenuOpen(false);
+    const labels = (state.framework && state.framework.available_source_labels) || [];
+    const list = $("hs-sources-list");
+    list.innerHTML = labels.length
+      ? labels.map((name) => `<li><span class="hs-source-chip available">${esc(name)}</span></li>`).join("")
+      : `<li class="muted">No connected sources are configured.</li>`;
+    $("hs-sources-dialog").showModal();
+  }
+
   $("hs-component-form").addEventListener("submit", submitComponentForm);
   $("hs-form-cancel").addEventListener("click", () => $("hs-component-dialog").close());
+  $("btn-available-sources").addEventListener("click", openAvailableSources);
   $("user-badge").addEventListener("click", (event) => {
     event.stopPropagation();
     setUserMenuOpen($("user-menu").classList.contains("hidden"));

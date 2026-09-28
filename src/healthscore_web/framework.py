@@ -114,14 +114,11 @@ def load_framework(path: Path | None = None) -> dict[str, Any]:
     payload["input_count"] = len(payload["inputs"])
     payload["override_count"] = len(payload["overrides"])
     payload["available_data_sources"] = available_data_source_names()
+    payload["available_source_labels"] = available_source_labels()
     return payload
 
 
-def available_data_source_names() -> list[str]:
-    """Display names and aliases of business systems Cortex can read.
-
-    Healthscore source chips treat every other label as not yet available.
-    """
+def _data_source_registry() -> dict[str, Any]:
     path = PROJECT_ROOT / "config" / "data_source_registry.yaml"
     try:
         registry = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -131,6 +128,37 @@ def available_data_source_names() -> list[str]:
         ) from exc
     if not isinstance(registry, dict):
         raise HealthScoreFrameworkError("data source registry must be a YAML object")
+    return registry
+
+
+def available_source_labels() -> list[str]:
+    """Display names of business systems Cortex can read, in registry order."""
+    registry = _data_source_registry()
+    sources = registry.get("sources") or {}
+    if not isinstance(sources, dict):
+        return []
+    order = registry.get("source_display_order") or list(sources)
+    labels: list[str] = []
+    seen: set[str] = set()
+    for key in [*order, *sources]:
+        if key in seen:
+            continue
+        seen.add(key)
+        meta = sources.get(key) or {}
+        if not isinstance(meta, dict):
+            continue
+        label = str(meta.get("display_name") or "").strip()
+        if label:
+            labels.append(label)
+    return labels
+
+
+def available_data_source_names() -> list[str]:
+    """Display names and aliases of business systems Cortex can read.
+
+    Healthscore source chips treat every other label as not yet available.
+    """
+    registry = _data_source_registry()
     names: list[str] = []
     seen: set[str] = set()
     for meta in (registry.get("sources") or {}).values():

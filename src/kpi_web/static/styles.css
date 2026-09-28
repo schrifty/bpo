@@ -155,6 +155,15 @@ body {
   margin-top: 0.15rem;
 }
 
+.user-menu-label {
+  padding: 0.55rem 0.95rem 0.15rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .user-menu-item {
   display: block;
   width: 100%;
