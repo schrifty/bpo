@@ -122,10 +122,22 @@
     return list.map((item) => String(item).trim()).filter(Boolean);
   }
 
+  function availableSourceSet() {
+    const names = (state.framework && state.framework.available_data_sources) || [];
+    return new Set(names.map((item) => String(item).trim().toLowerCase()).filter(Boolean));
+  }
+
   function sourceChips(component) {
     const sources = sourcesOf(component);
     if (!sources.length) return "—";
-    return `<span class="hs-sources">${sources.map((item) => `<span class="hs-source-chip">${esc(item)}</span>`).join("")}</span>`;
+    const known = availableSourceSet();
+    const chips = sources.map((item) => {
+      const available = known.has(item.toLowerCase());
+      const label = available ? item : `${item} TBD`;
+      const tone = available ? "available" : "unavailable";
+      return `<span class="hs-source-chip ${tone}">${esc(label)}</span>`;
+    });
+    return `<span class="hs-sources">${chips.join("")}</span>`;
   }
 
   function statusBadge(automation) {

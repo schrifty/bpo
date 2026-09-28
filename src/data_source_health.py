@@ -98,6 +98,16 @@ def check_github() -> tuple[bool, str | None]:
         return False, f"GitHub: {str(e)[:120]}"
 
 
+def check_aha() -> tuple[bool, str | None]:
+    """Return (True, None) when Aha is unset or GET /me succeeds."""
+    try:
+        from .aha_client import check_aha_api
+        return check_aha_api()
+    except Exception as e:
+        logger.warning("Aha preflight failed: %s", e)
+        return False, f"Aha: {str(e)[:120]}"
+
+
 def check_slack() -> tuple[bool, str | None]:
     """Return (True, None) if Slack is not configured or ``auth.test`` succeeds."""
     try:
@@ -150,6 +160,8 @@ def _run_preflight(source: str) -> tuple[bool, str | None]:
         return check_github()
     if source == "slack":
         return check_slack()
+    if source == "aha":
+        return check_aha()
     if source == "cs_report":
         return check_cs_report()
     if source == "jira":
@@ -195,6 +207,7 @@ def check_required_for_job(job_name: str) -> list[str]:
 def integration_freshness_metadata() -> dict[str, object]:
     """Integration configuration and cache freshness for run summaries / unattended gates."""
     from .config import (
+        CORTEX_AHA_API_KEY,
         CORTEX_JIRA_CACHE_TTL_SECONDS,
         CORTEX_PENDO_DISK_CACHE_TTL_SECONDS,
         CORTEX_SALESFORCE_CACHE_TTL_SECONDS,
@@ -217,6 +230,7 @@ def integration_freshness_metadata() -> dict[str, object]:
         "salesforce_cache_ttl_h": round(CORTEX_SALESFORCE_CACHE_TTL_SECONDS / 3600.0, 2),
         "pendo_disk_cache_ttl_h": round(CORTEX_PENDO_DISK_CACHE_TTL_SECONDS / 3600.0, 2),
         "jira_cache_ttl_h": round(CORTEX_JIRA_CACHE_TTL_SECONDS / 3600.0, 2),
+        "aha_configured": bool(CORTEX_AHA_API_KEY),
         "slack_configured": bool(SLACK_BOT_TOKEN),
         "slack_cache_ttl_h": round(CORTEX_SLACK_CACHE_TTL_SECONDS / 3600.0, 2),
     }

@@ -53,7 +53,10 @@ outside engineering. When a source or threshold is not yet defined, the
 description says so rather than implying the data exists.
 
 The component list has two separate columns. **Source** is `data_source`, a
-list, so a component can name more than one system. **Status** is
+list, so a component can name more than one system. A chip is green when that
+label matches a system in `config/data_source_registry.yaml` (a system Cortex
+can read). Any other label is red and ends with “TBD”, including sources that
+are named but not connected yet, such as Verified-outcome log. **Status** is
 `automation`: Automated, Manual, or Blocked.
 
 The catalog admin from `config/kpi_owners.yaml` also sees a pencil in the

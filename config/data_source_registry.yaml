@@ -82,6 +82,42 @@ sources:
     env_optional: [SLACK_BOT_TOKEN, SLACK_API_BASE_URL, CORTEX_SLACK_CACHE_TTL_HOURS]
     cache_ttl_env: CORTEX_SLACK_CACHE_TTL_HOURS
     default_cache_hours: 23
+  aha:
+    display_name: Aha
+    authority: enrichment
+    env_required: []
+    env_optional: [CORTEX_AHA_API_KEY, CORTEX_AHA_DOMAIN]
+    endpoints:
+      - name: me
+        method: GET
+        path: /me
+      - name: products
+        method: GET
+        path: /products
+      - name: features
+        method: GET
+        path: /features
+      - name: ideas
+        method: GET
+        path: /ideas
+      - name: epics
+        method: GET
+        path: /epics
+      - name: goals
+        method: GET
+        path: /goals
+      - name: initiatives
+        method: GET
+        path: /initiatives
+      - name: releases
+        method: GET
+        path: /releases/{id}
+      - name: users
+        method: GET
+        path: /users
+      - name: idea_portals
+        method: GET
+        path: /idea_portals
   leandna:
     display_name: LeanDNA
     authority: enrichment
@@ -145,4 +181,5 @@ source_display_order:
   - cursor
   - github
   - slack
+  - aha
   - leandna

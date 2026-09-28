@@ -166,6 +166,16 @@
   white-space: nowrap;
 }
 
+.hs-source-chip.available {
+  background: #e5f2ee;
+  color: var(--ok);
+}
+
+.hs-source-chip.unavailable {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 .hs-source-badge,
 .hs-status {
   display: inline-flex;

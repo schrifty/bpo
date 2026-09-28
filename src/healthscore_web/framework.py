@@ -113,7 +113,40 @@ def load_framework(path: Path | None = None) -> dict[str, Any]:
     payload["configured_weight"] = actual_weight
     payload["input_count"] = len(payload["inputs"])
     payload["override_count"] = len(payload["overrides"])
+    payload["available_data_sources"] = available_data_source_names()
     return payload
+
+
+def available_data_source_names() -> list[str]:
+    """Display names and aliases of business systems Cortex can read.
+
+    Healthscore source chips treat every other label as not yet available.
+    """
+    path = PROJECT_ROOT / "config" / "data_source_registry.yaml"
+    try:
+        registry = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise HealthScoreFrameworkError(
+            f"could not load data source registry {path}: {exc}"
+        ) from exc
+    if not isinstance(registry, dict):
+        raise HealthScoreFrameworkError("data source registry must be a YAML object")
+    names: list[str] = []
+    seen: set[str] = set()
+    for meta in (registry.get("sources") or {}).values():
+        if not isinstance(meta, dict):
+            continue
+        aliases = meta.get("aliases") or []
+        if isinstance(aliases, str):
+            aliases = [aliases]
+        for raw in (meta.get("display_name"), *aliases):
+            label = str(raw or "").strip()
+            key = label.casefold()
+            if not label or key in seen:
+                continue
+            seen.add(key)
+            names.append(label)
+    return names
 
 
 _UNSET: Any = object()

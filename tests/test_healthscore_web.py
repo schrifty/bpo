@@ -110,6 +110,12 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     summit = next(row for row in framework["inputs"] if row["key"] == "summit_attendance")
     assert summit["metric-generator"] == "get_summit_attendance"
     assert "Attended" in summit["description"]
+    known = {name.casefold() for name in framework["available_data_sources"]}
+    assert {"salesforce", "cs report", "pendo", "aha"} <= known
+    verified = next(row for row in framework["inputs"] if row["key"] == "verified_outcomes")
+    assert verified["data_source"] == ["Verified-outcome log"]
+    assert "verified-outcome log" not in known
+    assert "not yet defined" not in known
 
 
 def test_framework_uses_kpi_registry_field_names() -> None:

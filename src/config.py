@@ -281,6 +281,12 @@ CORTEX_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS = max(0, int(_teams_cache_hours * 3600)
 if os.environ.get("CORTEX_ATLASSIAN_TEAMS_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
     CORTEX_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS = 0
 
+# Aha! REST API (optional). CORTEX_AHA_DOMAIN is the account subdomain in
+# https://<domain>.aha.io. The key is a Bearer token from
+# https://secure.aha.io/settings/api_keys.
+CORTEX_AHA_API_KEY = os.environ.get("CORTEX_AHA_API_KEY", "").strip() or None
+CORTEX_AHA_DOMAIN = (os.environ.get("CORTEX_AHA_DOMAIN", "leandna1").strip() or "leandna1")
+
 # Slack (optional — bot token for customer channel conversation digests)
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip() or None
 SLACK_API_BASE_URL = (
