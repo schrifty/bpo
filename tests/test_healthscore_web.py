@@ -14,6 +14,13 @@ from src.healthscore_web.champion_login import (
     champion_login_points,
     get_champion_login_continuity,
 )
+from src.healthscore_web.roi_multiple import get_roi_multiple, roi_multiple_points
+from src.healthscore_web.summit_attendance import (
+    SummitAttendanceGeneratorError,
+    get_summit_attendance,
+    is_summit_campaign,
+    member_counts,
+)
 from src.healthscore_web.framework import load_framework
 from src.healthscore_web.store import (
     connect,
@@ -95,6 +102,14 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert "trailing 7 days" in champion["description"]
     assert champion["data_source"] == ["Salesforce"]
     assert champion["automation"] == "automated"
+    roi = next(row for row in framework["inputs"] if row["key"] == "roi_multiple")
+    assert roi["metric-generator"] == "get_roi_multiple"
+    assert roi["data_source"] == ["CS Report", "Salesforce"]
+    assert "Previous-period inventory-action savings" in roi["description"]
+    assert roi["weight"] is None
+    summit = next(row for row in framework["inputs"] if row["key"] == "summit_attendance")
+    assert summit["metric-generator"] == "get_summit_attendance"
+    assert "Attended" in summit["description"]
 
 
 def test_framework_uses_kpi_registry_field_names() -> None:
@@ -720,4 +735,183 @@ def test_generate_champion_login_api_is_authenticated(
     res = client.post("/healthscore/api/generate/champion_login_continuity")
     assert res.status_code == 200
     assert res.json()["generator"] == "get_champion_login_continuity"
+
+
+def test_roi_multiple_points_follow_framework_bands() -> None:
+    assert roi_multiple_points(None) is None
+    assert roi_multiple_points(7) == 6
+    assert roi_multiple_points(6.9) == 4
+    assert roi_multiple_points(5) == 4
+    assert roi_multiple_points(3) == 2
+    assert roi_multiple_points(2.99) == 0
+
+
+def test_get_roi_multiple_divides_previous_period_savings_by_arr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    entities = [
+        {**_entities()[0], "arr": 25},
+        {"id": "001-no-arr", "name": "No ARR", "entity_name": "No ARR"},
+    ]
+    week_rows = [
+        {
+            "delta": "week",
+            "customer": "Acme Parent",
+            "entity": "Acme Entity",
+            "factoryName": "Plant A",
+            "inventoryActionPreviousReportingPeriodSavings": json.dumps(
+                {"endValue": 100, "empty": False}
+            ),
+        },
+        {
+            "delta": "week",
+            "customer": "Acme Parent",
+            "entity": "Acme Entity",
+            "factoryName": "Plant B",
+            "inventoryActionPreviousReportingPeriodSavings": json.dumps(
+                {"endValue": 50, "empty": False}
+            ),
+        },
+        {
+            "delta": "week",
+            "customer": "Other",
+            "entity": "No ARR",
+            "factoryName": "Plant C",
+            "inventoryActionPreviousReportingPeriodSavings": json.dumps(
+                {"endValue": 10, "empty": False}
+            ),
+        },
+    ]
+    result = get_roi_multiple(
+        entities=entities,
+        week_rows=week_rows,
+        as_of=date.fromisoformat("2026-09-25"),
+        persist=False,
+    )
+    by_id = {row["entity_id"]: row for row in result["readings"]}
+    assert result["scored"] == 1
+    assert result["unscored"] == 1
+    assert by_id["001-active"]["value"] == 6
+    assert by_id["001-active"]["points"] == 4
+    assert by_id["001-active"]["meta"]["savings"] == 150
+    assert by_id["001-no-arr"]["points"] is None
+    assert by_id["001-no-arr"]["error"] == "Salesforce ARR is missing"
+
+
+def test_summit_attendance_uses_registrants_before_and_attendees_after() -> None:
+    assert is_summit_campaign("Event - Manufacturing Excellence Summit 2026", "Event")
+    assert not is_summit_campaign("EV - HO - Manufacturing Excellence Summit - Welcome Dinner", "Event")
+    assert member_counts("Registered", mode="registered")
+    assert member_counts("Attended - Alex", mode="attended")
+    assert not member_counts("Registered", mode="attended")
+    entities = [
+        {"id": "001-site", "name": "Site", "parent_id": "001-parent"},
+        {"id": "001-other", "name": "Other site", "parent_id": "001-other-parent"},
+    ]
+    campaigns = [
+        {
+            "Id": "701-future",
+            "Name": "Event - Manufacturing Excellence Summit 2027",
+            "Type": "Event",
+            "StartDate": "2027-03-02",
+        },
+        {
+            "Id": "701-dinner",
+            "Name": "Manufacturing Excellence Summit - Welcome Dinner",
+            "Type": "Event",
+            "StartDate": "2026-03-01",
+        },
+    ]
+    members = [
+        {
+            "CampaignId": "701-future",
+            "Status": "Registered",
+            "account_id": "001-parent",
+            "account_type": "Customer",
+        },
+        {
+            "CampaignId": "701-dinner",
+            "Status": "Attended",
+            "account_id": "001-other",
+            "account_type": "Customer Entity",
+        },
+    ]
+    before = get_summit_attendance(
+        entities=entities,
+        campaigns=campaigns,
+        members=members,
+        as_of=date.fromisoformat("2026-09-27"),
+        persist=False,
+    )
+    by_id = {row["entity_id"]: row for row in before["readings"]}
+    assert by_id["001-site"]["points"] == 1
+    assert by_id["001-other"]["points"] == 0
+    assert before["readings"][0]["meta"]["campaigns"][0]["mode"] == "registered"
+
+    past = get_summit_attendance(
+        entities=entities,
+        campaigns=[
+            {
+                "Id": "701-past",
+                "Name": "Event - Manufacturing Excellence Summit 2026",
+                "Type": "Event",
+                "StartDate": "2026-03-02",
+            }
+        ],
+        members=[
+            {
+                "CampaignId": "701-past",
+                "Status": "Registered",
+                "account_id": "001-site",
+                "account_type": "Customer Entity",
+            },
+            {
+                "CampaignId": "701-past",
+                "Status": "Attended",
+                "account_id": "001-other",
+                "account_type": "Customer Entity",
+            },
+        ],
+        as_of=date.fromisoformat("2026-09-27"),
+        persist=False,
+    )
+    past_by_id = {row["entity_id"]: row for row in past["readings"]}
+    assert past_by_id["001-site"]["points"] == 0
+    assert past_by_id["001-other"]["points"] == 1
+    assert past["warnings"] == []
+
+    stale = get_summit_attendance(
+        entities=entities[:1],
+        campaigns=[
+            {
+                "Id": "701-past",
+                "Name": "Event - Manufacturing Excellence Summit 2026",
+                "Type": "Event",
+                "StartDate": "2026-03-02",
+            }
+        ],
+        members=[
+            {
+                "CampaignId": "701-past",
+                "Status": "Registered",
+                "account_id": "001-site",
+                "account_type": "Customer Entity",
+            }
+        ],
+        as_of=date.fromisoformat("2026-09-27"),
+        persist=False,
+    )
+    assert stale["readings"][0]["points"] == 0
+    assert "no Attended members" in stale["warnings"][0]["warning"]
+
+
+def test_summit_attendance_fails_loud_without_a_campaign() -> None:
+    with pytest.raises(SummitAttendanceGeneratorError, match="no Manufacturing Excellence Summit"):
+        get_summit_attendance(
+            entities=[{"id": "001-site", "name": "Site", "parent_id": None}],
+            campaigns=[],
+            members=[],
+            as_of=date.fromisoformat("2026-09-27"),
+        )
 

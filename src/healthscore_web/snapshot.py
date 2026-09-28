@@ -13,6 +13,16 @@ from src.healthscore_web.champion_login import (
     ChampionLoginGeneratorError,
     get_champion_login_continuity,
 )
+from src.healthscore_web.roi_multiple import (
+    METRIC_NAME as ROI_MULTIPLE_METRIC,
+    RoiMultipleGeneratorError,
+    get_roi_multiple,
+)
+from src.healthscore_web.summit_attendance import (
+    METRIC_NAME as SUMMIT_ATTENDANCE_METRIC,
+    SummitAttendanceGeneratorError,
+    get_summit_attendance,
+)
 from src.healthscore_web.usage_level import (
     METRIC_NAME as USAGE_LEVEL_METRIC,
     UsageLevelGeneratorError,
@@ -24,7 +34,14 @@ from src.healthscore_web.usage_trend import (
     get_usage_trend,
 )
 
-SUPPORTED = (USAGE_LEVEL_METRIC, USAGE_TREND_METRIC, CHAMPION_LOGIN_METRIC, "all")
+SUPPORTED = (
+    USAGE_LEVEL_METRIC,
+    USAGE_TREND_METRIC,
+    CHAMPION_LOGIN_METRIC,
+    ROI_MULTIPLE_METRIC,
+    SUMMIT_ATTENDANCE_METRIC,
+    "all",
+)
 
 
 def _active_entities() -> list[dict[str, Any]]:
@@ -145,6 +162,42 @@ def backfill_usage_level_history(
     }
 
 
+def run_roi_multiple_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    week_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_roi_multiple(
+        entities=entities,
+        week_rows=week_rows,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
+def run_summit_attendance_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    campaigns: list[dict[str, Any]] | None = None,
+    members: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_summit_attendance(
+        entities=entities,
+        campaigns=campaigns,
+        members=members,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
 def run_healthscore_snapshot(
     *,
     component: str = "all",
@@ -170,6 +223,14 @@ def run_healthscore_snapshot(
         results[CHAMPION_LOGIN_METRIC] = run_champion_login_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (ROI_MULTIPLE_METRIC, "all"):
+        results[ROI_MULTIPLE_METRIC] = run_roi_multiple_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
+    if name in (SUMMIT_ATTENDANCE_METRIC, "all"):
+        results[SUMMIT_ATTENDANCE_METRIC] = run_summit_attendance_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     return results
 
 
@@ -183,13 +244,13 @@ def run_healthscore_snapshot_cli(
         description=(
             "Run Health Score generators into the Health Score store. "
             "Does not write KPI observations. Default runs usage_level, then "
-            "usage_trend, then champion_login_continuity."
+            "usage_trend, champion_login_continuity, roi_multiple, then summit_attendance."
         ),
     )
     parser.add_argument(
         "--component",
         default="all",
-        help="usage_level, usage_trend, champion_login_continuity, or all (default: all)",
+        help="usage_level, usage_trend, champion_login_continuity, roi_multiple, summit_attendance, or all",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--date", dest="as_of", default=None, help="YYYY-MM-DD fallback period")
@@ -222,6 +283,8 @@ def run_healthscore_snapshot_cli(
         UsageLevelGeneratorError,
         UsageTrendGeneratorError,
         ChampionLoginGeneratorError,
+        RoiMultipleGeneratorError,
+        SummitAttendanceGeneratorError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

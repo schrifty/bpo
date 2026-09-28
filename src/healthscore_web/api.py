@@ -19,8 +19,12 @@ from src.healthscore_web.framework import (
     update_component,
 )
 from src.healthscore_web.champion_login import ChampionLoginGeneratorError
+from src.healthscore_web.roi_multiple import RoiMultipleGeneratorError
+from src.healthscore_web.summit_attendance import SummitAttendanceGeneratorError
 from src.healthscore_web.snapshot import (
     run_champion_login_snapshot,
+    run_roi_multiple_snapshot,
+    run_summit_attendance_snapshot,
     run_usage_level_snapshot,
     run_usage_trend_snapshot,
 )
@@ -437,6 +441,42 @@ async def api_generate_champion_login(request: Request) -> Response:
         logger.exception("Health Score champion_login_continuity generate failed")
         return JSONResponse(
             {"ok": False, "error": f"champion_login_continuity generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_roi_multiple(request: Request) -> Response:
+    try:
+        require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    try:
+        result = run_roi_multiple_snapshot(dry_run=False)
+    except RoiMultipleGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score roi_multiple generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"roi_multiple generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_summit_attendance(request: Request) -> Response:
+    try:
+        require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    try:
+        result = run_summit_attendance_snapshot(dry_run=False)
+    except SummitAttendanceGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score summit_attendance generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"summit_attendance generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

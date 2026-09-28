@@ -162,20 +162,22 @@ inputs:
   - key: roi_multiple
     pillar: Value Realization / ROI
     name: ROI multiple
-    description: "Value delivered compared with what the customer pays: Apex-reported savings dollars for the quarter divided by the Salesforce annualized contract value, reset at each renewal. Seven times or more scores 6, under three times scores 0. No weight is set yet, so it does not count toward the score."
+    description: "Previous-period inventory-action savings from the CS Report, summed across the entity's factories, divided by the Customer Entity's Salesforce ARR. 7 times or more scores 6, from 5 up to 7 scores 4, from 3 up to 5 scores 2, and under 3 scores 0. Missing savings or ARR stays unscored. No weight is set yet, so it does not count toward the score."
     signal: lagging
-    metric: Outcome dollars / annualized contract value
+    metric: IA Previous Period Savings / Salesforce ARR
     scoring: "7x+=6; 5–<7x=4; 3–<5x=2; <3x=0"
     max_points: 6
     weight: null
-    data_source: [Salesforce, Apex]
+    data_source: [CS Report, Salesforce]
     grain: quarterly
     cadence_note: Quarterly; reset at renewal
     automation: automated
     status: needs_weight
     notes: The source framework specifies scoring but no proposed weight.
+    owner: lindsay.brown@leandna.com
     metric-id: null
-    metric-generator: null
+    metric-generator: get_roi_multiple
+    unit: multiple
     tags: [customer-success, healthscore, value]
   - key: time_to_first_value
     pillar: Value Realization / ROI
@@ -481,9 +483,9 @@ inputs:
   - key: summit_attendance
     pillar: Advocacy
     name: Summit attendance
-    description: "Whether anyone from the customer attended LeanDNA Summit in the trailing 12 months, from Salesforce attendance records. Yes scores 1, no scores 0."
+    description: "Whether someone from the customer is signed up for LeanDNA's Manufacturing Excellence Summit. Before the summit start date, a Salesforce campaign registration counts. On and after that date, only a member marked Attended counts. Campaigns in the trailing 12 months are included, and the campaign end date is ignored because it stays open for months after the event. Yes scores 1, no scores 0."
     signal: leading
-    metric: Attendance in trailing 12 months
+    metric: Registered before the summit start date, otherwise Attended, in the trailing 12 months
     scoring: "Yes=1; no=0"
     max_points: 1
     weight: 1
@@ -491,8 +493,9 @@ inputs:
     grain: monthly
     automation: automated
     status: defined
+    owner: lindsay.brown@leandna.com
     metric-id: null
-    metric-generator: null
+    metric-generator: get_summit_attendance
     tags: [customer-success, healthscore, advocacy]
 
 overrides:

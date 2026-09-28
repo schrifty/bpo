@@ -87,6 +87,23 @@ window scores 0. An Account with no named executive sponsor stays unscored
 and is reported as a warning. HubSpot buying-role "Champion" contacts are not
 used; Salesforce does not store a login time for them.
 
+**ROI multiple** (`get_roi_multiple`) divides the CS Report's previous-period
+inventory-action savings (`inventoryActionPreviousReportingPeriodSavings`),
+summed across the entity's factories, by the Customer Entity's Salesforce
+`ARR__c`. 7x or more scores 6, from 5 up to 7 scores 4, from 3 up to 5 scores
+2, and under 3 scores 0. A missing CS Report match, missing savings, or
+missing or non-positive ARR stays unscored. The component still has no
+weight, so the reading does not enter the weighted score.
+
+**Summit attendance** (`get_summit_attendance`) reads Salesforce Campaign
+Members on Manufacturing Excellence Summit campaigns from the trailing 12
+months, plus any upcoming one. Before the campaign start date, Registered
+counts. On and after that date, only Attended counts. A contact on the
+Customer Entity counts for that entity. A contact on the parent Customer
+account counts for that parent's entities. Yes scores 1, no scores 0. The
+campaign end date is ignored. If a past summit still has registrations and
+no Attended members, the run warns and scores those entities 0.
+
 ### History depth
 
 The live Monday job still reads **this week's** workbook (newest file). Daily
@@ -130,6 +147,8 @@ weights, sources, and governance rules are validated.
 | POST | `/healthscore/api/generate/usage_level` | Run the CSR usage-level generator |
 | POST | `/healthscore/api/generate/usage_trend` | Run the usage-trend generator |
 | POST | `/healthscore/api/generate/champion_login_continuity` | Run the executive-sponsor login generator |
+| POST | `/healthscore/api/generate/roi_multiple` | Run the savings / ARR generator |
+| POST | `/healthscore/api/generate/summit_attendance` | Run the Summit registration / attendance generator |
 
 All API routes require the same Google Workspace session as `/kpis`.
 Salesforce inventory failures return an error; the app does not substitute

@@ -60,6 +60,16 @@ def create_app(
             healthscore_api.api_generate_champion_login,
             methods=["POST"],
         ),
+        Route(
+            "/healthscore/api/generate/roi_multiple",
+            healthscore_api.api_generate_roi_multiple,
+            methods=["POST"],
+        ),
+        Route(
+            "/healthscore/api/generate/summit_attendance",
+            healthscore_api.api_generate_summit_attendance,
+            methods=["POST"],
+        ),
         Route("/api/health", api.api_health, methods=["GET"]),
         Route("/api/me", api.api_me, methods=["GET"]),
         Route("/api/meta", api.api_meta, methods=["GET"]),

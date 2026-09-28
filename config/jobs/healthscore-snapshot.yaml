@@ -16,3 +16,9 @@ steps:
   - name: snapshot-champion-login
     command: healthscore-snapshot
     component: champion_login_continuity
+  - name: snapshot-roi-multiple
+    command: healthscore-snapshot
+    component: roi_multiple
+  - name: snapshot-summit-attendance
+    command: healthscore-snapshot
+    component: summit_attendance

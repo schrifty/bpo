@@ -60,8 +60,9 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "enabled": True,
         "rule_name": "cortex-healthscore-snapshot",
         "summary": (
-            "Weekly Healthscore usage_level, usage_trend, then champion login continuity. "
-            "A missed usage_level week stays missing unless a CS Report workbook for that week is backfilled"
+            "Weekly Healthscore usage_level, usage_trend, champion login continuity, "
+            "roi_multiple, then summit_attendance. A missed usage_level week stays "
+            "missing unless a CS Report workbook for that week is backfilled"
         ),
     },
     "pendo-ford-7d": {
