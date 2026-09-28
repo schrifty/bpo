@@ -184,8 +184,8 @@ _UNSET: Any = object()
 
 # Fields a catalog admin may change from the UI. Everything else in the
 # framework stays a hand-edited YAML decision.
-EDITABLE_INPUT_FIELDS = ("name", "pillar", "weight")
-EDITABLE_OVERRIDE_FIELDS = ("name",)
+EDITABLE_INPUT_FIELDS = ("name", "pillar", "weight", "description", "owner", "grain")
+EDITABLE_OVERRIDE_FIELDS = ("name", "description", "owner", "grain")
 
 
 def _split_header(text: str) -> str:
@@ -211,15 +211,33 @@ def _clean_weight(raw: Any) -> float | int | None:
     return int(value) if value.is_integer() else value
 
 
+def _clean_grain(raw: Any) -> str | None:
+    clean = str(raw or "").strip().lower()
+    if not clean:
+        return None
+    if clean not in GRAINS:
+        raise HealthScoreFrameworkError(
+            f"grain must be one of {sorted(GRAINS)} or null, got {raw!r}"
+        )
+    return clean
+
+
 def update_component(
     key: str,
     *,
     name: Any = _UNSET,
     pillar: Any = _UNSET,
     weight: Any = _UNSET,
+    description: Any = _UNSET,
+    owner: Any = _UNSET,
+    grain: Any = _UNSET,
     path: Path | None = None,
 ) -> dict[str, Any]:
-    """Rewrite one component's name / pillar / weight in the framework YAML.
+    """Rewrite one component's editable fields in the framework YAML.
+
+    Inputs accept ``name``, ``pillar``, ``weight``, ``description``, ``owner``
+    and ``grain``; override flags accept everything except ``pillar`` and
+    ``weight``.
 
     ``configured_weight`` is recomputed from the input weights so the file keeps
     validating. Returns the reloaded framework. Raises
@@ -269,8 +287,22 @@ def update_component(
         if not is_input:
             raise HealthScoreFrameworkError("override flags carry no weight")
         changed["weight"] = _clean_weight(weight)
+    if description is not _UNSET:
+        clean = str(description or "").strip()
+        if not clean:
+            raise HealthScoreFrameworkError("description cannot be empty")
+        changed["description"] = clean
+    if owner is not _UNSET:
+        clean = str(owner or "").strip()
+        if not clean:
+            raise HealthScoreFrameworkError("owner cannot be empty")
+        changed["owner"] = clean
+    if grain is not _UNSET:
+        changed["grain"] = _clean_grain(grain)
     if not changed:
-        raise HealthScoreFrameworkError("no editable field supplied (name, pillar, weight)")
+        raise HealthScoreFrameworkError(
+            "no editable field supplied (name, pillar, weight, description, owner, grain)"
+        )
     target.update(changed)
 
     total = 0.0

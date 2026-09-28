@@ -295,20 +295,24 @@
       <dl class="hs-detail-grid">
         ${isOverride ? "" : `<dt>Pillar</dt><dd id="hs-pillar-cell">${pillarCell(definition)}</dd>`}
         ${isOverride ? "" : `<dt>Weight</dt><dd id="hs-weight-cell">${weightCell(definition)}</dd>`}
-        <dt>Description</dt><dd>${esc(definition.description)}</dd>
+        <dt>Description</dt><dd id="hs-description-cell">${textCell(definition, TEXT_FIELDS.description)}</dd>
         ${definition.metric ? `<dt>Measurable metric</dt><dd>${esc(definition.metric)}</dd>` : ""}
         ${definition.scoring ? `<dt>Scoring rule</dt><dd>${esc(definition.scoring)}</dd>` : ""}
         <dt>Source</dt><dd>${sourceChips(definition)}</dd>
-        <dt>Owner</dt><dd>${esc(definition.owner)}</dd>
-        <dt>Grain</dt><dd>${esc(definition.grain || definition.cadence_note || "not defined")}</dd>
+        <dt>Owner</dt><dd id="hs-owner-cell">${textCell(definition, TEXT_FIELDS.owner)}</dd>
+        <dt>Grain</dt><dd id="hs-grain-cell">${grainCell(definition)}</dd>
         ${definition.notes ? `<dt>Open issue</dt><dd class="error">${esc(definition.notes)}</dd>` : ""}
-        ${definition.grain ? `<dt>${isOverride ? "Flag raised" : "Points"}${latest ? ` <span class="hs-period">${esc(latest.period_key)}</span>` : ""}</dt><dd id="hs-points-cell">${pointsCell(definition, latest)}</dd>` : ""}
+        ${definition.grain && !isOverride ? `<dt>Current value${periodBadge(latest)}</dt><dd>${valueCell(definition, latest)}</dd>` : ""}
+        ${definition.grain ? `<dt>${isOverride ? "Flag raised" : "Points"}${periodBadge(latest)}</dt><dd id="hs-points-cell">${pointsCell(definition, latest)}</dd>` : ""}
       </dl>
       ${sparkline(history, "effective_points")}
       ${history.length ? `<table class="hs-history"><thead><tr><th>Period</th><th>Value</th><th>Points</th><th>Mode</th></tr></thead><tbody>${history.map((row) => `<tr><td>${esc(row.period_key)}</td><td>${esc(fmtNum(row.effective_value, scoreDigits(definition)))}</td><td>${esc(fmtNum(row.effective_points, scoreDigits(definition)))}</td><td>${esc(row.source_mode)}</td></tr>`).join("")}</tbody></table>` : ""}
       ${definition.grain ? "" : `<p class="muted">No grain yet — the framework defines this as ${esc(definition.cadence_note || "an undefined cadence")}, so readings cannot be stored against a period.</p>`}
       <p id="hs-entry-error" class="error" hidden></p>`;
     wireNameHeading(definition);
+    wireTextCell($("hs-description-cell"), definition, TEXT_FIELDS.description);
+    wireTextCell($("hs-owner-cell"), definition, TEXT_FIELDS.owner);
+    wireGrainCell(definition);
     if (!isOverride) {
       wirePillarCell(definition);
       wireWeightCell(definition);
@@ -316,29 +320,49 @@
     if (definition.grain) wirePointsCell(definition, latest);
   }
 
-  function nameHeading(definition) {
-    if (!isAdmin()) return `<h2>${esc(definition.name)}</h2>`;
-    return `<h2><span class="hs-name-value" title="Click to rename">${esc(definition.name)}</span></h2>`;
+  function periodBadge(latest) {
+    return latest ? ` <span class="hs-period">${esc(latest.period_key)}</span>` : "";
   }
 
-  function wireNameHeading(definition) {
-    const value = document.querySelector("#hs-detail .hs-name-value");
-    if (value) value.addEventListener("click", () => beginNameEdit(definition));
+  // Save one or more framework fields for a component, then re-render.
+  // On failure the caller's restore() puts the cell back and the error shows
+  // in the detail panel — no silent fallback.
+  async function saveFrameworkField(definition, payload, restore) {
+    showEntryError("");
+    try {
+      const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(definition.key)}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      state.framework = result.framework;
+      await loadScore();
+    } catch (saveError) {
+      restore();
+      showEntryError(saveError.message);
+    }
   }
 
-  function beginNameEdit(definition) {
-    const head = document.querySelector("#hs-detail .detail-head");
-    if (!head || head.querySelector("input")) return;
-    const prior = definition.name || "";
-    head.innerHTML = `<input class="value-input hs-name-input" type="text" aria-label="Name" /><span class="muted hs-points-hint">Enter saves · Esc cancels</span>`;
-    const input = head.querySelector("input");
+  // Shared click-to-edit text control. `spec` describes the field:
+  //   field: framework key sent in the PUT body
+  //   label: human label for errors / aria
+  //   multiline: use a textarea (Shift+Enter inserts a newline)
+  //   inputClass: extra class on the input for sizing
+  function beginTextEdit(cell, definition, spec, render, rewire) {
+    if (cell.querySelector("input, textarea")) return;
+    const prior = String(definition[spec.field] || "");
+    const control = spec.multiline
+      ? `<textarea class="value-input hs-text-input hs-text-area" rows="4" aria-label="${esc(spec.label)}"></textarea>`
+      : `<input class="value-input hs-text-input ${esc(spec.inputClass || "")}" type="text" aria-label="${esc(spec.label)}" />`;
+    const hint = spec.multiline ? "Enter saves · Shift+Enter for a new line · Esc cancels" : "Enter saves · Esc cancels";
+    cell.innerHTML = `${control}<span class="muted hs-points-hint">${hint}</span>`;
+    const input = cell.querySelector(".hs-text-input");
     input.value = prior;
     input.focus();
-    input.select();
+    if (!spec.multiline) input.select();
     let done = false;
     const restore = () => {
-      head.innerHTML = nameHeading(definition);
-      wireNameHeading(definition);
+      cell.innerHTML = render();
+      rewire();
     };
     const finish = async (save) => {
       if (done) return;
@@ -350,25 +374,14 @@
       }
       if (!typed) {
         restore();
-        showEntryError("Name cannot be empty");
+        showEntryError(`${spec.label} cannot be empty`);
         return;
       }
-      showEntryError("");
       input.disabled = true;
-      try {
-        const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(definition.key)}`, {
-          method: "PUT",
-          body: JSON.stringify({ name: typed }),
-        });
-        state.framework = result.framework;
-        await loadScore();
-      } catch (saveError) {
-        restore();
-        showEntryError(saveError.message);
-      }
+      await saveFrameworkField(definition, { [spec.field]: typed }, restore);
     };
     input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
+      if (event.key === "Enter" && !(spec.multiline && event.shiftKey)) {
         event.preventDefault();
         finish(true);
       } else if (event.key === "Escape") {
@@ -379,13 +392,95 @@
     input.addEventListener("blur", () => finish(true));
   }
 
+  const TEXT_FIELDS = {
+    name: { field: "name", label: "Name", inputClass: "hs-name-input" },
+    description: { field: "description", label: "Description", multiline: true },
+    owner: { field: "owner", label: "Owner", inputClass: "hs-owner-input" },
+  };
+
+  function textCell(definition, spec) {
+    const text = String(definition[spec.field] || "");
+    if (!isAdmin()) return esc(text);
+    return `<span class="hs-edit-value" title="Click to edit the ${esc(spec.label.toLowerCase())}">${esc(text)}</span>`;
+  }
+
+  function wireTextCell(cell, definition, spec) {
+    if (!cell) return;
+    const value = cell.querySelector(".hs-edit-value");
+    if (!value) return;
+    value.addEventListener("click", () =>
+      beginTextEdit(cell, definition, spec, () => textCell(definition, spec), () => wireTextCell(cell, definition, spec)),
+    );
+  }
+
+  function nameHeading(definition) {
+    if (!isAdmin()) return `<h2>${esc(definition.name)}</h2>`;
+    return `<h2><span class="hs-name-value hs-edit-value" title="Click to rename">${esc(definition.name)}</span></h2>`;
+  }
+
+  function wireNameHeading(definition) {
+    const head = document.querySelector("#hs-detail .detail-head");
+    const value = head && head.querySelector(".hs-name-value");
+    if (!value) return;
+    value.addEventListener("click", () =>
+      beginTextEdit(head, definition, TEXT_FIELDS.name, () => nameHeading(definition), () => wireNameHeading(definition)),
+    );
+  }
+
+  const GRAIN_OPTIONS = ["hourly", "daily", "weekly", "monthly", "quarterly"];
+
+  function grainCell(definition) {
+    const note = definition.cadence_note ? ` <span class="muted hs-grain-note">${esc(definition.cadence_note)}</span>` : "";
+    if (!isAdmin()) return `${esc(definition.grain || "not defined")}${note}`;
+    const current = String(definition.grain || "");
+    const options = ["", ...GRAIN_OPTIONS]
+      .map((name) => `<option value="${esc(name)}"${name === current ? " selected" : ""}>${esc(name || "not defined")}</option>`)
+      .join("");
+    return `<select id="hs-grain-select" class="hs-pillar-select" aria-label="Grain for ${esc(definition.name)}" title="Changing the grain saves immediately">${options}</select>${note}`;
+  }
+
+  function wireGrainCell(definition) {
+    const select = $("hs-grain-select");
+    if (!select) return;
+    select.addEventListener("change", () => saveSelect(definition, select, "grain", String(definition.grain || "")));
+  }
+
+  // Auto-save a <select>-backed framework field; reverts the control on failure.
+  async function saveSelect(definition, select, field, previous) {
+    const next = String(select.value || "").trim();
+    if (next === previous) return;
+    select.disabled = true;
+    await saveFrameworkField(definition, { [field]: next || null }, () => {
+      select.disabled = false;
+      select.value = previous;
+    });
+  }
+
+  function valueCell(definition, latest) {
+    if (!state.entity) return '<span class="muted">Choose an entity to see the latest reading</span>';
+    if (!latest) return '<span class="muted">No reading yet</span>';
+    const value = latest.effective_value;
+    if (value == null) {
+      return latest.error
+        ? `<span class="muted" title="${esc(latest.error)}">— (error)</span>`
+        : '<span class="muted">—</span>';
+    }
+    const overridden = latest.override_value != null;
+    const tip = overridden
+      ? `Manual value override — generated value: ${fmtNum(latest.value)}`
+      : latest.generator
+        ? `Generated by ${latest.generator}${latest.captured_at ? ` at ${String(latest.captured_at).slice(0, 16).replace("T", " ")}` : ""}`
+        : "Manual reading";
+    return `<span class="hs-current-value${overridden ? " value-override" : ""}" title="${esc(tip)}">${esc(fmtNum(value))}</span>`;
+  }
+
   function weightText(definition) {
     return definition.weight == null ? "TBD" : formatWeight(definition.weight);
   }
 
   function weightCell(definition) {
     if (!isAdmin()) return weightText(definition);
-    return `<span class="hs-weight-value value-ok" title="Click to change the weight">${weightText(definition)}</span>`;
+    return `<span class="hs-weight-value hs-edit-value" title="Click to change the weight">${weightText(definition)}</span>`;
   }
 
   function wireWeightCell(definition) {
@@ -425,19 +520,8 @@
           return;
         }
       }
-      showEntryError("");
       input.disabled = true;
-      try {
-        const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(definition.key)}`, {
-          method: "PUT",
-          body: JSON.stringify({ weight }),
-        });
-        state.framework = result.framework;
-        await loadScore();
-      } catch (saveError) {
-        restore();
-        showEntryError(saveError.message);
-      }
+      await saveFrameworkField(definition, { weight }, restore);
     };
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -465,30 +549,7 @@
   function wirePillarCell(definition) {
     const select = $("hs-pillar-select");
     if (!select) return;
-    select.addEventListener("change", () => savePillar(definition, select));
-  }
-
-  async function savePillar(definition, select) {
-    const previous = String(definition.pillar || "");
-    const next = String(select.value || "").trim();
-    if (!next || next === previous) {
-      select.value = previous;
-      return;
-    }
-    showEntryError("");
-    select.disabled = true;
-    try {
-      const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(definition.key)}`, {
-        method: "PUT",
-        body: JSON.stringify({ pillar: next }),
-      });
-      state.framework = result.framework;
-      await loadScore();
-    } catch (saveError) {
-      select.disabled = false;
-      select.value = previous;
-      showEntryError(saveError.message);
-    }
+    select.addEventListener("change", () => saveSelect(definition, select, "pillar", String(definition.pillar || "")));
   }
 
   function isAdmin() {

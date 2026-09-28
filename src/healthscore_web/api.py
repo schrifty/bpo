@@ -353,7 +353,7 @@ def _as_date(raw: str | None):
 
 
 async def api_update_framework_component(request: Request) -> Response:
-    """Catalog admins may rename an input and change its pillar or weight."""
+    """Catalog admins may edit a component's name, pillar, weight, description, owner, or grain."""
     try:
         user = require_user(request)
     except KPIWebAuthError as exc:
@@ -382,6 +382,9 @@ async def api_update_framework_component(request: Request) -> Response:
             name=raw["name"] if "name" in raw else _UNSET,
             pillar=raw["pillar"] if "pillar" in raw else _UNSET,
             weight=raw["weight"] if "weight" in raw else _UNSET,
+            description=raw["description"] if "description" in raw else _UNSET,
+            owner=raw["owner"] if "owner" in raw else _UNSET,
+            grain=raw["grain"] if "grain" in raw else _UNSET,
         )
     except HealthScoreFrameworkError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)

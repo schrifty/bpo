@@ -522,6 +522,42 @@ def test_update_component_rewrites_yaml_and_reweights(
     assert next(row for row in renamed["overrides"] if row["key"] == "merger_acquisition")["name"] == "M&A"
 
 
+def test_update_component_edits_description_owner_and_grain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.healthscore_web.framework import HealthScoreFrameworkError, update_component
+
+    target = _framework_copy(tmp_path, monkeypatch)
+    framework = update_component(
+        "usage_level",
+        description="  Share of licensed seats active in the period.  ",
+        owner="owner@leandna.com",
+        grain="Monthly",
+        path=target,
+    )
+    usage = next(row for row in framework["inputs"] if row["key"] == "usage_level")
+    assert usage["description"] == "Share of licensed seats active in the period."
+    assert usage["owner"] == "owner@leandna.com"
+    assert usage["grain"] == "monthly"
+
+    # Blank grain clears it back to "not defined".
+    cleared = update_component("usage_level", grain="", path=target)
+    assert next(row for row in cleared["inputs"] if row["key"] == "usage_level")["grain"] is None
+
+    # Override flags accept the same descriptive fields.
+    flagged = update_component("merger_acquisition", owner="flags@leandna.com", grain="daily", path=target)
+    flag = next(row for row in flagged["overrides"] if row["key"] == "merger_acquisition")
+    assert flag["owner"] == "flags@leandna.com"
+    assert flag["grain"] == "daily"
+
+    with pytest.raises(HealthScoreFrameworkError):
+        update_component("usage_level", description="   ", path=target)
+    with pytest.raises(HealthScoreFrameworkError):
+        update_component("usage_level", owner="", path=target)
+    with pytest.raises(HealthScoreFrameworkError):
+        update_component("usage_level", grain="fortnightly", path=target)
+
+
 def test_framework_edit_api_requires_catalog_admin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
