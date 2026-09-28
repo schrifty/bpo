@@ -187,6 +187,7 @@ weights, sources, and governance rules are validated.
 | POST | `/healthscore/api/generate/roi_multiple` | Run the savings / ARR generator |
 | POST | `/healthscore/api/generate/summit_attendance` | Run the Summit registration / attendance generator |
 | POST | `/healthscore/api/generate/enhancement_engagement` | Run the Aha enhancement engagement generator |
+| POST | `/healthscore/api/generate/meeting_cadence` | Run the Chorus meeting cadence generator |
 | POST | `/healthscore/api/generate/sla_adherence` | Run the JSM HELP SLA adherence generator |
 
 All API routes require the same Google Workspace session as `/kpis`.

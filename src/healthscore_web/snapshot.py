@@ -23,6 +23,11 @@ from src.healthscore_web.roi_multiple import (
     RoiMultipleGeneratorError,
     get_roi_multiple,
 )
+from src.healthscore_web.meeting_cadence import (
+    METRIC_NAME as MEETING_CADENCE_METRIC,
+    MeetingCadenceGeneratorError,
+    get_meeting_cadence,
+)
 from src.healthscore_web.sla_adherence import (
     METRIC_NAME as SLA_ADHERENCE_METRIC,
     SlaAdherenceGeneratorError,
@@ -53,6 +58,7 @@ SUPPORTED = (
     ROI_MULTIPLE_METRIC,
     SUMMIT_ATTENDANCE_METRIC,
     ENHANCEMENT_ENGAGEMENT_METRIC,
+    MEETING_CADENCE_METRIC,
     SLA_ADHERENCE_METRIC,
     "all",
 )
@@ -362,6 +368,27 @@ def run_enhancement_engagement_snapshot(
     )
 
 
+def run_meeting_cadence_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    engagements: list[dict[str, Any]] | None = None,
+    users: list[dict[str, Any]] | None = None,
+    parent_ids: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_meeting_cadence(
+        entities=entities,
+        engagements=engagements,
+        users=users,
+        parent_ids=parent_ids,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
 def run_sla_adherence_snapshot(
     *,
     dry_run: bool = False,
@@ -420,6 +447,10 @@ def run_healthscore_snapshot(
         results[ENHANCEMENT_ENGAGEMENT_METRIC] = run_enhancement_engagement_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (MEETING_CADENCE_METRIC, "all"):
+        results[MEETING_CADENCE_METRIC] = run_meeting_cadence_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     if name in (SLA_ADHERENCE_METRIC, "all"):
         results[SLA_ADHERENCE_METRIC] = run_sla_adherence_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
@@ -438,7 +469,7 @@ def run_healthscore_snapshot_cli(
             "Run Health Score generators into the Health Score store. "
             "Does not write KPI observations. Default runs usage_level, then "
             "usage_trend, champion_login_continuity, roi_multiple, summit_attendance, "
-            "enhancement_engagement, then sla_adherence."
+            "enhancement_engagement, meeting_cadence, then sla_adherence."
         ),
     )
     parser.add_argument(
@@ -446,7 +477,8 @@ def run_healthscore_snapshot_cli(
         default="all",
         help=(
             "usage_level, usage_trend, champion_login_continuity, roi_multiple, "
-            "summit_attendance, enhancement_engagement, sla_adherence, or all"
+            "summit_attendance, enhancement_engagement, meeting_cadence, "
+            "sla_adherence, or all"
         ),
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -501,6 +533,7 @@ def run_healthscore_snapshot_cli(
         RoiMultipleGeneratorError,
         SummitAttendanceGeneratorError,
         EnhancementEngagementGeneratorError,
+        MeetingCadenceGeneratorError,
         SlaAdherenceGeneratorError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -78,6 +78,11 @@ def create_app(
             methods=["POST"],
         ),
         Route(
+            "/healthscore/api/generate/meeting_cadence",
+            healthscore_api.api_generate_meeting_cadence,
+            methods=["POST"],
+        ),
+        Route(
             "/healthscore/api/generate/sla_adherence",
             healthscore_api.api_generate_sla_adherence,
             methods=["POST"],

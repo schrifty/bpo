@@ -329,22 +329,24 @@ inputs:
 - key: meeting_cadence
   pillar: Relationship & Engagement
   name: Meeting cadence adherence
-  description: Share of scheduled CSM and QBR meetings that were actually held in the trailing two quarters,
-    from Salesforce/Calendar events and Chorus recordings. 80% or more scores 2, less scores 0.
+  description: Share of scheduled CSM and QBR meetings in the trailing two quarters that Chorus marked
+    as held. A meeting counts when its owner is a CSM or CS Director, or the subject is a QBR, EBR, or
+    business review. Held means the recording type is meeting and it was not a no-show. The Chorus account
+    matches the Customer Entity, or the parent of one or more entities, and every entity under a matched
+    parent gets those meetings. 80% or more scores 2, less scores 0. No scheduled meetings stays unscored.
   signal: leading
   metric: Percent held in trailing two quarters
   scoring: ≥80%=2; <80%=0
   max_points: 2
   weight: 2
   data_source:
-  - Salesforce
-  - Calendar
   - Chorus
+  - Salesforce
   grain: monthly
   automation: automated
   status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_meeting_cadence
   unit: percent
   tags:
   - customer-success

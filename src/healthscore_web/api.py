@@ -19,12 +19,14 @@ from src.healthscore_web.framework import (
     load_framework,
     update_component,
 )
+from src.healthscore_web.meeting_cadence import MeetingCadenceGeneratorError
 from src.healthscore_web.sla_adherence import SlaAdherenceGeneratorError
 from src.healthscore_web.enhancement_engagement import EnhancementEngagementGeneratorError
 from src.healthscore_web.champion_login import ChampionLoginGeneratorError
 from src.healthscore_web.roi_multiple import RoiMultipleGeneratorError
 from src.healthscore_web.summit_attendance import SummitAttendanceGeneratorError
 from src.healthscore_web.snapshot import (
+    run_meeting_cadence_snapshot,
     run_sla_adherence_snapshot,
     run_enhancement_engagement_snapshot,
     run_champion_login_snapshot,
@@ -616,6 +618,27 @@ async def api_generate_roi_multiple(request: Request) -> Response:
         logger.exception("Health Score roi_multiple generate failed")
         return JSONResponse(
             {"ok": False, "error": f"roi_multiple generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_meeting_cadence(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "meeting_cadence")
+    if denied:
+        return denied
+    try:
+        result = run_meeting_cadence_snapshot(dry_run=False)
+    except MeetingCadenceGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score meeting_cadence generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"meeting_cadence generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)
