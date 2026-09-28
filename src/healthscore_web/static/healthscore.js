@@ -140,10 +140,56 @@
     return `<span class="hs-sources">${chips.join("")}</span>`;
   }
 
-  function statusBadge(automation) {
+  function statusBadge(component) {
+    if (component && component.deactivated) {
+      return `<span class="hs-source-badge deactivated" title="Deactivated. Reactivate to show the underlying status again."><i class="dot deactivated"></i>Deactivated</span>`;
+    }
+    const automation = component && typeof component === "object" ? component.automation : component;
     const key = String(automation || "").toLowerCase();
     const label = STATUS_LABEL[key] || "Unknown";
     return `<span class="hs-source-badge ${esc(key)}"><i class="dot ${esc(key)}"></i>${esc(label)}</span>`;
+  }
+
+  function closeRowMenu() {
+    const menu = $("hs-row-menu");
+    if (!menu) return;
+    menu.classList.add("hidden");
+    menu.innerHTML = "";
+    delete menu.dataset.component;
+  }
+
+  function openRowMenu(event, key) {
+    if (!isAdmin()) return;
+    const definition = componentDefinition(key);
+    if (!definition) return;
+    event.preventDefault();
+    selectComponent(key);
+    const menu = $("hs-row-menu");
+    const deactivated = Boolean(definition.deactivated);
+    menu.innerHTML = `<button type="button" role="menuitem">${deactivated ? "Reactivate" : "Deactivate"}</button>`;
+    menu.dataset.component = key;
+    menu.classList.remove("hidden");
+    const pad = 8;
+    const rect = menu.getBoundingClientRect();
+    const left = Math.min(event.clientX, window.innerWidth - rect.width - pad);
+    const top = Math.min(event.clientY, window.innerHeight - rect.height - pad);
+    menu.style.left = `${Math.max(pad, left)}px`;
+    menu.style.top = `${Math.max(pad, top)}px`;
+  }
+
+  async function setDeactivated(key, deactivated) {
+    closeRowMenu();
+    showError("");
+    try {
+      const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(key)}`, {
+        method: "PUT",
+        body: JSON.stringify({ deactivated }),
+      });
+      state.framework = result.framework;
+      await loadScore();
+    } catch (saveError) {
+      showError(saveError.message);
+    }
   }
 
   function renderEntities(source) {
@@ -228,12 +274,16 @@
     for (const group of groups) {
       rows.push(pillarHeader(group.name, group.total));
       for (const component of group.items) {
-        rows.push(`<tr data-component="${esc(component.key)}" class="${component.key === state.selected ? "active" : ""}">
+        const rowClass = [
+          component.key === state.selected ? "active" : "",
+          component.deactivated ? "deactivated" : "",
+        ].filter(Boolean).join(" ");
+        rows.push(`<tr data-component="${esc(component.key)}" class="${rowClass}">
           <td><div class="hs-component-name">${esc(component.name)}</div><span class="hs-status">${esc(component.signal)}</span></td>
           <td>${component.weight == null ? '<span class="hs-status">TBD</span>' : formatWeight(component.weight)}</td>
           <td>${influenceCell(component)}</td>
           <td>${sourceChips(component)}</td>
-          <td>${statusBadge(component.automation)}</td>
+          <td>${statusBadge(component)}</td>
         </tr>`);
       }
     }
@@ -241,6 +291,7 @@
     $("hs-components-body").innerHTML = rows.join("");
     for (const row of $("hs-components-body").querySelectorAll("tr[data-component]")) {
       row.addEventListener("click", () => selectComponent(row.dataset.component));
+      row.addEventListener("contextmenu", (event) => openRowMenu(event, row.dataset.component));
     }
     const overrides = score ? score.overrides : state.framework.overrides.map((row) => ({ ...row, latest: null }));
     $("hs-overrides-list").innerHTML = overrides
@@ -311,7 +362,7 @@
       </div>
       <div class="hs-meta-row">
         ${definition.signal ? `<span class="hs-status">${esc(definition.signal)}</span>` : '<span class="hs-status">override</span>'}
-        ${statusBadge(definition.automation)}
+        ${statusBadge(definition)}
       </div>
       <dl class="hs-detail-grid">
         ${isOverride ? "" : `<dt>Pillar</dt><dd id="hs-pillar-cell">${pillarCell(definition)}</dd>`}
@@ -805,16 +856,30 @@
     $("hs-sources-dialog").showModal();
   }
 
+  $("hs-row-menu").addEventListener("click", (event) => {
+    const key = $("hs-row-menu").dataset.component;
+    const definition = key && componentDefinition(key);
+    if (!definition) return;
+    event.stopPropagation();
+    setDeactivated(key, !definition.deactivated);
+  });
   $("btn-available-sources").addEventListener("click", openAvailableSources);
   $("user-badge").addEventListener("click", (event) => {
     event.stopPropagation();
     setUserMenuOpen($("user-menu").classList.contains("hidden"));
   });
   $("user-menu").addEventListener("click", (event) => event.stopPropagation());
-  document.addEventListener("click", () => setUserMenuOpen(false));
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") setUserMenuOpen(false);
+  document.addEventListener("click", () => {
+    setUserMenuOpen(false);
+    closeRowMenu();
   });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      setUserMenuOpen(false);
+      closeRowMenu();
+    }
+  });
+  document.addEventListener("scroll", closeRowMenu, true);
 
   boot();
 })();

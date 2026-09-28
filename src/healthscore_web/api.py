@@ -90,7 +90,7 @@ def _score_numbers(
         weight = definition.get("weight")
         max_points = definition.get("max_points")
         raw = points_by_metric.get(str(definition["key"]))
-        if raw is None or weight is None or max_points in (None, 0):
+        if definition.get("deactivated") or raw is None or weight is None or max_points in (None, 0):
             continue
         points = max(0.0, min(float(raw), float(max_points)))
         contribution += points / float(max_points) * float(weight)
@@ -467,7 +467,7 @@ def _as_date(raw: str | None):
 
 
 async def api_update_framework_component(request: Request) -> Response:
-    """Catalog admins may edit a component's name, pillar, weight, description, owner, or grain."""
+    """Catalog admins may edit a component's name, pillar, weight, description, owner, grain, or deactivated flag."""
     try:
         user = require_user(request)
     except KPIWebAuthError as exc:
@@ -499,6 +499,7 @@ async def api_update_framework_component(request: Request) -> Response:
             description=raw["description"] if "description" in raw else _UNSET,
             owner=raw["owner"] if "owner" in raw else _UNSET,
             grain=raw["grain"] if "grain" in raw else _UNSET,
+            deactivated=raw["deactivated"] if "deactivated" in raw else _UNSET,
         )
     except HealthScoreFrameworkError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)

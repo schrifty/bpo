@@ -184,8 +184,8 @@ _UNSET: Any = object()
 
 # Fields a catalog admin may change from the UI. Everything else in the
 # framework stays a hand-edited YAML decision.
-EDITABLE_INPUT_FIELDS = ("name", "pillar", "weight", "description", "owner", "grain")
-EDITABLE_OVERRIDE_FIELDS = ("name", "description", "owner", "grain")
+EDITABLE_INPUT_FIELDS = ("name", "pillar", "weight", "description", "owner", "grain", "deactivated")
+EDITABLE_OVERRIDE_FIELDS = ("name", "description", "owner", "grain", "deactivated")
 
 
 def _split_header(text: str) -> str:
@@ -231,13 +231,16 @@ def update_component(
     description: Any = _UNSET,
     owner: Any = _UNSET,
     grain: Any = _UNSET,
+    deactivated: Any = _UNSET,
     path: Path | None = None,
 ) -> dict[str, Any]:
     """Rewrite one component's editable fields in the framework YAML.
 
     Inputs accept ``name``, ``pillar``, ``weight``, ``description``, ``owner``
     and ``grain``; override flags accept everything except ``pillar`` and
-    ``weight``.
+    ``weight``. ``deactivated`` is a display flag for either kind of component.
+    It does not change ``automation`` or ``status``, so clearing it restores
+    the status the component already had.
 
     ``configured_weight`` is recomputed from the input weights so the file keeps
     validating. Returns the reloaded framework. Raises
@@ -299,7 +302,13 @@ def update_component(
         changed["owner"] = clean
     if grain is not _UNSET:
         changed["grain"] = _clean_grain(grain)
-    if not changed:
+    deactivated_touched = deactivated is not _UNSET
+    if deactivated_touched:
+        if deactivated:
+            changed["deactivated"] = True
+        else:
+            target.pop("deactivated", None)
+    if not changed and not deactivated_touched:
         raise HealthScoreFrameworkError(
             "no editable field supplied (name, pillar, weight, description, owner, grain)"
         )

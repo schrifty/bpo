@@ -153,6 +153,7 @@
 .dot.automated { background: var(--ok); }
 .dot.manual { background: #315f9c; }
 .dot.blocked { background: var(--danger); }
+.dot.deactivated { background: #8a8a8a; }
 
 .hs-table-scroll {
   flex: 1;
@@ -289,6 +290,40 @@
 .hs-source-badge.blocked {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+.hs-source-badge.deactivated {
+  background: #eee;
+  color: #5c5c5c;
+}
+
+.hs-row-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 9.5rem;
+  padding: 0.25rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(28, 36, 32, 0.16);
+}
+
+.hs-row-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--ink);
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.hs-row-menu button:hover {
+  background: var(--accent-soft);
 }
 
 .hs-influence {
