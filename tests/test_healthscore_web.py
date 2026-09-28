@@ -39,6 +39,15 @@ from src.kpi_web.app import create_app
 from src.kpi_web.settings import load_kpi_web_settings
 from tests.test_kpi_web_api import _OWNERS_YAML, _REGISTRY, _login
 
+_SCORE_OWNER = "lindsay.brown@leandna.com"
+_OWNERS_WITH_SCORE_OWNER = _OWNERS_YAML.replace(
+    "  - email: lead.eng@leandna.com\n",
+    "  - email: lindsay.brown@leandna.com\n"
+    "    display_name: Lindsay Brown\n"
+    "    packs: [support]\n"
+    "  - email: lead.eng@leandna.com\n",
+)
+
 
 def _client(
     tmp_path: Path,
@@ -47,7 +56,7 @@ def _client(
     dev_user: str = "marc.schriftman@leandna.com",
 ) -> TestClient:
     owners = tmp_path / "owners.yaml"
-    owners.write_text(_OWNERS_YAML, encoding="utf-8")
+    owners.write_text(_OWNERS_WITH_SCORE_OWNER, encoding="utf-8")
     registry = tmp_path / "metrics.yaml"
     registry.write_text(_REGISTRY, encoding="utf-8")
     monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path / "cache")
@@ -62,6 +71,10 @@ def _client(
         "CORTEX_KPI_WEB_SKIP_S3": "true",
     }
     return TestClient(create_app(settings=load_kpi_web_settings(environ=env)))
+
+
+def _score_owner_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    return _client(tmp_path, monkeypatch, dev_user=_SCORE_OWNER)
 
 
 def _entities() -> list[dict[str, object]]:
@@ -230,7 +243,7 @@ def test_healthscore_routes_and_manual_component_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
-    client = _client(tmp_path, monkeypatch)
+    client = _score_owner_client(tmp_path, monkeypatch)
     assert client.get("/", follow_redirects=False).headers["location"] == "/kpis"
     assert "Cortex KPIs" in client.get("/kpis").text
     healthscore = client.get("/healthscore").text
@@ -264,7 +277,7 @@ def test_healthscore_routes_and_manual_component_history(
     assert body["coverage_pct"] == pytest.approx(6.82, abs=0.01)
     usage = next(row for row in body["components"] if row["key"] == "usage_level")
     assert usage["latest"]["period_key"] == "2026-W40"
-    assert usage["latest"]["override_by"] == "marc.schriftman@leandna.com"
+    assert usage["latest"]["override_by"] == _SCORE_OWNER
     assert usage["contribution"] == 2
     assert len(body["history"]) == 2
     assert len(body["observations"]) == 2
@@ -280,7 +293,7 @@ def test_healthscore_report_lists_entities_lowest_score_first(
         {**_entities()[0], "id": "001-none", "name": "Unscored Entity"},
     ]
     monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", lambda: entities)
-    client = _client(tmp_path, monkeypatch)
+    client = _score_owner_client(tmp_path, monkeypatch)
     assert client.get("/healthscore/api/report").status_code == 401
     page = client.get("/healthscore")
     assert 'href="/healthscore/report"' in page.text
@@ -314,7 +327,7 @@ def test_healthscore_rejects_non_salesforce_entity_and_excess_points(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
-    client = _client(tmp_path, monkeypatch)
+    client = _score_owner_client(tmp_path, monkeypatch)
     _login(client)
     missing = client.put(
         "/healthscore/api/entities/not-salesforce/components/usage_level",
@@ -492,7 +505,7 @@ def test_null_override_clears_manual_reading_like_kpi_page(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
-    client = _client(tmp_path, monkeypatch)
+    client = _score_owner_client(tmp_path, monkeypatch)
     _login(client)
     conn = connect()
     upsert_reading(
@@ -674,6 +687,41 @@ def test_framework_edit_api_requires_catalog_admin(
     denied = lead.put("/healthscore/api/framework/components/usage_level", json={"weight": 1})
     assert denied.status_code == 403
     assert "catalog admin" in denied.json()["error"]
+
+
+def test_score_write_requires_component_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
+    admin = _client(tmp_path, monkeypatch)
+    _login(admin)
+    denied = admin.put(
+        "/healthscore/api/entities/001-active/components/usage_level",
+        json={"as_of": "2026-09-30", "points": 1},
+    )
+    assert denied.status_code == 403
+    assert "KPI owner" in denied.json()["error"]
+    assert "lindsay.brown@leandna.com" in denied.json()["error"]
+
+    lead = _client(tmp_path, monkeypatch, dev_user="lead.eng@leandna.com")
+    _login(lead)
+    also_denied = lead.put(
+        "/healthscore/api/entities/001-active/components/usage_level",
+        json={"as_of": "2026-09-30", "points": 1},
+    )
+    assert also_denied.status_code == 403
+
+    owner = _score_owner_client(tmp_path, monkeypatch)
+    _login(owner)
+    saved = owner.put(
+        "/healthscore/api/entities/001-active/components/usage_level",
+        json={"as_of": "2026-09-30", "points": 1},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["observation"]["override_by"] == _SCORE_OWNER
+
+    blocked_generate = admin.post("/healthscore/api/generate/usage_level")
+    assert blocked_generate.status_code == 403
 
 
 def test_usage_trend_points_follow_confirmed_band() -> None:
@@ -873,7 +921,7 @@ def test_generate_usage_trend_api_is_authenticated(
             "readings": [],
         },
     )
-    client = _client(tmp_path, monkeypatch)
+    client = _score_owner_client(tmp_path, monkeypatch)
     assert client.post("/healthscore/api/generate/usage_trend").status_code == 401
     _login(client)
     res = client.post("/healthscore/api/generate/usage_trend")
@@ -896,7 +944,7 @@ def test_generate_usage_level_api_is_authenticated(
             "readings": [],
         },
     )
-    client = _client(tmp_path, monkeypatch)
+    client = _score_owner_client(tmp_path, monkeypatch)
     assert client.post("/healthscore/api/generate/usage_level").status_code == 401
     _login(client)
     res = client.post("/healthscore/api/generate/usage_level")
@@ -985,7 +1033,7 @@ def test_generate_champion_login_api_is_authenticated(
             "readings": [],
         },
     )
-    client = _client(tmp_path, monkeypatch)
+    client = _score_owner_client(tmp_path, monkeypatch)
     assert client.post("/healthscore/api/generate/champion_login_continuity").status_code == 401
     _login(client)
     res = client.post("/healthscore/api/generate/champion_login_continuity")

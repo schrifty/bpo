@@ -45,10 +45,32 @@ from src.healthscore_web.store import (
 from src.healthscore_web.usage_level import UsageLevelGeneratorError
 from src.healthscore_web.usage_trend import UsageTrendGeneratorError
 from src.kpi_web.auth import KPIWebAuthError, auth_error_response, require_user
+from src.metrics_registry import normalize_owner_email
 from src.salesforce_client import SalesforceClient, _CHURNED_CONTRACT_STATUS_LOWER
 
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+def _score_change_denied(user, component_key: str) -> JSONResponse | None:
+    """Only the component's KPI owner may write or regenerate its score."""
+    definition = component_map(load_framework()).get(component_key)
+    if not definition:
+        return JSONResponse(
+            {"ok": False, "error": f"unknown Health Score component: {component_key}"},
+            status_code=404,
+        )
+    owner = normalize_owner_email(definition.get("owner"))
+    actor = normalize_owner_email(user.email)
+    if not owner or actor != owner:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": f"only the KPI owner ({owner or 'unset'}) can change this score",
+            },
+            status_code=403,
+        )
+    return None
 
 
 def _active_salesforce_entities() -> list[dict[str, Any]]:
@@ -392,6 +414,9 @@ async def api_set_component(request: Request) -> Response:
         definition = component_map(framework).get(metric_name)
         if not definition:
             raise ValueError(f"unknown Health Score component: {metric_name}")
+        denied = _score_change_denied(user, metric_name)
+        if denied:
+            return denied
         grain = definition.get("grain")
         if not grain:
             raise ValueError(
@@ -514,9 +539,12 @@ async def api_update_framework_component(request: Request) -> Response:
 
 async def api_generate_usage_level(request: Request) -> Response:
     try:
-        require_user(request)
+        user = require_user(request)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
+    denied = _score_change_denied(user, "usage_level")
+    if denied:
+        return denied
     try:
         result = run_usage_level_snapshot(dry_run=False)
     except UsageLevelGeneratorError as exc:
@@ -532,9 +560,12 @@ async def api_generate_usage_level(request: Request) -> Response:
 
 async def api_generate_usage_trend(request: Request) -> Response:
     try:
-        require_user(request)
+        user = require_user(request)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
+    denied = _score_change_denied(user, "usage_trend")
+    if denied:
+        return denied
     try:
         result = run_usage_trend_snapshot(dry_run=False)
     except UsageTrendGeneratorError as exc:
@@ -550,9 +581,12 @@ async def api_generate_usage_trend(request: Request) -> Response:
 
 async def api_generate_champion_login(request: Request) -> Response:
     try:
-        require_user(request)
+        user = require_user(request)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
+    denied = _score_change_denied(user, "champion_login_continuity")
+    if denied:
+        return denied
     try:
         result = run_champion_login_snapshot(dry_run=False)
     except ChampionLoginGeneratorError as exc:
@@ -568,9 +602,12 @@ async def api_generate_champion_login(request: Request) -> Response:
 
 async def api_generate_roi_multiple(request: Request) -> Response:
     try:
-        require_user(request)
+        user = require_user(request)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
+    denied = _score_change_denied(user, "roi_multiple")
+    if denied:
+        return denied
     try:
         result = run_roi_multiple_snapshot(dry_run=False)
     except RoiMultipleGeneratorError as exc:
@@ -586,9 +623,12 @@ async def api_generate_roi_multiple(request: Request) -> Response:
 
 async def api_generate_sla_adherence(request: Request) -> Response:
     try:
-        require_user(request)
+        user = require_user(request)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
+    denied = _score_change_denied(user, "sla_adherence")
+    if denied:
+        return denied
     try:
         result = run_sla_adherence_snapshot(dry_run=False)
     except SlaAdherenceGeneratorError as exc:
@@ -604,9 +644,12 @@ async def api_generate_sla_adherence(request: Request) -> Response:
 
 async def api_generate_enhancement_engagement(request: Request) -> Response:
     try:
-        require_user(request)
+        user = require_user(request)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
+    denied = _score_change_denied(user, "enhancement_engagement")
+    if denied:
+        return denied
     try:
         result = run_enhancement_engagement_snapshot(dry_run=False)
     except EnhancementEngagementGeneratorError as exc:
@@ -622,9 +665,12 @@ async def api_generate_enhancement_engagement(request: Request) -> Response:
 
 async def api_generate_summit_attendance(request: Request) -> Response:
     try:
-        require_user(request)
+        user = require_user(request)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)
+    denied = _score_change_denied(user, "summit_attendance")
+    if denied:
+        return denied
     try:
         result = run_summit_attendance_snapshot(dry_run=False)
     except SummitAttendanceGeneratorError as exc:
