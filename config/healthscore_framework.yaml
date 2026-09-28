@@ -25,7 +25,7 @@
 version: 1
 title: LeanDNA Customer Health Score
 scope: Salesforce Customer Entity
-configured_weight: 83
+configured_weight: 88
 source_document: LeanDNA_Health_Score_Input_Framework - Input Framework.pdf
 status: draft
 owner: lindsay.brown@leandna.com
@@ -387,7 +387,7 @@ inputs:
   scoring: No requests=N/A. Otherwise min(10, 3 * min(R, 5) / 5 + 7 * D / R), one decimal. Shipped is
     the only delivered status.
   max_points: 10
-  weight: null
+  weight: 5
   data_source:
   - Aha
   - Salesforce

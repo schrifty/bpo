@@ -83,7 +83,7 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     framework = load_framework()
     assert framework["input_count"] == 28
     assert framework["override_count"] == 4
-    assert framework["configured_weight"] == 83
+    assert framework["configured_weight"] == 88
     roi = next(row for row in framework["inputs"] if row["key"] == "roi_multiple")
     assert roi["weight"] is None
     assert roi["status"] == "needs_weight"
@@ -112,7 +112,7 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     engagement = next(row for row in framework["inputs"] if row["key"] == "enhancement_engagement")
     assert engagement["metric-generator"] == "get_enhancement_engagement"
     assert engagement["name"] == "Enhancement Engagement & Delivery"
-    assert engagement["weight"] is None
+    assert engagement["weight"] == 5
     assert engagement["status"] == "needs_weight"
     assert engagement["max_points"] == 10
     assert engagement["data_source"] == ["Aha", "Salesforce"]
@@ -261,7 +261,7 @@ def test_healthscore_routes_and_manual_component_history(
     body = score.json()
     assert body["score"] == pytest.approx(33.33, abs=0.01)
     assert body["covered_weight"] == 6
-    assert body["coverage_pct"] == pytest.approx(7.23, abs=0.01)
+    assert body["coverage_pct"] == pytest.approx(6.82, abs=0.01)
     usage = next(row for row in body["components"] if row["key"] == "usage_level")
     assert usage["latest"]["period_key"] == "2026-W40"
     assert usage["latest"]["override_by"] == "marc.schriftman@leandna.com"
