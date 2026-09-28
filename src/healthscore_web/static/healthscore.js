@@ -302,7 +302,7 @@
         ${statusBadge(definition.automation)}
       </div>
       <dl class="hs-detail-grid">
-        ${isOverride ? "" : `<dt>Pillar</dt><dd>${esc(definition.pillar)}</dd>`}
+        ${isOverride ? "" : `<dt>Pillar</dt><dd id="hs-pillar-cell">${pillarCell(definition)}</dd>`}
         ${isOverride ? "" : `<dt>Weight</dt><dd>${definition.weight == null ? "TBD" : `${definition.weight}%`}</dd>`}
         <dt>Description</dt><dd>${esc(definition.description)}</dd>
         ${definition.metric ? `<dt>Measurable metric</dt><dd>${esc(definition.metric)}</dd>` : ""}
@@ -319,7 +319,48 @@
       <p id="hs-entry-error" class="error" hidden></p>`;
     const edit = $("hs-detail-edit");
     if (edit) edit.addEventListener("click", () => openComponentForm(definition));
+    if (!isOverride) wirePillarCell(definition);
     if (definition.grain) wirePointsCell(definition, latest);
+  }
+
+  function pillarCell(definition) {
+    if (!isAdmin()) return esc(definition.pillar);
+    const current = String(definition.pillar || "");
+    const names = pillarNames();
+    if (current && !names.includes(current)) names.unshift(current);
+    const options = names
+      .map((name) => `<option value="${esc(name)}"${name === current ? " selected" : ""}>${esc(name)}</option>`)
+      .join("");
+    return `<select id="hs-pillar-select" class="hs-pillar-select" aria-label="Pillar for ${esc(definition.name)}" title="Changing the pillar saves immediately">${options}</select>`;
+  }
+
+  function wirePillarCell(definition) {
+    const select = $("hs-pillar-select");
+    if (!select) return;
+    select.addEventListener("change", () => savePillar(definition, select));
+  }
+
+  async function savePillar(definition, select) {
+    const previous = String(definition.pillar || "");
+    const next = String(select.value || "").trim();
+    if (!next || next === previous) {
+      select.value = previous;
+      return;
+    }
+    showEntryError("");
+    select.disabled = true;
+    try {
+      const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(definition.key)}`, {
+        method: "PUT",
+        body: JSON.stringify({ pillar: next }),
+      });
+      state.framework = result.framework;
+      await loadScore();
+    } catch (saveError) {
+      select.disabled = false;
+      select.value = previous;
+      showEntryError(saveError.message);
+    }
   }
 
   function isAdmin() {
@@ -448,9 +489,12 @@
     }
   }
 
+  function pillarNames() {
+    return [...new Set(state.framework.inputs.map((row) => String(row.pillar || "").trim()).filter(Boolean))];
+  }
+
   function pillarOptions() {
-    const names = [...new Set(state.framework.inputs.map((row) => row.pillar).filter(Boolean))];
-    return names.map((name) => `<option value="${esc(name)}"></option>`).join("");
+    return pillarNames().map((name) => `<option value="${esc(name)}"></option>`).join("");
   }
 
   function openComponentForm(definition) {
