@@ -337,29 +337,83 @@
     return observations.filter((row) => row.metric_name === key);
   }
 
-  function sparkline(rows, field) {
-    const values = (rows || [])
-      .map((row) => ({ date: row.period_key, value: Number(row[field] ?? row.effective_points) }))
-      .filter((row) => row.date && Number.isFinite(row.value))
-      .sort((a, b) => a.date.localeCompare(b.date));
-    if (values.length < 2) return "";
+  function chartTick(value) {
+    return String(Math.round(value * 100) / 100);
+  }
+
+  function sparkline(rows) {
+    const dated = (rows || [])
+      .filter((row) => row.period_key)
+      .slice()
+      .sort((a, b) => String(a.period_key).localeCompare(String(b.period_key)));
+    const dates = [...new Set(dated.map((row) => String(row.period_key)))];
+    if (dates.length < 2) return "";
+    const series = [
+      { key: "effective_value", label: "Value", cls: "hs-chart-value" },
+      { key: "effective_points", label: "Points", cls: "hs-chart-points" },
+    ].map((spec) => {
+      const byDate = new Map();
+      for (const row of dated) {
+        const value = Number(row[spec.key]);
+        if (Number.isFinite(value)) byDate.set(String(row.period_key), value);
+      }
+      return { ...spec, byDate };
+    }).filter((spec) => spec.byDate.size >= 2);
+    if (!series.length) return "";
+
     const width = 280;
-    const height = 88;
-    const min = Math.min(...values.map((row) => row.value));
-    const max = Math.max(...values.map((row) => row.value));
-    const span = max === min ? 1 : max - min;
-    const points = values
-      .map((row, index) => {
-        const x = 8 + (index / (values.length - 1)) * (width - 16);
-        const y = 8 + (1 - (row.value - min) / span) * (height - 24);
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      })
-      .join(" ");
-    return `<svg class="hs-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Score history">
-      <polyline class="hs-chart-line" points="${points}"></polyline>
-      <text x="8" y="${height - 3}" class="chart-label">${esc(values[0].date)}</text>
-      <text x="${width - 8}" y="${height - 3}" text-anchor="end" class="chart-label">${esc(values[values.length - 1].date)}</text>
-    </svg>`;
+    const height = 112;
+    const left = series.some((spec) => spec.key === "effective_value") ? 30 : 8;
+    const right = series.some((spec) => spec.key === "effective_points") ? 30 : 8;
+    const top = 8;
+    const bottom = 18;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+
+    const drawn = series.map((spec) => {
+      const nums = [...spec.byDate.values()];
+      const min = Math.min(...nums);
+      const max = Math.max(...nums);
+      const span = max - min;
+      const points = dates
+        .map((date, index) => {
+          if (!spec.byDate.has(date)) return null;
+          const x = left + (index / (dates.length - 1)) * plotWidth;
+          const y = span === 0
+            ? top + plotHeight / 2
+            : top + (1 - (spec.byDate.get(date) - min) / span) * plotHeight;
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .filter(Boolean)
+        .join(" ");
+      return { ...spec, points, min, max };
+    });
+
+    const axes = drawn.map((spec) => {
+      const anchor = spec.key === "effective_points" ? "end" : "start";
+      const x = spec.key === "effective_points" ? width - 2 : 2;
+      if (spec.min === spec.max) {
+        return `<text x="${x}" y="${top + plotHeight / 2 + 3}" text-anchor="${anchor}" class="chart-label">${chartTick(spec.min)}</text>`;
+      }
+      return `<text x="${x}" y="${top + 7}" text-anchor="${anchor}" class="chart-label">${chartTick(spec.max)}</text>
+        <text x="${x}" y="${height - bottom}" text-anchor="${anchor}" class="chart-label">${chartTick(spec.min)}</text>`;
+    }).join("");
+
+    const legend = drawn
+      .map((spec) => `<span class="hs-chart-key ${spec.cls}">${spec.label}</span>`)
+      .join("");
+    const lines = drawn
+      .map((spec) => `<polyline class="hs-chart-line ${spec.cls}" points="${spec.points}"></polyline>`)
+      .join("");
+    return `<figure class="hs-chart-wrap">
+      <figcaption class="hs-chart-legend">${legend}</figcaption>
+      <svg class="hs-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Value and points history">
+        ${lines}
+        ${axes}
+        <text x="${left}" y="${height - 3}" class="chart-label">${esc(dates[0])}</text>
+        <text x="${width - right}" y="${height - 3}" text-anchor="end" class="chart-label">${esc(dates[dates.length - 1])}</text>
+      </svg>
+    </figure>`;
   }
 
   function selectComponent(key) {
@@ -392,7 +446,7 @@
         ${definition.grain && !isOverride ? `<dt>Current value${periodBadge(latest)}</dt><dd>${valueCell(definition, latest)}</dd>` : ""}
         ${definition.grain ? `<dt>${isOverride ? "Flag raised" : "Points"}${periodBadge(latest)}</dt><dd id="hs-points-cell">${pointsCell(definition, latest)}</dd>` : ""}
       </dl>
-      ${sparkline(history, "effective_points")}
+      ${sparkline(history)}
       ${history.length ? `<table class="hs-history"><thead><tr><th>Period</th><th>Value</th><th>Points</th><th>Mode</th></tr></thead><tbody>${history.map((row) => `<tr><td>${esc(row.period_key)}</td><td>${esc(fmtNum(row.effective_value, scoreDigits(definition)))}</td><td>${esc(fmtNum(row.effective_points, scoreDigits(definition)))}</td><td>${esc(row.source_mode)}</td></tr>`).join("")}</tbody></table>` : ""}
       ${definition.grain ? "" : `<p class="muted">No grain yet — the framework defines this as ${esc(definition.cadence_note || "an undefined cadence")}, so readings cannot be stored against a period.</p>`}
       <p id="hs-entry-error" class="error" hidden></p>`;
