@@ -126,6 +126,22 @@ latest file in each of the newest *N* ISO weeks and writes `usage_level` for
 those periods. Weeks with no workbook stay missing. Each workbook's `delta=week`
 rows are still that week's start/end, not a nested 15-week series.
 
+With `--component usage_trend` (or `all`), `--history-weeks N` also scores
+`usage_trend` once per ISO week for the newest *N* weeks. Because each trend
+week reads the trailing 13 weeks of `usage_level`, the run first extends
+`usage_level` back `N + 12` weeks from whatever workbooks Drive still holds;
+if Drive runs out sooner the run warns and the oldest trend weeks score on a
+shorter baseline (`meta.weeks_used` says how many weeks fed each reading). A
+week with no workbook still gets a trend reading from the surrounding history
+(`meta.current_period` names the week actually used).
+
+Reruns are idempotent: weeks that already have readings are skipped and their
+workbooks are not downloaded again. Pass `--refresh-history` to recompute them.
+
+```bash
+cortex healthscore-snapshot --component usage_trend --history-weeks 26 --dry-run
+```
+
 `config/jobs/healthscore-snapshot.yaml` runs weekly on EventBridge
 (`cortex-healthscore-snapshot`, `cron(20 7 ? * MON *)`), after the CSR dumps
 and `kpi-snapshot`. It uses the `decks` secret profile because it needs both

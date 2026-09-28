@@ -656,6 +656,117 @@ def test_get_usage_trend_needs_two_weeks_then_scores_change(
     assert reading["meta"]["weeks_used"] == 2
 
 
+def _csr_week_rows(pct: float, end_date: str) -> list[dict[str, object]]:
+    return [
+        {
+            "delta": "week",
+            "customer": "Acme Parent",
+            "entity": "Acme Entity",
+            "factoryName": "Plant A",
+            "weeklyActiveBuyersPercent": json.dumps({"endValue": pct, "empty": False}),
+            "endDate": end_date,
+        }
+    ]
+
+
+def test_backfill_usage_trend_history_scores_each_week_and_skips_existing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.healthscore_web.snapshot import backfill_usage_trend_history
+    from src.healthscore_web.store import observations_for_metric
+
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    # Sundays 2026-08-30 (W35) .. 2026-09-27 (W39); W37 has no workbook.
+    workbooks = {
+        "w35": (50.0, "2026-08-30"),
+        "w36": (60.0, "2026-09-06"),
+        "w38": (72.0, "2026-09-20"),
+        "w39": (90.0, "2026-09-27"),
+    }
+    monkeypatch.setattr(
+        "src.cs_report_client.list_csr_report_files",
+        lambda: [
+            {
+                "id": file_id,
+                "name": f"customer-success-report-{day}T04:00:00Z",
+                "modifiedTime": f"{day}T04:00:00.000Z",
+            }
+            for file_id, (_, day) in workbooks.items()
+        ],
+    )
+    downloads: list[str] = []
+
+    def _load(file_id: str, *, name: str | None = None) -> list[dict[str, object]]:
+        downloads.append(file_id)
+        pct, day = workbooks[file_id]
+        return _csr_week_rows(pct, day)
+
+    monkeypatch.setattr("src.cs_report_client.load_csr_report_by_file_id", _load)
+
+    # W39 already has a trend reading; the backfill must leave it alone.
+    conn = connect()
+    upsert_reading(
+        conn,
+        entity_id="001-active",
+        entity_name="Acme Entity",
+        metric_name="usage_trend",
+        grain="weekly",
+        as_of="2026-09-27",
+        value=1.0,
+        points=3,
+        generator="manual-seed",
+    )
+    conn.close()
+
+    result = backfill_usage_trend_history(
+        weeks=4, as_of=date.fromisoformat("2026-09-27"), entities=_entities()
+    )
+    assert result["ok"] is True
+    assert result["weeks_requested"] == 4
+    assert result["source_weeks_requested"] == 16
+    assert result["source_weeks_available"] == 4
+    assert result["warnings"] and "shorter" in result["warnings"][0]
+    assert sorted(downloads) == sorted(workbooks)
+    assert result["source_weeks_loaded"] == ["2026-W35", "2026-W36", "2026-W38", "2026-W39"]
+    assert result["weeks_skipped"] == ["2026-W39"]
+    assert [row["period_key"] for row in result["weeks"]] == [
+        "2026-W36",
+        "2026-W37",
+        "2026-W38",
+    ]
+    # Weeks without a workbook still score from the surrounding usage_level history.
+    assert result["weeks"][1]["as_of"] == "2026-09-13"
+
+    conn = connect()
+    try:
+        trend = {
+            row["period_key"]: row
+            for row in observations_for_metric(conn, "001-active", "usage_trend")
+        }
+        level_periods = [
+            row["period_key"]
+            for row in observations_for_metric(conn, "001-active", "usage_level")
+        ]
+    finally:
+        conn.close()
+    assert level_periods == ["2026-W35", "2026-W36", "2026-W38", "2026-W39"]
+    assert trend["2026-W36"]["value"] == pytest.approx(20)
+    assert trend["2026-W36"]["points"] == 5
+    assert trend["2026-W37"]["meta"]["current_period"] == "2026-W36"
+    assert trend["2026-W38"]["value"] == pytest.approx(44)
+    assert trend["2026-W38"]["meta"]["weeks_used"] == 3
+    assert trend["2026-W39"]["generator"] == "manual-seed"
+
+    # A rerun downloads nothing and rewrites nothing.
+    downloads.clear()
+    again = backfill_usage_trend_history(
+        weeks=4, as_of=date.fromisoformat("2026-09-27"), entities=_entities()
+    )
+    assert downloads == []
+    assert again["weeks_scored"] == 0
+    assert again["weeks_skipped"] == ["2026-W36", "2026-W37", "2026-W38", "2026-W39"]
+
+
 def test_generate_usage_trend_api_is_authenticated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
