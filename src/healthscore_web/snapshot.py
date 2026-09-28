@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Sequence
 
 from src.healthscore_web.enhancement_engagement import (
@@ -33,7 +33,9 @@ from src.healthscore_web.usage_level import (
     UsageLevelGeneratorError,
     get_usage_level,
 )
+from src.healthscore_web.store import connect, period_key_for, periods_for_metric
 from src.healthscore_web.usage_trend import (
+    GRAIN as USAGE_TREND_GRAIN,
     METRIC_NAME as USAGE_TREND_METRIC,
     UsageTrendGeneratorError,
     get_usage_trend,
@@ -110,17 +112,71 @@ def run_usage_trend_snapshot(
     )
 
 
+def _stored_periods(metric_name: str) -> set[str]:
+    conn = connect()
+    try:
+        return set(periods_for_metric(conn, metric_name))
+    finally:
+        conn.close()
+
+
+def _load_usage_level_weeks(
+    snapshots: list[dict[str, Any]],
+    *,
+    entities: list[dict[str, Any]],
+    dry_run: bool,
+    skip_periods: set[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Score usage_level from each workbook, oldest week first.
+
+    Returns the per-week results and the ISO weeks skipped because a reading
+    for that period was already in the store.
+    """
+    from src.cs_report_client import load_csr_report_by_file_id
+
+    loaded: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    for snap in sorted(snapshots, key=lambda row: str(row["period_key"])):
+        key = str(snap["period_key"])
+        if key in skip_periods:
+            skipped.append(key)
+            continue
+        rows = load_csr_report_by_file_id(str(snap["id"]), name=str(snap["name"]))
+        result = get_usage_level(
+            entities=entities,
+            week_rows=rows,
+            as_of=snap["as_of"],
+            period_as_of=snap["as_of"],
+            persist=not dry_run,
+        )
+        loaded.append(
+            {
+                "period_key": key,
+                "as_of": snap["as_of"].isoformat(),
+                "file": snap["name"],
+                "scored": result.get("scored"),
+                "unmatched": result.get("unmatched"),
+                "ok": result.get("ok"),
+            }
+        )
+    return loaded, skipped
+
+
 def backfill_usage_level_history(
     *,
     weeks: int,
     dry_run: bool = False,
     entities: list[dict[str, Any]] | None = None,
+    only_missing: bool = False,
 ) -> dict[str, Any]:
-    """Persist usage_level from the latest CS Report workbook in each ISO week."""
+    """Persist usage_level from the latest CS Report workbook in each ISO week.
+
+    ``only_missing`` skips ISO weeks that already hold a usage_level reading, so a
+    rerun only downloads workbooks for weeks the store has not seen.
+    """
     from src.cs_report_client import (
         latest_csr_file_per_iso_week,
         list_csr_report_files,
-        load_csr_report_by_file_id,
     )
 
     if weeks < 1:
@@ -138,33 +194,108 @@ def backfill_usage_level_history(
             f"CS Report folder has {len(snapshots)} ISO weeks with workbooks, "
             f"need {weeks} for usage_level history"
         )
-    loaded: list[dict[str, Any]] = []
-    for snap in reversed(snapshots):
-        rows = load_csr_report_by_file_id(str(snap["id"]), name=str(snap["name"]))
-        result = get_usage_level(
-            entities=entities,
-            week_rows=rows,
-            as_of=snap["as_of"],
-            period_as_of=snap["as_of"],
-            persist=not dry_run,
-        )
-        loaded.append(
-            {
-                "period_key": snap["period_key"],
-                "as_of": snap["as_of"].isoformat(),
-                "file": snap["name"],
-                "scored": result.get("scored"),
-                "unmatched": result.get("unmatched"),
-                "ok": result.get("ok"),
-            }
-        )
+    skip = _stored_periods(USAGE_LEVEL_METRIC) if only_missing else set()
+    loaded, skipped = _load_usage_level_weeks(
+        snapshots, entities=entities, dry_run=dry_run, skip_periods=skip
+    )
     return {
         "ok": True,
         "generator": "get_usage_level",
         "weeks_requested": weeks,
         "weeks_loaded": len(loaded),
+        "weeks_skipped": skipped,
         "dry_run": dry_run,
         "weeks": loaded,
+    }
+
+
+def backfill_usage_trend_history(
+    *,
+    weeks: int,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    only_missing: bool = True,
+) -> dict[str, Any]:
+    """Persist usage_trend for each of the newest ``weeks`` ISO weeks.
+
+    Each trend week reads the trailing ``WINDOW_WEEKS`` of stored usage_level,
+    so the source history is first extended back ``weeks + WINDOW_WEEKS - 1``
+    ISO weeks from whatever CS Report workbooks Drive still holds (weeks already
+    in the store are not downloaded again). Drive running out earlier than that
+    is a warning, not an error: those early trend weeks score on a shorter
+    baseline and ``meta.weeks_used`` records how many weeks fed each reading.
+
+    With ``only_missing`` (default) a trend week that already has readings is
+    left alone; pass ``False`` to recompute every week in range.
+    """
+    from src.cs_report_client import (
+        latest_csr_file_per_iso_week,
+        list_csr_report_files,
+    )
+    from src.healthscore_web.usage_trend import WINDOW_WEEKS
+
+    if weeks < 1:
+        raise UsageTrendGeneratorError("history weeks must be at least 1")
+    if entities is None:
+        entities = _active_entities()
+    today = as_of or date.today()
+    source_weeks = weeks + WINDOW_WEEKS - 1
+    files = list_csr_report_files()
+    snapshots = latest_csr_file_per_iso_week(files, weeks=source_weeks)
+    if not snapshots:
+        raise UsageTrendGeneratorError(
+            "no CS Report workbooks found to backfill usage_level for usage_trend"
+        )
+    warnings: list[str] = []
+    if len(snapshots) < source_weeks:
+        warnings.append(
+            f"CS Report folder has {len(snapshots)} ISO weeks with workbooks; "
+            f"{source_weeks} would give every trend week a full "
+            f"{WINDOW_WEEKS}-week baseline. Older trend weeks use a shorter one."
+        )
+    source_loaded, source_skipped = _load_usage_level_weeks(
+        snapshots,
+        entities=entities,
+        dry_run=dry_run,
+        skip_periods=_stored_periods(USAGE_LEVEL_METRIC),
+    )
+    snapshot_by_key = {str(row["period_key"]): row for row in snapshots}
+    existing_trend = _stored_periods(USAGE_TREND_METRIC) if only_missing else set()
+    scored: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    for offset in range(weeks - 1, -1, -1):
+        day = today - timedelta(weeks=offset)
+        key = period_key_for(USAGE_TREND_GRAIN, day)
+        if key in existing_trend:
+            skipped.append(key)
+            continue
+        snap = snapshot_by_key.get(key)
+        week_as_of = snap["as_of"] if snap else day
+        result = get_usage_trend(entities=entities, as_of=week_as_of, persist=not dry_run)
+        scored.append(
+            {
+                "period_key": key,
+                "as_of": week_as_of.isoformat(),
+                "scored": result.get("scored"),
+                "insufficient": result.get("insufficient"),
+                "ok": result.get("ok"),
+            }
+        )
+    return {
+        "ok": True,
+        "generator": "get_usage_trend",
+        "metric_name": USAGE_TREND_METRIC,
+        "weeks_requested": weeks,
+        "weeks_scored": len(scored),
+        "weeks_skipped": skipped,
+        "source_weeks_requested": source_weeks,
+        "source_weeks_available": len(snapshots),
+        "source_weeks_loaded": [row["period_key"] for row in source_loaded],
+        "source_weeks_skipped": source_skipped,
+        "dry_run": dry_run,
+        "warnings": warnings,
+        "weeks": scored,
     }
 
 
@@ -293,19 +424,37 @@ def run_healthscore_snapshot_cli(
         "--history-weeks",
         type=int,
         default=None,
-        help="Backfill usage_level from one CS Report workbook per ISO week (newest weeks)",
+        help=(
+            "Backfill usage_level from one CS Report workbook per ISO week (newest "
+            "weeks). With --component usage_trend or all, also score usage_trend "
+            "for each of those weeks."
+        ),
+    )
+    parser.add_argument(
+        "--refresh-history",
+        action="store_true",
+        help=(
+            "With --history-weeks, recompute weeks that already have readings "
+            "instead of skipping them"
+        ),
     )
     args = parser.parse_args(list(argv) if argv is not None else None)
     as_of = date.fromisoformat(args.as_of) if args.as_of else None
     try:
         if args.history_weeks:
+            only_missing = not args.refresh_history
             result: dict[str, Any] = backfill_usage_level_history(
-                weeks=args.history_weeks, dry_run=args.dry_run
+                weeks=args.history_weeks,
+                dry_run=args.dry_run,
+                only_missing=only_missing,
             )
             name = str(args.component or "all").strip().lower()
             if name in (USAGE_TREND_METRIC, "all"):
-                result[USAGE_TREND_METRIC] = run_usage_trend_snapshot(
-                    dry_run=args.dry_run, as_of=as_of
+                result[USAGE_TREND_METRIC] = backfill_usage_trend_history(
+                    weeks=args.history_weeks,
+                    dry_run=args.dry_run,
+                    as_of=as_of,
+                    only_missing=only_missing,
                 )
         else:
             result = run_healthscore_snapshot(

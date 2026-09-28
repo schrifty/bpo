@@ -303,6 +303,19 @@ def observations_for_metric(
     return [_row(row) for row in rows]
 
 
+def periods_for_metric(conn: sqlite3.Connection, metric_name: str) -> list[str]:
+    """Distinct period keys that already hold a reading for ``metric_name``, oldest first."""
+    rows = conn.execute(
+        """
+        SELECT DISTINCT period_key FROM healthscore_observation
+        WHERE metric_name = ?
+        ORDER BY period_key ASC
+        """,
+        (metric_name,),
+    ).fetchall()
+    return [str(row["period_key"]) for row in rows]
+
+
 def latest_by_metric(
     observations: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
