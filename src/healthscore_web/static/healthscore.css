@@ -135,6 +135,10 @@
   cursor: pointer;
 }
 
+.hs-components tbody tr.blocked {
+  background: #fbf1f1;
+}
+
 .hs-components tbody tr:hover,
 .hs-components tbody tr.active {
   background: var(--accent-soft);

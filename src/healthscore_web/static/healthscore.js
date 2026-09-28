@@ -161,7 +161,8 @@
     const components = score ? score.components : state.framework.inputs.map((row) => ({ ...row, latest: null, contribution: null }));
     $("hs-components-body").innerHTML = components
       .map((component) => {
-        return `<tr data-component="${esc(component.key)}">
+        const status = String(component.automation || "").toLowerCase();
+        return `<tr data-component="${esc(component.key)}" class="${status === "blocked" ? "blocked" : ""}">
           <td><div class="hs-component-name">${esc(component.name)}</div><span class="hs-status">${esc(component.signal)}</span></td>
           <td>${esc(component.pillar)}</td>
           <td>${component.weight == null ? '<span class="hs-status">TBD</span>' : `${component.weight}%`}</td>
