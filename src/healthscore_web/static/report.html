@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Healthscore report</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
+  <link rel="stylesheet" href="/static/styles.css?v=available-sources-2" />
+  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=report-row-color" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <a href="/healthscore" class="brand-link" id="brand-home">
+        <img src="/static/logo.svg" alt="" class="brand-mark" width="28" height="28" />
+        <span class="brand-word">Cortex<span class="brand-sub">Healthscore</span></span>
+      </a>
+    </div>
+    <div id="session" class="session hidden">
+      <button
+        type="button"
+        id="user-badge"
+        class="user-badge"
+        aria-haspopup="menu"
+        aria-expanded="false"
+        aria-controls="user-menu"
+        title="Account"
+      >
+        <img id="user-badge-img" alt="" referrerpolicy="no-referrer" hidden />
+        <span id="user-badge-initials"></span>
+      </button>
+      <div id="user-menu" class="user-menu hidden" role="menu">
+        <div class="user-menu-identity">
+          <div id="user-menu-name" class="user-menu-name"></div>
+          <div id="user-menu-email" class="user-menu-email"></div>
+          <div id="user-menu-role" class="user-menu-role"></div>
+        </div>
+        <a class="user-menu-item" href="/healthscore" role="menuitem">Healthscore</a>
+        <a class="user-menu-item" href="/healthscore/report" role="menuitem">Healthscore report</a>
+        <a class="user-menu-item" href="/kpis" role="menuitem">KPIs</a>
+        <a id="btn-signout" class="user-menu-item" href="/auth/logout" role="menuitem">Sign out</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="hs-login" class="panel hidden">
+      <img src="/static/logo.svg" alt="Cortex" class="login-mark" width="72" height="72" />
+      <h1>Sign in</h1>
+      <p class="muted">Google Workspace SSO is required to view Customer Health Score data.</p>
+      <div id="hs-login-actions" class="row"></div>
+      <p id="hs-login-error" class="error" hidden></p>
+    </section>
+
+    <section id="hs-report" class="panel hs-report hidden">
+      <div class="hs-section-head">
+        <div>
+          <h2>Healthscore report</h2>
+          <p id="hs-report-summary" class="muted"></p>
+        </div>
+      </div>
+      <p id="hs-report-error" class="error" hidden></p>
+      <div class="hs-table-scroll">
+        <table class="hs-report-table">
+          <thead>
+            <tr><th>Score</th><th>Entity</th><th>Weight scored</th></tr>
+          </thead>
+          <tbody id="hs-report-body">
+            <tr><td colspan="3" class="muted">Scoring active entities…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Experimental model · Salesforce is the customer system of record</span>
+  </footer>
+
+  <script src="/healthscore/static/report.js?v=report-row-color"></script>
+</body>
+</html>

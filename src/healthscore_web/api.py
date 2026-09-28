@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from src.healthscore_web.store import (
     clear_override,
     connect,
     latest_by_metric,
+    latest_effective_points_by_entity,
     observations_for_entity,
     period_key_for,
     set_override,
@@ -77,13 +79,58 @@ def _active_salesforce_entities() -> list[dict[str, Any]]:
     return entities
 
 
+def _score_numbers(
+    framework: dict[str, Any], points_by_metric: dict[str, float | None]
+) -> dict[str, Any]:
+    """Provisional 0–100 score across inputs that have both weight and points."""
+    configured_weight = float(framework["configured_weight"])
+    contribution = 0.0
+    covered_weight = 0.0
+    for definition in framework["inputs"]:
+        weight = definition.get("weight")
+        max_points = definition.get("max_points")
+        raw = points_by_metric.get(str(definition["key"]))
+        if raw is None or weight is None or max_points in (None, 0):
+            continue
+        points = max(0.0, min(float(raw), float(max_points)))
+        contribution += points / float(max_points) * float(weight)
+        covered_weight += float(weight)
+    return {
+        "score": (
+            round(contribution / covered_weight * 100, 2) if covered_weight else None
+        ),
+        "contribution": round(contribution, 4),
+        "configured_weight": configured_weight,
+        "covered_weight": round(covered_weight, 4),
+        "coverage_pct": (
+            round(covered_weight / configured_weight * 100, 2) if configured_weight else 0
+        ),
+    }
+
+
+def shown_score(score: float | None) -> int | None:
+    """Nearest integer, matching ``Math.round`` for the non-negative scores we show."""
+    if score is None:
+        return None
+    return int(math.floor(float(score) + 0.5))
+
+
+def score_band(score: float | None) -> str | None:
+    """Red 0–33, yellow 34–67, green 68–100, using the rounded score."""
+    shown = shown_score(score)
+    if shown is None:
+        return None
+    if shown <= 33:
+        return "red"
+    if shown <= 67:
+        return "yellow"
+    return "green"
+
+
 def _score_payload(
     framework: dict[str, Any], observations: list[dict[str, Any]]
 ) -> dict[str, Any]:
     latest = latest_by_metric(observations)
-    configured_weight = float(framework["configured_weight"])
-    contribution = 0.0
-    covered_weight = 0.0
     components: list[dict[str, Any]] = []
     pillars: dict[str, dict[str, float]] = defaultdict(
         lambda: {"configured_weight": 0.0, "covered_weight": 0.0, "contribution": 0.0}
@@ -104,8 +151,6 @@ def _score_payload(
             points = max(0.0, min(float(row["effective_points"]), float(max_points)))
             value = points / float(max_points) * float(weight)
             item["contribution"] = round(value, 4)
-            contribution += value
-            covered_weight += float(weight)
             pillar = pillars[str(definition["pillar"])]
             pillar["covered_weight"] += float(weight)
             pillar["contribution"] += value
@@ -114,17 +159,18 @@ def _score_payload(
         {**definition, "latest": latest.get(str(definition["key"]))}
         for definition in framework["overrides"]
     ]
+    numbers = _score_numbers(
+        framework,
+        {
+            str(definition["key"]): (latest.get(str(definition["key"])) or {}).get(
+                "effective_points"
+            )
+            for definition in framework["inputs"]
+        },
+    )
     return {
-        "score": (
-            round(contribution / covered_weight * 100, 2)
-            if covered_weight
-            else None
-        ),
+        **numbers,
         "score_label": "provisional score across observed weighted inputs",
-        "contribution": round(contribution, 4),
-        "configured_weight": configured_weight,
-        "covered_weight": round(covered_weight, 4),
-        "coverage_pct": round(covered_weight / configured_weight * 100, 2),
         "components": components,
         "overrides": overrides,
         "pillars": [
@@ -168,6 +214,72 @@ def _score_history(
                 }
             )
     return out
+
+
+async def report_page(request: Request) -> Response:
+    page = STATIC_DIR / "report.html"
+    if not page.is_file():
+        return JSONResponse(
+            {"ok": False, "error": f"Health Score report UI missing: {page}"},
+            status_code=500,
+        )
+    return Response(page.read_text(encoding="utf-8"), media_type="text/html")
+
+
+async def api_report(request: Request) -> Response:
+    """Every active entity, lowest score first (red, then yellow, then green)."""
+    try:
+        require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    try:
+        entities = _active_salesforce_entities()
+        framework = load_framework()
+        conn = connect()
+        try:
+            points = latest_effective_points_by_entity(conn)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score report failed")
+        return JSONResponse(
+            {"ok": False, "error": f"Health Score report failed: {exc}"},
+            status_code=502,
+        )
+    rows = []
+    for entity in entities:
+        numbers = _score_numbers(framework, points.get(entity["id"], {}))
+        score = numbers["score"]
+        rows.append(
+            {
+                "id": entity["id"],
+                "name": entity["name"],
+                "score": score,
+                "shown_score": shown_score(score),
+                "band": score_band(score),
+                "coverage_pct": numbers["coverage_pct"],
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            row["shown_score"] is None,
+            row["shown_score"] if row["shown_score"] is not None else 0,
+            row["score"] if row["score"] is not None else 0,
+            row["name"].casefold(),
+        )
+    )
+    counts = {"red": 0, "yellow": 0, "green": 0, "unscored": 0}
+    for row in rows:
+        counts[row["band"] or "unscored"] += 1
+    return JSONResponse(
+        {
+            "ok": True,
+            "source": "Salesforce Account.Type = Customer Entity",
+            "entity_count": len(rows),
+            "counts": counts,
+            "entities": rows,
+        }
+    )
 
 
 async def index_page(request: Request) -> Response:

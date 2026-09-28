@@ -316,6 +316,31 @@ def periods_for_metric(conn: sqlite3.Connection, metric_name: str) -> list[str]:
     return [str(row["period_key"]) for row in rows]
 
 
+def latest_effective_points_by_entity(
+    conn: sqlite3.Connection,
+) -> dict[str, dict[str, float | None]]:
+    """Newest effective points per entity and metric.
+
+    Rows are read newest period first, so the first sighting of a metric wins,
+    matching :func:`latest_by_metric`.
+    """
+    rows = conn.execute(
+        """
+        SELECT entity_id, metric_name, points, override_points
+        FROM healthscore_observation
+        ORDER BY period_key DESC, metric_name ASC
+        """
+    ).fetchall()
+    out: dict[str, dict[str, float | None]] = {}
+    for row in rows:
+        metrics = out.setdefault(str(row["entity_id"]), {})
+        metrics.setdefault(
+            str(row["metric_name"]),
+            row["override_points"] if row["override_points"] is not None else row["points"],
+        )
+    return out
+
+
 def latest_by_metric(
     observations: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:

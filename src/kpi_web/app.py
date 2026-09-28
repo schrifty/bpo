@@ -28,6 +28,8 @@ def create_app(
         Route("/", lambda request: RedirectResponse("/kpis", status_code=302), methods=["GET"]),
         Route("/kpis", api.index_page, methods=["GET"]),
         Route("/healthscore", healthscore_api.index_page, methods=["GET"]),
+        Route("/healthscore/report", healthscore_api.report_page, methods=["GET"]),
+        Route("/healthscore/api/report", healthscore_api.api_report, methods=["GET"]),
         Route("/healthscore/api/framework", healthscore_api.api_framework, methods=["GET"]),
         Route(
             "/healthscore/api/framework/components/{component_key}",

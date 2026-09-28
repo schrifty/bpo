@@ -270,6 +270,46 @@ def test_healthscore_routes_and_manual_component_history(
     assert len(body["observations"]) == 2
 
 
+def test_healthscore_report_lists_entities_lowest_score_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entities = [
+        {**_entities()[0], "id": "001-red", "name": "Red Entity"},
+        {**_entities()[0], "id": "001-yellow", "name": "Yellow Entity"},
+        {**_entities()[0], "id": "001-green", "name": "Green Entity"},
+        {**_entities()[0], "id": "001-none", "name": "Unscored Entity"},
+    ]
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", lambda: entities)
+    client = _client(tmp_path, monkeypatch)
+    assert client.get("/healthscore/api/report").status_code == 401
+    page = client.get("/healthscore")
+    assert 'href="/healthscore/report"' in page.text
+    assert "Healthscore report" in client.get("/healthscore/report").text
+
+    _login(client)
+    # usage_level weight 6, max 6 → points/6*100.
+    for entity_id, points in (("001-red", 0), ("001-yellow", 4), ("001-green", 6)):
+        saved = client.put(
+            f"/healthscore/api/entities/{entity_id}/components/usage_level",
+            json={"as_of": "2026-09-30", "points": points},
+        )
+        assert saved.status_code == 200, saved.text
+
+    report = client.get("/healthscore/api/report")
+    assert report.status_code == 200, report.text
+    body = report.json()
+    assert [row["name"] for row in body["entities"]] == [
+        "Red Entity",
+        "Yellow Entity",
+        "Green Entity",
+        "Unscored Entity",
+    ]
+    assert [row["band"] for row in body["entities"]] == ["red", "yellow", "green", None]
+    assert [row["shown_score"] for row in body["entities"]] == [0, 67, 100, None]
+    assert body["counts"] == {"red": 1, "yellow": 1, "green": 1, "unscored": 1}
+    assert body["entity_count"] == 4
+
+
 def test_healthscore_rejects_non_salesforce_entity_and_excess_points(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
