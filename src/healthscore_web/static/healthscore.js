@@ -189,8 +189,8 @@
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
   }
 
-  function pillarHeader(name, weight, extraClass = "") {
-    return `<tr class="hs-pillar-row${extraClass}">
+  function pillarHeader(name, weight) {
+    return `<tr class="hs-pillar-row">
       <th scope="rowgroup">${esc(name)}</th>
       <td>${formatWeight(weight)}</td>
       <td colspan="3"></td>
@@ -216,7 +216,7 @@
         </tr>`);
       }
     }
-    if (unassigned > 0) rows.push(pillarHeader("Unassigned", unassigned, " hs-pillar-unassigned"));
+    if (unassigned > 0) rows.push(pillarHeader("Unassigned", unassigned));
     $("hs-components-body").innerHTML = rows.join("");
     for (const row of $("hs-components-body").querySelectorAll("tr[data-component]")) {
       row.addEventListener("click", () => selectComponent(row.dataset.component));
@@ -284,15 +284,9 @@
     const latest = componentLatest(key);
     const history = componentHistory(key);
     const isOverride = !Object.prototype.hasOwnProperty.call(definition, "pillar");
-    const editBtn = isAdmin()
-      ? `<button type="button" id="hs-detail-edit" class="icon-btn" title="${isOverride ? "Edit name" : "Edit input, pillar, and weight"}" aria-label="Edit ${esc(definition.name)}">
-           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-         </button>`
-      : "";
     $("hs-detail").innerHTML = `
       <div class="detail-head">
-        <h2>${esc(definition.name)}</h2>
-        ${editBtn}
+        ${nameHeading(definition)}
       </div>
       <div class="hs-meta-row">
         ${definition.signal ? `<span class="hs-status">${esc(definition.signal)}</span>` : '<span class="hs-status">override</span>'}
@@ -314,13 +308,75 @@
       ${history.length ? `<table class="hs-history"><thead><tr><th>Period</th><th>Value</th><th>Points</th><th>Mode</th></tr></thead><tbody>${history.map((row) => `<tr><td>${esc(row.period_key)}</td><td>${esc(fmtNum(row.effective_value, scoreDigits(definition)))}</td><td>${esc(fmtNum(row.effective_points, scoreDigits(definition)))}</td><td>${esc(row.source_mode)}</td></tr>`).join("")}</tbody></table>` : ""}
       ${definition.grain ? "" : `<p class="muted">No grain yet — the framework defines this as ${esc(definition.cadence_note || "an undefined cadence")}, so readings cannot be stored against a period.</p>`}
       <p id="hs-entry-error" class="error" hidden></p>`;
-    const edit = $("hs-detail-edit");
-    if (edit) edit.addEventListener("click", () => openComponentForm(definition));
+    wireNameHeading(definition);
     if (!isOverride) {
       wirePillarCell(definition);
       wireWeightCell(definition);
     }
     if (definition.grain) wirePointsCell(definition, latest);
+  }
+
+  function nameHeading(definition) {
+    if (!isAdmin()) return `<h2>${esc(definition.name)}</h2>`;
+    return `<h2><span class="hs-name-value" title="Click to rename">${esc(definition.name)}</span></h2>`;
+  }
+
+  function wireNameHeading(definition) {
+    const value = document.querySelector("#hs-detail .hs-name-value");
+    if (value) value.addEventListener("click", () => beginNameEdit(definition));
+  }
+
+  function beginNameEdit(definition) {
+    const head = document.querySelector("#hs-detail .detail-head");
+    if (!head || head.querySelector("input")) return;
+    const prior = definition.name || "";
+    head.innerHTML = `<input class="value-input hs-name-input" type="text" aria-label="Name" /><span class="muted hs-points-hint">Enter saves · Esc cancels</span>`;
+    const input = head.querySelector("input");
+    input.value = prior;
+    input.focus();
+    input.select();
+    let done = false;
+    const restore = () => {
+      head.innerHTML = nameHeading(definition);
+      wireNameHeading(definition);
+    };
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      const typed = input.value.trim();
+      if (!save || typed === prior) {
+        restore();
+        return;
+      }
+      if (!typed) {
+        restore();
+        showEntryError("Name cannot be empty");
+        return;
+      }
+      showEntryError("");
+      input.disabled = true;
+      try {
+        const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(definition.key)}`, {
+          method: "PUT",
+          body: JSON.stringify({ name: typed }),
+        });
+        state.framework = result.framework;
+        await loadScore();
+      } catch (saveError) {
+        restore();
+        showEntryError(saveError.message);
+      }
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
   }
 
   function weightText(definition) {
@@ -566,58 +622,6 @@
     return names.sort((a, b) => a.localeCompare(b));
   }
 
-  function pillarOptions() {
-    return pillarNames().map((name) => `<option value="${esc(name)}"></option>`).join("");
-  }
-
-  function openComponentForm(definition) {
-    if (!isAdmin()) return;
-    const isOverride = !Object.prototype.hasOwnProperty.call(definition, "pillar");
-    const dialog = $("hs-component-dialog");
-    $("hs-form-title").textContent = `Edit: ${definition.name}`;
-    $("hs-form-error").hidden = true;
-    $("hs-f-name").value = definition.name || "";
-    $("hs-f-pillar").value = definition.pillar || "";
-    $("hs-f-weight").value = definition.weight == null ? "" : String(definition.weight);
-    $("hs-f-pillar-wrap").hidden = isOverride;
-    $("hs-f-weight-wrap").hidden = isOverride;
-    $("hs-pillar-options").innerHTML = pillarOptions();
-    dialog.dataset.component = definition.key;
-    dialog.showModal();
-  }
-
-  async function submitComponentForm(event) {
-    event.preventDefault();
-    const dialog = $("hs-component-dialog");
-    const key = dialog.dataset.component;
-    const definition = componentDefinition(key);
-    if (!definition) return;
-    const isOverride = !Object.prototype.hasOwnProperty.call(definition, "pillar");
-    const payload = { name: $("hs-f-name").value.trim() };
-    if (!isOverride) {
-      payload.pillar = $("hs-f-pillar").value.trim();
-      const weight = $("hs-f-weight").value.trim();
-      payload.weight = weight === "" ? null : Number(weight);
-      if (weight !== "" && !Number.isFinite(payload.weight)) {
-        $("hs-form-error").hidden = false;
-        $("hs-form-error").textContent = `Invalid weight: ${weight}`;
-        return;
-      }
-    }
-    try {
-      const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(key)}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
-      state.framework = result.framework;
-      dialog.close();
-      await loadScore();
-    } catch (saveError) {
-      $("hs-form-error").hidden = false;
-      $("hs-form-error").textContent = saveError.message;
-    }
-  }
-
   async function loadScore() {
     if (!state.entity) {
       state.score = null;
@@ -719,8 +723,6 @@
     $("hs-sources-dialog").showModal();
   }
 
-  $("hs-component-form").addEventListener("submit", submitComponentForm);
-  $("hs-form-cancel").addEventListener("click", () => $("hs-component-dialog").close());
   $("btn-available-sources").addEventListener("click", openAvailableSources);
   $("user-badge").addEventListener("click", (event) => {
     event.stopPropagation();

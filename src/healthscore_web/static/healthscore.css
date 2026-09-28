@@ -154,12 +154,6 @@
   border-bottom: 1px solid var(--line);
 }
 
-.hs-components tbody tr.hs-pillar-unassigned th,
-.hs-components tbody tr.hs-pillar-unassigned td {
-  background: transparent;
-  color: var(--muted);
-}
-
 .hs-components tbody tr.active {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
@@ -371,6 +365,24 @@
   max-width: 5rem;
 }
 
+.hs-name-value {
+  cursor: text;
+  border-radius: 4px;
+  padding: 0.05rem 0.25rem;
+  margin-left: -0.25rem;
+}
+
+.hs-name-value:hover {
+  background: var(--accent-soft);
+}
+
+.hs-name-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
 .hs-pillar-select {
   max-width: 100%;
   padding: 0.12rem 0.35rem;
@@ -387,23 +399,6 @@
 .hs-pillar-select:disabled {
   opacity: 0.6;
   cursor: progress;
-}
-
-#hs-component-form {
-  padding: 0.75rem 0.9rem 0.85rem;
-}
-
-#hs-component-form h2 {
-  margin: 0 0 0.55rem;
-  font-size: 1rem;
-}
-
-#hs-component-form .form-grid {
-  gap: 0.5rem;
-}
-
-#hs-component-form .form-actions {
-  margin-top: 0.7rem;
 }
 
 #hs-entry-error {
