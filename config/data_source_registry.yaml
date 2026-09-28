@@ -120,6 +120,7 @@ sources:
         path: /idea_portals
   leandna:
     display_name: LeanDNA
+    healthscore_label: Data API
     authority: enrichment
     env_required: []
     env_optional: [LEANDNA_API_BASE_URL, LEANDNA_API_KEY]

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cortex Healthscore</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
-  <link rel="stylesheet" href="/static/styles.css?v=available-sources" />
-  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=available-sources" />
+  <link rel="stylesheet" href="/static/styles.css?v=available-sources-2" />
+  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=available-sources-2" />
 </head>
 <body>
   <header class="top">
@@ -36,7 +36,6 @@
           <div id="user-menu-role" class="user-menu-role"></div>
         </div>
         <a class="user-menu-item" href="/kpis" role="menuitem">KPIs</a>
-        <div class="user-menu-label">Settings</div>
         <button type="button" id="btn-available-sources" class="user-menu-item" role="menuitem">Available Sources</button>
         <a id="btn-signout" class="user-menu-item" href="/auth/logout" role="menuitem">Sign out</a>
       </div>
@@ -99,7 +98,6 @@
   <dialog id="hs-sources-dialog" aria-labelledby="hs-sources-title">
     <form method="dialog" class="hs-sources-dialog">
       <h2 id="hs-sources-title">Available Sources</h2>
-      <p class="muted">Systems Cortex can read. Source chips for these are green.</p>
       <ul id="hs-sources-list" class="hs-sources-list"></ul>
       <div class="form-actions">
         <button type="submit" class="secondary">Close</button>
@@ -132,6 +130,6 @@
       </div>
     </form>
   </dialog>
-  <script src="/healthscore/static/healthscore.js?v=available-sources"></script>
+  <script src="/healthscore/static/healthscore.js?v=available-sources-2"></script>
 </body>
 </html>

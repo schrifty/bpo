@@ -115,6 +115,7 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     labels = framework["available_source_labels"]
     assert "Aha" in labels
     assert "JIRA" not in labels
+    assert "Data API" in labels and "LeanDNA" not in labels
     assert labels.index("Pendo") < labels.index("Salesforce") < labels.index("Aha")
     verified = next(row for row in framework["inputs"] if row["key"] == "verified_outcomes")
     assert verified["data_source"] == ["Verified-outcome log"]

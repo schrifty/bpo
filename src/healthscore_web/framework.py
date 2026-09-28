@@ -132,7 +132,10 @@ def _data_source_registry() -> dict[str, Any]:
 
 
 def available_source_labels() -> list[str]:
-    """Display names of business systems Cortex can read, in registry order."""
+    """Labels of business systems Cortex can read, in registry order.
+
+    ``healthscore_label`` overrides ``display_name`` for the Healthscore UI only.
+    """
     registry = _data_source_registry()
     sources = registry.get("sources") or {}
     if not isinstance(sources, dict):
@@ -147,7 +150,7 @@ def available_source_labels() -> list[str]:
         meta = sources.get(key) or {}
         if not isinstance(meta, dict):
             continue
-        label = str(meta.get("display_name") or "").strip()
+        label = str(meta.get("healthscore_label") or meta.get("display_name") or "").strip()
         if label:
             labels.append(label)
     return labels
@@ -167,7 +170,7 @@ def available_data_source_names() -> list[str]:
         aliases = meta.get("aliases") or []
         if isinstance(aliases, str):
             aliases = [aliases]
-        for raw in (meta.get("display_name"), *aliases):
+        for raw in (meta.get("display_name"), meta.get("healthscore_label"), *aliases):
             label = str(raw or "").strip()
             key = label.casefold()
             if not label or key in seen:
