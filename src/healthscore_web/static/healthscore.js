@@ -171,20 +171,27 @@
   function renderScore() {
     const score = state.score;
     const components = score ? score.components : state.framework.inputs.map((row) => ({ ...row, latest: null, contribution: null }));
-    $("hs-components-body").innerHTML = components
-      .map((component) => {
-        const status = String(component.automation || "").toLowerCase();
-        return `<tr data-component="${esc(component.key)}" class="${status === "blocked" ? "blocked" : ""}">
+    const byPillarThenName = (a, b) =>
+      String(a.pillar || "").localeCompare(String(b.pillar || "")) || String(a.name || "").localeCompare(String(b.name || ""));
+    const rows = [];
+    let currentPillar = null;
+    for (const component of [...components].sort(byPillarThenName)) {
+      const pillar = component.pillar || "Unassigned";
+      if (pillar !== currentPillar) {
+        currentPillar = pillar;
+        rows.push(`<tr class="hs-pillar-row"><th scope="rowgroup" colspan="5">${esc(pillar)}</th></tr>`);
+      }
+      const status = String(component.automation || "").toLowerCase();
+      rows.push(`<tr data-component="${esc(component.key)}" class="${status === "blocked" ? "blocked" : ""}">
           <td><div class="hs-component-name">${esc(component.name)}</div><span class="hs-status">${esc(component.signal)}</span></td>
-          <td>${esc(component.pillar)}</td>
           <td>${component.weight == null ? '<span class="hs-status">TBD</span>' : `${component.weight}%`}</td>
           <td>${influenceCell(component)}</td>
           <td>${sourceChips(component)}</td>
           <td>${statusBadge(component.automation)}</td>
-        </tr>`;
-      })
-      .join("");
-    for (const row of $("hs-components-body").querySelectorAll("tr")) {
+        </tr>`);
+    }
+    $("hs-components-body").innerHTML = rows.join("");
+    for (const row of $("hs-components-body").querySelectorAll("tr[data-component]")) {
       row.addEventListener("click", () => selectComponent(row.dataset.component));
     }
     const overrides = score ? score.overrides : state.framework.overrides.map((row) => ({ ...row, latest: null }));
@@ -245,7 +252,7 @@
     const definition = componentDefinition(key);
     if (!definition) return;
     if (markActive) {
-      for (const row of $("hs-components-body").querySelectorAll("tr")) {
+      for (const row of $("hs-components-body").querySelectorAll("tr[data-component]")) {
         row.classList.toggle("active", row.dataset.component === key);
       }
     }

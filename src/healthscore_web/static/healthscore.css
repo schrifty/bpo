@@ -135,6 +135,22 @@
   cursor: pointer;
 }
 
+.hs-components tbody tr.hs-pillar-row {
+  cursor: default;
+}
+
+.hs-components tbody tr.hs-pillar-row th {
+  position: static;
+  z-index: auto;
+  padding-top: 0.7rem;
+  padding-bottom: 0.3rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-bottom: 1px solid var(--line);
+}
+
 .hs-components tbody tr.blocked,
 .hs-components tbody tr.blocked:hover,
 .hs-components tbody tr.blocked.active {
