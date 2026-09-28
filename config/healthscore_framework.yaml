@@ -354,7 +354,7 @@ inputs:
   pillar: Relationship & Engagement
   name: Champion / stakeholder turnover
   description: Whether the entity's primary champion or economic buyer left the company or changed role
-    during the week, from Salesforce contact changes and external research. Either departure scores 0;
+    during the week, from Salesforce contact changes. Either departure scores 0;
     otherwise 4. The change signal is not yet sourced.
   signal: leading
   metric: Tracked-contact departure or role-change flag
@@ -363,7 +363,6 @@ inputs:
   weight: 4
   data_source:
   - Salesforce
-  - External research
   grain: weekly
   automation: blocked
   status: needs_source

@@ -114,6 +114,9 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert champion["automation"] == "automated"
     assert "trailing 7 days" in champion["description"]
     assert champion["data_source"] == ["Salesforce"]
+    turnover = next(row for row in framework["inputs"] if row["key"] == "champion_turnover")
+    assert turnover["data_source"] == ["Salesforce"]
+    assert "external research" not in turnover["description"].casefold()
     assert champion["automation"] == "automated"
     roi = next(row for row in framework["inputs"] if row["key"] == "roi_multiple")
     assert roi["metric-generator"] == "get_roi_multiple"
