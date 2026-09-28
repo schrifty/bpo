@@ -490,7 +490,8 @@
   }
 
   function pillarNames() {
-    return [...new Set(state.framework.inputs.map((row) => String(row.pillar || "").trim()).filter(Boolean))];
+    const names = [...new Set(state.framework.inputs.map((row) => String(row.pillar || "").trim()).filter(Boolean))];
+    return names.sort((a, b) => a.localeCompare(b));
   }
 
   function pillarOptions() {
