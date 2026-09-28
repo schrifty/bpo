@@ -175,6 +175,7 @@ def get_meeting_cadence(
     users: list[dict[str, Any]] | None = None,
     parent_ids: dict[str, str] | None = None,
     as_of: date | None = None,
+    period_key: str | None = None,
     persist: bool = False,
     generator: str = GENERATOR_NAME,
 ) -> dict[str, Any]:
@@ -199,6 +200,7 @@ def get_meeting_cadence(
     readings: list[dict[str, Any]] = []
     conn = connect() if persist else None
     start = window_start(today)
+    key = period_key or period_key_for(GRAIN, today)
     try:
         for entity in entities:
             entity_id = str(entity["id"])
@@ -233,7 +235,7 @@ def get_meeting_cadence(
                         "entity_name": entity.get("name"),
                         "metric_name": METRIC_NAME,
                         "grain": GRAIN,
-                        "period_key": period_key_for(GRAIN, today),
+                        "period_key": key,
                         "as_of": today.isoformat(),
                         "value": pct,
                         "points": points,
@@ -252,6 +254,7 @@ def get_meeting_cadence(
                     metric_name=METRIC_NAME,
                     grain=GRAIN,
                     as_of=today,
+                    period_key=key,
                     value=pct,
                     points=None if points is None else float(points),
                     generator=generator,

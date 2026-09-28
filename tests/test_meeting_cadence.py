@@ -170,6 +170,19 @@ def test_no_csm_or_qbr_meetings_fails_loud():
         _score([_meeting("sales", owner=2, subject="Pipeline review")])
 
 
+def test_explicit_period_key_is_stored_on_the_reading():
+    rows = get_meeting_cadence(
+        entities=ENTITIES,
+        engagements=[_meeting("h1", account=OTHER)],
+        users=USERS,
+        parent_ids=PARENTS,
+        as_of=AS_OF,
+        period_key="2026-09",
+        persist=False,
+    )
+    assert rows["readings"][0]["period_key"] == "2026-09"
+
+
 def test_empty_entity_inventory_fails_loud():
     with pytest.raises(MeetingCadenceGeneratorError, match="inventory is empty"):
         get_meeting_cadence(
