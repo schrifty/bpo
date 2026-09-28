@@ -611,26 +611,41 @@ def test_deactivate_component_keeps_underlying_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from src.healthscore_web.api import _score_numbers
-    from src.healthscore_web.framework import load_framework, update_component
+    from src.healthscore_web.framework import (
+        HealthScoreFrameworkError,
+        load_framework,
+        update_component,
+    )
 
     target = _framework_copy(tmp_path, monkeypatch)
     original = next(row for row in load_framework(target)["inputs"] if row["key"] == "usage_level")
     automation = original["automation"]
     active = _score_numbers(load_framework(target), {"usage_level": original["max_points"]})
 
+    original_weight = original["weight"]
+    original_total = active["configured_weight"]
+
     hidden = update_component("usage_level", deactivated=True, path=target)
     usage = next(row for row in hidden["inputs"] if row["key"] == "usage_level")
     assert usage["deactivated"] is True
     assert usage["automation"] == automation
     assert usage["status"] == original["status"]
+    assert usage["weight"] == 0
+    assert usage["deactivated_weight"] == original_weight
+    assert hidden["configured_weight"] == original_total - original_weight
     paused = _score_numbers(hidden, {"usage_level": original["max_points"]})
     assert paused["score"] is None
     assert paused["covered_weight"] == 0
+    with pytest.raises(HealthScoreFrameworkError, match="reactivate"):
+        update_component("usage_level", weight=12, path=target)
 
     restored = update_component("usage_level", deactivated=False, path=target)
     usage = next(row for row in restored["inputs"] if row["key"] == "usage_level")
     assert not usage.get("deactivated")
+    assert "deactivated_weight" not in usage
+    assert usage["weight"] == original_weight
     assert usage["automation"] == automation
+    assert restored["configured_weight"] == original_total
     assert _score_numbers(restored, {"usage_level": original["max_points"]})["score"] == active["score"]
 
 

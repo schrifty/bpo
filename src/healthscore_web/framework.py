@@ -238,9 +238,11 @@ def update_component(
 
     Inputs accept ``name``, ``pillar``, ``weight``, ``description``, ``owner``
     and ``grain``; override flags accept everything except ``pillar`` and
-    ``weight``. ``deactivated`` is a display flag for either kind of component.
-    It does not change ``automation`` or ``status``, so clearing it restores
-    the status the component already had.
+    ``weight``. ``deactivated`` pauses either kind of component without
+    changing ``automation`` or ``status``. Deactivating an input parks its
+    weight in ``deactivated_weight`` and sets ``weight`` to 0 so the component
+    drops out of the configured total; reactivating puts the parked weight
+    back. The weight cannot be edited while the input is deactivated.
 
     ``configured_weight`` is recomputed from the input weights so the file keeps
     validating. Returns the reloaded framework. Raises
@@ -286,9 +288,14 @@ def update_component(
         if not clean:
             raise HealthScoreFrameworkError("pillar cannot be empty")
         changed["pillar"] = clean
+    already_deactivated = bool(target.get("deactivated"))
     if weight is not _UNSET:
         if not is_input:
             raise HealthScoreFrameworkError("override flags carry no weight")
+        if already_deactivated or (deactivated is not _UNSET and deactivated):
+            raise HealthScoreFrameworkError(
+                "weight is held at 0 while the input is deactivated; reactivate it first"
+            )
         changed["weight"] = _clean_weight(weight)
     if description is not _UNSET:
         clean = str(description or "").strip()
@@ -306,8 +313,15 @@ def update_component(
     if deactivated_touched:
         if deactivated:
             changed["deactivated"] = True
+            if is_input and not already_deactivated:
+                # Park the weight so the input stops counting toward the total
+                # and the original value comes back on reactivation.
+                target["deactivated_weight"] = target.get("weight")
+                changed["weight"] = 0
         else:
             target.pop("deactivated", None)
+            if is_input and "deactivated_weight" in target:
+                changed["weight"] = target.pop("deactivated_weight")
     if not changed and not deactivated_touched:
         raise HealthScoreFrameworkError(
             "no editable field supplied (name, pillar, weight, description, owner, grain)"

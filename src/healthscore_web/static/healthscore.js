@@ -552,13 +552,20 @@
 
   function weightCell(definition) {
     if (!isAdmin()) return weightText(definition);
+    if (definition.deactivated) {
+      const parked = definition.deactivated_weight;
+      const tip = parked == null
+        ? "Held at 0 while deactivated. Reactivate to edit the weight."
+        : `Held at 0 while deactivated. Reactivate to restore ${formatWeight(parked)}.`;
+      return `<span class="hs-weight-value muted" title="${esc(tip)}">${weightText(definition)}</span>`;
+    }
     return `<span class="hs-weight-value hs-edit-value" title="Click to change the weight">${weightText(definition)}</span>`;
   }
 
   function wireWeightCell(definition) {
     const cell = $("hs-weight-cell");
     if (!cell) return;
-    const value = cell.querySelector(".hs-weight-value");
+    const value = cell.querySelector(".hs-weight-value.hs-edit-value");
     if (value) value.addEventListener("click", () => beginWeightEdit(cell, definition));
   }
 
