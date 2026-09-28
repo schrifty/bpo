@@ -518,21 +518,23 @@ inputs:
 - key: sla_adherence
   pillar: Support Experience
   name: SLA adherence
-  description: Whether the entity's support tickets were resolved within the SLA for their severity during
-    the month, tracked as median and 95th-percentile resolution time from the support system. Within SLA
-    scores 3, outside 0; the SLA targets themselves are not yet confirmed.
+  description: Percent of the entity's Jira Service Management HELP tickets resolved in the trailing
+    30 days that had a completed time-to-first-response or time-to-resolution cycle and did not
+    breach any measured cycle. Tickets are attributed by JSM organization, so entities that share
+    an organization share this score. 90% or more scores 3, below that scores 0. No JSM organization
+    match, or no measured cycle, stays unscored.
   signal: lagging
-  metric: Median and 95th-percentile SLA
-  scoring: Within SLA=3; outside SLA=0; SLA definition needs confirmation
+  metric: HELP TTFR/TTR SLA adherence percent, trailing 30 days
+  scoring: ">=90%=3; <90%=0; no measured cycles stays unscored"
   max_points: 3
   weight: 3
   data_source:
-  - Support system
+  - Atlassian Jira
   grain: monthly
   automation: automated
-  status: needs_definition
+  status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_sla_adherence
   unit: percent
   tags:
   - customer-success
@@ -541,15 +543,15 @@ inputs:
 - key: escalation_rate
   pillar: Support Experience
   name: Escalation rate & severity mix
-  description: Share of the entity's tickets in the month that were Sev-1 or Sev-2, and the share that
-    were formally escalated, from the support system. Point thresholds are not yet defined.
+  description: Share of the entity's Jira HELP tickets in the month that were Sev-1 or Sev-2, and the
+    share labeled jira_escalated. Point thresholds are not yet defined.
   signal: leading
   metric: Sev-1/2 percent and escalated percent
   scoring: Point thresholds need definition
   max_points: null
   weight: 2
   data_source:
-  - Support system
+  - Atlassian Jira
   grain: monthly
   automation: automated
   status: needs_definition

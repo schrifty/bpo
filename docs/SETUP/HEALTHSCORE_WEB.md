@@ -118,6 +118,13 @@ submitters are excluded. Already exists and Will not implement stay in R and
 out of D. The component has no weight, so the reading does not enter the
 weighted score.
 
+**SLA adherence** (`get_sla_adherence`) uses the same Jira Service Management
+HELP definition as the KPI catalog metric SLA Adherence (30 Days): among
+tickets resolved in the trailing 30 days with a completed time-to-first-response
+or time-to-resolution cycle, the percent that did not breach. Tickets are
+attributed by JSM organization. 90% or more scores 3, below that scores 0.
+No organization match or no measured cycle stays unscored.
+
 ### History depth
 
 The live Monday job still reads **this week's** workbook (newest file). Daily
@@ -180,6 +187,7 @@ weights, sources, and governance rules are validated.
 | POST | `/healthscore/api/generate/roi_multiple` | Run the savings / ARR generator |
 | POST | `/healthscore/api/generate/summit_attendance` | Run the Summit registration / attendance generator |
 | POST | `/healthscore/api/generate/enhancement_engagement` | Run the Aha enhancement engagement generator |
+| POST | `/healthscore/api/generate/sla_adherence` | Run the JSM HELP SLA adherence generator |
 
 All API routes require the same Google Workspace session as `/kpis`.
 Salesforce inventory failures return an error; the app does not substitute
