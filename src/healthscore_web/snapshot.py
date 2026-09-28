@@ -8,6 +8,11 @@ import sys
 from datetime import date
 from typing import Any, Sequence
 
+from src.healthscore_web.enhancement_engagement import (
+    METRIC_NAME as ENHANCEMENT_ENGAGEMENT_METRIC,
+    EnhancementEngagementGeneratorError,
+    get_enhancement_engagement,
+)
 from src.healthscore_web.champion_login import (
     METRIC_NAME as CHAMPION_LOGIN_METRIC,
     ChampionLoginGeneratorError,
@@ -40,6 +45,7 @@ SUPPORTED = (
     CHAMPION_LOGIN_METRIC,
     ROI_MULTIPLE_METRIC,
     SUMMIT_ATTENDANCE_METRIC,
+    ENHANCEMENT_ENGAGEMENT_METRIC,
     "all",
 )
 
@@ -198,6 +204,27 @@ def run_summit_attendance_snapshot(
     )
 
 
+def run_enhancement_engagement_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    ideas: list[dict[str, Any]] | None = None,
+    organizations: list[dict[str, Any]] | None = None,
+    parent_ids: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_enhancement_engagement(
+        entities=entities,
+        ideas=ideas,
+        organizations=organizations,
+        parent_ids=parent_ids,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
 def run_healthscore_snapshot(
     *,
     component: str = "all",
@@ -231,6 +258,10 @@ def run_healthscore_snapshot(
         results[SUMMIT_ATTENDANCE_METRIC] = run_summit_attendance_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (ENHANCEMENT_ENGAGEMENT_METRIC, "all"):
+        results[ENHANCEMENT_ENGAGEMENT_METRIC] = run_enhancement_engagement_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     return results
 
 
@@ -244,13 +275,17 @@ def run_healthscore_snapshot_cli(
         description=(
             "Run Health Score generators into the Health Score store. "
             "Does not write KPI observations. Default runs usage_level, then "
-            "usage_trend, champion_login_continuity, roi_multiple, then summit_attendance."
+            "usage_trend, champion_login_continuity, roi_multiple, summit_attendance, "
+            "then enhancement_engagement."
         ),
     )
     parser.add_argument(
         "--component",
         default="all",
-        help="usage_level, usage_trend, champion_login_continuity, roi_multiple, summit_attendance, or all",
+        help=(
+            "usage_level, usage_trend, champion_login_continuity, roi_multiple, "
+            "summit_attendance, enhancement_engagement, or all"
+        ),
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--date", dest="as_of", default=None, help="YYYY-MM-DD fallback period")
@@ -285,6 +320,7 @@ def run_healthscore_snapshot_cli(
         ChampionLoginGeneratorError,
         RoiMultipleGeneratorError,
         SummitAttendanceGeneratorError,
+        EnhancementEngagementGeneratorError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

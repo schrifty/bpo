@@ -9,10 +9,10 @@ static bundle, and SQLite observations are separate.
 
 - Salesforce `Account.Type = 'Customer Entity'` is the customer inventory.
 - Churned, cancelled, terminated, expired, and closed entities are excluded.
-- The draft framework is `config/healthscore_framework.yaml`: 27 weighted
+- The draft framework is `config/healthscore_framework.yaml`: 28
   inputs, four override flags, and 83% currently configured weight.
-- ROI multiple has no source weight and remains unscored rather than receiving
-  an invented value.
+- ROI multiple and Enhancement Engagement & Delivery have no source weight
+  and stay out of the weighted score rather than receiving an invented value.
 - The displayed score is provisional and normalized only across inputs that
   have observations. Weight coverage is always shown against the configured
   83%.
@@ -107,6 +107,17 @@ account counts for that parent's entities. Yes scores 1, no scores 0. The
 campaign end date is ignored. If a past summit still has registrations and
 no Attended members, the run warns and scores those entities 0.
 
+**Enhancement Engagement & Delivery** (`get_enhancement_engagement`) counts
+Aha Product Ideas created in the trailing 12 months. R is ideas submitted by
+a customer portal user. D is the subset whose workflow status is Shipped.
+The score is `min(10, 3 * min(R, 5) / 5 + 7 * D / R)`, rounded to one decimal.
+No requests is N/A. The portal user's email domain matches an Aha idea
+organization's `email_domains`, and that organization's Salesforce Account id
+is applied to every active Customer Entity under that parent. `leandna.com`
+submitters are excluded. Already exists and Will not implement stay in R and
+out of D. The component has no weight, so the reading does not enter the
+weighted score.
+
 ### History depth
 
 The live Monday job still reads **this week's** workbook (newest file). Daily
@@ -152,6 +163,7 @@ weights, sources, and governance rules are validated.
 | POST | `/healthscore/api/generate/champion_login_continuity` | Run the executive-sponsor login generator |
 | POST | `/healthscore/api/generate/roi_multiple` | Run the savings / ARR generator |
 | POST | `/healthscore/api/generate/summit_attendance` | Run the Summit registration / attendance generator |
+| POST | `/healthscore/api/generate/enhancement_engagement` | Run the Aha enhancement engagement generator |
 
 All API routes require the same Google Workspace session as `/kpis`.
 Salesforce inventory failures return an error; the app does not substitute

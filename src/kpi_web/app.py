@@ -70,6 +70,11 @@ def create_app(
             healthscore_api.api_generate_summit_attendance,
             methods=["POST"],
         ),
+        Route(
+            "/healthscore/api/generate/enhancement_engagement",
+            healthscore_api.api_generate_enhancement_engagement,
+            methods=["POST"],
+        ),
         Route("/api/health", api.api_health, methods=["GET"]),
         Route("/api/me", api.api_me, methods=["GET"]),
         Route("/api/meta", api.api_meta, methods=["GET"]),

@@ -279,6 +279,25 @@ inputs:
     metric-id: null
     metric-generator: null
     tags: [customer-success, healthscore, relationship]
+  - key: enhancement_engagement
+    pillar: Relationship & Engagement
+    name: Enhancement Engagement & Delivery
+    description: "Aha Product Ideas submitted in the trailing 12 months by a customer portal user, and how many of those ideas were Shipped. Up to 3 points come from submitting requests, capped at 5 requests, and up to 7 points come from the share that shipped. The submitter's email domain matches an Aha idea organization, and every active Customer Entity under that organization's Salesforce Customer account gets the same counts. No requests in the window stays unscored. No weight is set yet, so it does not count toward the score."
+    signal: leading
+    metric: Aha Product Ideas requested and shipped in the trailing 12 months
+    scoring: "No requests=N/A. Otherwise min(10, 3 * min(R, 5) / 5 + 7 * D / R), one decimal. Shipped is the only delivered status."
+    max_points: 10
+    weight: null
+    data_source: [Aha, Salesforce]
+    grain: monthly
+    automation: automated
+    status: needs_weight
+    notes: Weight is not set, so this reading does not enter the weighted score.
+    owner: lindsay.brown@leandna.com
+    metric-id: null
+    metric-generator: get_enhancement_engagement
+    unit: points
+    tags: [customer-success, healthscore, relationship]
 
   - key: csm_sentiment
     pillar: Voice of Customer / Sentiment

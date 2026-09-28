@@ -61,7 +61,7 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-healthscore-snapshot",
         "summary": (
             "Weekly Healthscore usage_level, usage_trend, champion login continuity, "
-            "roi_multiple, then summit_attendance. A missed usage_level week stays "
+            "roi_multiple, summit_attendance, then enhancement engagement. A missed usage_level week stays "
             "missing unless a CS Report workbook for that week is backfilled"
         ),
     },

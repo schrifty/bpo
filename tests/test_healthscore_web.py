@@ -81,7 +81,7 @@ def _entities() -> list[dict[str, object]]:
 
 def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     framework = load_framework()
-    assert framework["input_count"] == 27
+    assert framework["input_count"] == 28
     assert framework["override_count"] == 4
     assert framework["configured_weight"] == 83
     roi = next(row for row in framework["inputs"] if row["key"] == "roi_multiple")
@@ -109,6 +109,13 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert roi["weight"] is None
     summit = next(row for row in framework["inputs"] if row["key"] == "summit_attendance")
     assert summit["metric-generator"] == "get_summit_attendance"
+    engagement = next(row for row in framework["inputs"] if row["key"] == "enhancement_engagement")
+    assert engagement["metric-generator"] == "get_enhancement_engagement"
+    assert engagement["name"] == "Enhancement Engagement & Delivery"
+    assert engagement["weight"] is None
+    assert engagement["status"] == "needs_weight"
+    assert engagement["max_points"] == 10
+    assert engagement["data_source"] == ["Aha", "Salesforce"]
     assert "Attended" in summit["description"]
     known = {name.casefold() for name in framework["available_data_sources"]}
     assert {"salesforce", "cs report", "pendo", "aha"} <= known
