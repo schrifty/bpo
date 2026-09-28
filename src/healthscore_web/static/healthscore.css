@@ -139,7 +139,8 @@
   cursor: default;
 }
 
-.hs-components tbody tr.hs-pillar-row th {
+.hs-components tbody tr.hs-pillar-row th,
+.hs-components tbody tr.hs-pillar-row td {
   position: static;
   z-index: auto;
   padding-top: 0.7rem;
@@ -148,7 +149,15 @@
   color: var(--accent);
   font-size: 0.72rem;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   border-bottom: 1px solid var(--line);
+}
+
+.hs-components tbody tr.hs-pillar-unassigned th,
+.hs-components tbody tr.hs-pillar-unassigned td {
+  background: transparent;
+  color: var(--muted);
 }
 
 .hs-components tbody tr.blocked,

@@ -168,28 +168,56 @@
     </div>`;
   }
 
+  function formatWeight(value) {
+    const rounded = Math.round(Number(value) * 100) / 100;
+    return `${Number.isInteger(rounded) ? rounded : rounded}%`;
+  }
+
+  function pillarGroups(components) {
+    const groups = new Map();
+    for (const component of components) {
+      const name = component.pillar || "Unassigned";
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(component);
+    }
+    return [...groups.entries()]
+      .map(([name, items]) => {
+        items.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+        const total = items.reduce((sum, item) => sum + (item.weight == null ? 0 : Number(item.weight)), 0);
+        return { name, items, total };
+      })
+      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+  }
+
+  function pillarHeader(name, weight, extraClass = "") {
+    return `<tr class="hs-pillar-row${extraClass}">
+      <th scope="rowgroup">${esc(name)}</th>
+      <td>${formatWeight(weight)}</td>
+      <td colspan="3"></td>
+    </tr>`;
+  }
+
   function renderScore() {
     const score = state.score;
     const components = score ? score.components : state.framework.inputs.map((row) => ({ ...row, latest: null, contribution: null }));
-    const byPillarThenName = (a, b) =>
-      String(a.pillar || "").localeCompare(String(b.pillar || "")) || String(a.name || "").localeCompare(String(b.name || ""));
+    const groups = pillarGroups(components);
+    const assigned = groups.reduce((sum, group) => sum + group.total, 0);
+    const unassigned = Math.round((100 - assigned) * 100) / 100;
     const rows = [];
-    let currentPillar = null;
-    for (const component of [...components].sort(byPillarThenName)) {
-      const pillar = component.pillar || "Unassigned";
-      if (pillar !== currentPillar) {
-        currentPillar = pillar;
-        rows.push(`<tr class="hs-pillar-row"><th scope="rowgroup" colspan="5">${esc(pillar)}</th></tr>`);
-      }
-      const status = String(component.automation || "").toLowerCase();
-      rows.push(`<tr data-component="${esc(component.key)}" class="${status === "blocked" ? "blocked" : ""}">
+    for (const group of groups) {
+      rows.push(pillarHeader(group.name, group.total));
+      for (const component of group.items) {
+        const status = String(component.automation || "").toLowerCase();
+        rows.push(`<tr data-component="${esc(component.key)}" class="${status === "blocked" ? "blocked" : ""}">
           <td><div class="hs-component-name">${esc(component.name)}</div><span class="hs-status">${esc(component.signal)}</span></td>
-          <td>${component.weight == null ? '<span class="hs-status">TBD</span>' : `${component.weight}%`}</td>
+          <td>${component.weight == null ? '<span class="hs-status">TBD</span>' : formatWeight(component.weight)}</td>
           <td>${influenceCell(component)}</td>
           <td>${sourceChips(component)}</td>
           <td>${statusBadge(component.automation)}</td>
         </tr>`);
+      }
     }
+    if (unassigned > 0) rows.push(pillarHeader("Unassigned", unassigned, " hs-pillar-unassigned"));
     $("hs-components-body").innerHTML = rows.join("");
     for (const row of $("hs-components-body").querySelectorAll("tr[data-component]")) {
       row.addEventListener("click", () => selectComponent(row.dataset.component));
