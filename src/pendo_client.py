@@ -2201,14 +2201,47 @@ class PendoClient:
         else:
             qa.check()
 
+    def _behavioral_payload(
+        self,
+        label: str,
+        customer_name: str,
+        supplied: dict | None,
+        fetch,
+    ) -> tuple[dict | None, str | None]:
+        """Return a behavioral payload, or an error after refusing to treat failure as zero usage."""
+        try:
+            payload = supplied if supplied is not None else fetch()
+        except Exception as e:
+            logger.warning("Pendo %s signals failed for %r: %s", label, customer_name, e)
+            return None, str(e)
+        if isinstance(payload, dict) and not payload.get("error"):
+            return payload, None
+        err = payload.get("error") if isinstance(payload, dict) else "empty response"
+        logger.warning("Pendo %s signals unavailable for %r: %s", label, customer_name, err)
+        return None, str(err)
+
+    @staticmethod
+    def _append_unavailable(signals: list[str], label: str, detail: str) -> None:
+        text = " ".join(str(detail).split())
+        if len(text) > 180:
+            text = text[:179] + "…"
+        signals.append(f"Pendo {label} unavailable: {text}")
+
     def _add_behavioral_signals(
         self, signals: list[str], customer_name: str, days: int,
         depth_data: dict | None = None, export_data: dict | None = None,
         kei_data: dict | None = None, guide_data: dict | None = None,
     ) -> None:
-        """Append behavioral signals. Accepts pre-computed data to avoid redundant fetches."""
-        try:
-            d = depth_data or self.get_customer_depth(customer_name, days)
+        """Append behavioral signals. Accepts pre-computed data to avoid redundant fetches.
+
+        A failed fetch is logged and recorded as unavailable. It is not scored as zero usage.
+        """
+        d, depth_err = self._behavioral_payload(
+            "depth", customer_name, depth_data, lambda: self.get_customer_depth(customer_name, days),
+        )
+        if depth_err:
+            self._append_unavailable(signals, "depth", depth_err)
+        else:
             write_ratio = d.get("write_ratio", 0)
             collab_events = d.get("collab_events", 0)
             if write_ratio >= 40:
@@ -2217,18 +2250,26 @@ class PendoClient:
                 signals.append(f"Read-heavy usage: only {write_ratio}% write ratio (may be dashboard-only)")
             if collab_events > 0:
                 signals.append(f"In-app collaboration: {collab_events:,} comment/chat/attachment events")
-        except Exception:
-            pass
-        try:
-            e = export_data or self.get_customer_exports(customer_name, days)
+
+        e, export_err = self._behavioral_payload(
+            "exports", customer_name, export_data, lambda: self.get_customer_exports(customer_name, days),
+        )
+        if export_err:
+            self._append_unavailable(signals, "exports", export_err)
+        else:
             total_exports = e.get("total_exports", 0)
             exports_per_user = e.get("exports_per_active_user", 0)
             if total_exports > 0:
                 signals.append(f"Export activity: {total_exports:,} exports ({exports_per_user}/active user)")
-        except Exception:
-            pass
-        try:
-            k = kei_data or self.get_customer_kei(customer_name, days)
+
+        k, kei_err = self._behavioral_payload(
+            "Kei", customer_name, kei_data, lambda: self.get_customer_kei(customer_name, days),
+        )
+        if kei_err:
+            self._append_unavailable(signals, "Kei", kei_err)
+        elif k.get("track_events_error") and not k.get("total_queries"):
+            self._append_unavailable(signals, "Kei", str(k["track_events_error"]))
+        else:
             kei_queries = k.get("total_queries", 0)
             kei_exec = k.get("executive_users", 0)
             if kei_queries > 0:
@@ -2238,18 +2279,19 @@ class PendoClient:
                 signals.append(msg)
             else:
                 signals.append("No Kei AI usage detected — rollout opportunity")
-        except Exception:
-            pass
-        try:
-            g = guide_data or self.get_customer_guides(customer_name, days)
+
+        g, guide_err = self._behavioral_payload(
+            "guides", customer_name, guide_data, lambda: self.get_customer_guides(customer_name, days),
+        )
+        if guide_err:
+            self._append_unavailable(signals, "guides", guide_err)
+        else:
             dismiss_rate = g.get("dismiss_rate", 0)
             guide_reach = g.get("guide_reach", 0)
             if dismiss_rate > 30:
                 signals.append(f"High guide dismiss rate: {dismiss_rate}% — possible onboarding friction")
             if guide_reach < 30 and g.get("active_users", 0) > 5:
                 signals.append(f"Low guide reach: only {guide_reach}% of active users see guides")
-        except Exception:
-            pass
 
     def get_customer_sites(self, customer_name: str, days: int = 30) -> dict[str, Any]:
         """Per-site (and per-entity when present) metrics: visitors, page views, feature clicks, events, minutes, last active.
@@ -2668,6 +2710,7 @@ class PendoClient:
                 total += ne
 
         # Also check track events for "Kei AI: send-message"
+        track_events_error = None
         try:
             track_results = self._get_track_events_cached(days)
             for ev in track_results:
@@ -2679,8 +2722,9 @@ class PendoClient:
                     vid = ev.get("visitorId", "")
                     by_user[vid] = by_user.get(vid, 0) + ne
                     total += ne
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Pendo Kei track events failed for %r: %s", customer_name, e)
+            track_events_error = str(e)
 
         active = self._count_active_users(customer_visitors, partition["now_ms"])
         adoption_rate = round(len(by_user) / max(active, 1) * 100, 1)
@@ -2703,7 +2747,7 @@ class PendoClient:
                 "is_executive": is_exec,
             })
 
-        return {
+        result = {
             "customer": customer_name,
             "days": days,
             "total_queries": total,
@@ -2714,6 +2758,9 @@ class PendoClient:
             "executive_queries": exec_queries,
             "users": users[:10],
         }
+        if track_events_error:
+            result["track_events_error"] = track_events_error
+        return result
 
     # ── Guide engagement ──
 
