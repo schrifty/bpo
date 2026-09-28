@@ -142,6 +142,11 @@
   margin: 0;
 }
 
+.hs-unassigned-weight {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .dot {
   display: inline-block;
   width: 8px;

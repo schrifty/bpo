@@ -270,6 +270,7 @@
     const groups = pillarGroups(components);
     const assigned = groups.reduce((sum, group) => sum + group.total, 0);
     const unassigned = Math.round((100 - assigned) * 100) / 100;
+    $("hs-unassigned-weight").textContent = `Unassigned weight: ${formatWeight(unassigned)}`;
     const rows = [];
     for (const group of groups) {
       rows.push(pillarHeader(group.name, group.total));
