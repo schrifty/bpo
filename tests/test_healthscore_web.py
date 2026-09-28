@@ -134,7 +134,7 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert engagement["data_source"] == ["Aha", "Salesforce"]
     cadence = next(row for row in framework["inputs"] if row["key"] == "meeting_cadence")
     assert cadence["metric-generator"] == "get_meeting_cadence"
-    assert cadence["data_source"] == ["Chorus", "Salesforce"]
+    assert cadence["data_source"] == ["Chorus"]
     assert cadence["max_points"] == 2
     assert cadence["weight"] == 2
     sla = next(row for row in framework["inputs"] if row["key"] == "sla_adherence")

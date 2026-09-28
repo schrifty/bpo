@@ -335,7 +335,6 @@ inputs:
   weight: 2
   data_source:
   - Chorus
-  - Salesforce
   grain: monthly
   automation: automated
   status: defined
