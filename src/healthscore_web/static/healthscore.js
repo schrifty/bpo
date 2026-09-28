@@ -140,11 +140,26 @@
     return `<span class="hs-sources">${chips.join("")}</span>`;
   }
 
+  function scoredInput(component) {
+    if (!component || typeof component !== "object" || !component.key || !state.score) return component;
+    return state.score.components.find((row) => row.key === component.key) || component;
+  }
+
+  function isActiveUnscored(component) {
+    if (!component || typeof component !== "object" || component.deactivated) return false;
+    if (!Object.prototype.hasOwnProperty.call(component, "pillar")) return false;
+    return component.contribution == null || component.weight == null;
+  }
+
   function statusBadge(component) {
     if (component && component.deactivated) {
       return `<span class="hs-source-badge deactivated" title="Deactivated. Reactivate to show the underlying status again."><i class="dot deactivated"></i>Deactivated</span>`;
     }
-    const automation = component && typeof component === "object" ? component.automation : component;
+    const view = scoredInput(component);
+    if (isActiveUnscored(view)) {
+      return `<span class="hs-source-badge blocked" title="Unscored inputs stay Blocked until a reading is stored."><i class="dot blocked"></i>Blocked</span>`;
+    }
+    const automation = view && typeof view === "object" ? view.automation : view;
     const key = String(automation || "").toLowerCase();
     const label = STATUS_LABEL[key] || "Unknown";
     return `<span class="hs-source-badge ${esc(key)}"><i class="dot ${esc(key)}"></i>${esc(label)}</span>`;
@@ -374,7 +389,6 @@
         <dt>Source</dt><dd>${sourceChips(definition)}</dd>
         <dt>Owner</dt><dd id="hs-owner-cell">${textCell(definition, TEXT_FIELDS.owner)}</dd>
         <dt>Grain</dt><dd id="hs-grain-cell">${grainCell(definition)}</dd>
-        ${definition.notes ? `<dt>Open issue</dt><dd class="error">${esc(definition.notes)}</dd>` : ""}
         ${definition.grain && !isOverride ? `<dt>Current value${periodBadge(latest)}</dt><dd>${valueCell(definition, latest)}</dd>` : ""}
         ${definition.grain ? `<dt>${isOverride ? "Flag raised" : "Points"}${periodBadge(latest)}</dt><dd id="hs-points-cell">${pointsCell(definition, latest)}</dd>` : ""}
       </dl>

@@ -17,7 +17,7 @@
 # Health Score adds the weighting model the KPI registry does not have:
 #   pillar, signal, metric, scoring, max_points, weight, data_source (a list;
 #   one component can have several), automation (automated | manual | blocked),
-#   status, notes.
+#   status.
 #
 # Weights come from the source PDF. Rows the PDF left unresolved keep a null
 # weight or null max_points and stay unscored; nothing here is invented.
@@ -90,7 +90,7 @@ inputs:
   name: Product anchor adoption
   description: How many of the eight core Apex anchor workflows the entity used in the trailing 90 days,
     counted from Pendo feature usage. The eight anchors are not yet named or tagged in Pendo, so nothing
-    can be counted until they are.
+    can be counted until CS and Product define and tag them.
   signal: leading
   metric: Number of eight anchor workflows used in last 90 days
   scoring: 0–2=0; 3=2; 4+=5
@@ -101,7 +101,6 @@ inputs:
   grain: monthly
   automation: blocked
   status: needs_definition
-  notes: CS and Product must define and tag the eight anchors.
   metric-id: null
   metric-generator: null
   tags:
@@ -123,7 +122,6 @@ inputs:
   grain: weekly
   automation: blocked
   status: needs_source
-  notes: Waiting on a CS Report field for weekly writeback use.
   metric-id: null
   metric-generator: null
   tags:
@@ -172,7 +170,6 @@ inputs:
   grain: daily
   automation: blocked
   status: needs_source
-  notes: Waiting on an Apex log of daily sync success, lateness, and record errors.
   metric-id: null
   metric-generator: null
   tags:
@@ -196,7 +193,6 @@ inputs:
   grain: quarterly
   automation: blocked
   status: needs_source
-  notes: Waiting on a system that records CSM-verified outcomes.
   metric-id: null
   metric-generator: null
   tags:
@@ -222,7 +218,6 @@ inputs:
   cadence_note: Quarterly; reset at renewal
   automation: automated
   status: needs_weight
-  notes: The source framework specifies scoring but no proposed weight.
   owner: lindsay.brown@leandna.com
   metric-id: null
   metric-generator: get_roi_multiple
@@ -319,7 +314,6 @@ inputs:
   grain: monthly
   automation: blocked
   status: needs_definition
-  notes: Salesforce contact seniority/title must be reliable.
   metric-id: null
   metric-generator: null
   tags:
@@ -381,8 +375,7 @@ inputs:
     many of those ideas were Shipped. Up to 3 points come from submitting requests, capped at 5 requests,
     and up to 7 points come from the share that shipped. The submitter's email domain matches an Aha idea
     organization, and every active Customer Entity under that organization's Salesforce Customer account
-    gets the same counts. No requests in the window stays unscored. No weight is set yet, so it does not
-    count toward the score.
+    gets the same counts. No requests in the window stays unscored.
   signal: leading
   metric: Aha Product Ideas requested and shipped in the trailing 12 months
   scoring: No requests=N/A. Otherwise min(10, 3 * min(R, 5) / 5 + 7 * D / R), one decimal. Shipped is
@@ -395,7 +388,6 @@ inputs:
   grain: monthly
   automation: automated
   status: needs_weight
-  notes: Weight is not set, so this reading does not enter the weighted score.
   owner: lindsay.brown@leandna.com
   metric-id: null
   metric-generator: get_enhancement_engagement
