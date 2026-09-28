@@ -631,6 +631,30 @@ def test_update_component_edits_description_owner_and_grain(
         update_component("usage_level", grain="fortnightly", path=target)
 
 
+def test_framework_targets_come_from_full_points_thresholds() -> None:
+    from src.healthscore_web.framework import load_framework
+
+    framework = load_framework()
+    rows = {row["key"]: row for row in framework["inputs"]}
+    assert (rows["meeting_cadence"]["target"], rows["meeting_cadence"]["target_direction"]) == (80, "higher")
+    assert (rows["sla_adherence"]["target"], rows["sla_adherence"]["target_direction"]) == (90, "higher")
+    assert (rows["call_talk_ratio"]["target"], rows["call_talk_ratio"]["target_direction"]) == (50, "lower")
+    assert rows["summit_attendance"]["target"] is None
+    assert rows["summit_attendance"]["target_direction"] is None
+
+
+def test_framework_rejects_target_without_direction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.healthscore_web.framework import HealthScoreFrameworkError, load_framework
+
+    target = _framework_copy(tmp_path, monkeypatch)
+    text = target.read_text(encoding="utf-8")
+    target.write_text(text.replace("  target_direction: higher\n", "", 1), encoding="utf-8")
+    with pytest.raises(HealthScoreFrameworkError, match="target_direction"):
+        load_framework(target)
+
+
 def test_deactivate_component_keeps_underlying_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

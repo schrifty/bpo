@@ -16,6 +16,7 @@ import yaml
 from src.kpi_store import GRAINS
 
 AUTOMATION_VALUES = ("automated", "manual", "blocked")
+TARGET_DIRECTIONS = ("higher", "lower")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FRAMEWORK_PATH = PROJECT_ROOT / "config" / "healthscore_framework.yaml"
@@ -59,6 +60,23 @@ def _normalize_component(row: dict[str, Any], default_owner: str) -> dict[str, A
             f"component {row.get('key')!r} automation must be one of "
             f"{list(AUTOMATION_VALUES)}, got {row.get('automation')!r}"
         )
+    target = row.get("target")
+    direction = row.get("target_direction")
+    if target is not None:
+        if isinstance(target, bool) or not isinstance(target, (int, float)):
+            raise HealthScoreFrameworkError(
+                f"component {row.get('key')!r} target must be a number or null, got {target!r}"
+            )
+        direction = str(direction or "").strip().lower()
+        if direction not in TARGET_DIRECTIONS:
+            raise HealthScoreFrameworkError(
+                f"component {row.get('key')!r} target_direction must be one of "
+                f"{list(TARGET_DIRECTIONS)} when a target is set, got {row.get('target_direction')!r}"
+            )
+    elif direction is not None:
+        raise HealthScoreFrameworkError(
+            f"component {row.get('key')!r} has a target_direction but no target"
+        )
     return {
         **row,
         "grain": grain,
@@ -67,6 +85,8 @@ def _normalize_component(row: dict[str, Any], default_owner: str) -> dict[str, A
         "metric-generator": row.get("metric-generator"),
         "data_source": [str(item).strip() for item in sources],
         "automation": automation,
+        "target": target,
+        "target_direction": direction if target is not None else None,
         "tags": [str(tag).strip().lower() for tag in tags],
     }
 

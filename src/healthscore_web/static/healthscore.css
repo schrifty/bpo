@@ -571,6 +571,20 @@
   stroke: #1d4e89;
 }
 
+.hs-chart-target {
+  stroke: #c0392b;
+  stroke-width: 1.5;
+  stroke-dasharray: 2 3;
+}
+
+.hs-chart-key.hs-chart-target-key {
+  color: #c0392b;
+}
+
+.hs-chart-key.hs-chart-target-key::before {
+  border-top: 2px dotted currentColor;
+}
+
 .hs-history {
   width: 100%;
   border-collapse: collapse;

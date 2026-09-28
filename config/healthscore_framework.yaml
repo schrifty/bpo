@@ -17,7 +17,13 @@
 # Health Score adds the weighting model the KPI registry does not have:
 #   pillar, signal, metric, scoring, max_points, weight, data_source (a list;
 #   one component can have several), automation (automated | manual | blocked),
-#   status.
+#   status, target, target_direction.
+#
+#   target            — the raw value that earns full points, in the same unit as
+#                       the reading; null when the scoring rule has no single
+#                       numeric threshold (yes/no, categorical, undefined)
+#   target_direction  — higher | lower; which side of the target is healthy.
+#                       Required when target is set.
 #
 # Weights come from the source PDF. Rows the PDF left unresolved keep a null
 # weight or null max_points and stay unscored; nothing here is invented.
@@ -46,6 +52,8 @@ inputs:
   metric: CSR automatic health/usage percentage
   scoring: No data=0; 0–30%=1; 31–50%=2; 51–65%=3; 66–80%=4; 81–92%=5; 93–100%=6
   max_points: 6
+  target: 93
+  target_direction: higher
   weight: 6
   data_source:
   - CS Report
@@ -71,6 +79,8 @@ inputs:
   scoring: Percent change of stored CSR usage % over trailing 13 weeks (or as many weekly points as exist,
     min 2). >+10%=5; within ±10%=3; <-10%=0. Insufficient history stays unscored.
   max_points: 5
+  target: 10
+  target_direction: higher
   weight: 5
   data_source:
   - CS Report
@@ -95,6 +105,8 @@ inputs:
   metric: Number of eight anchor workflows used in last 90 days
   scoring: 0–2=0; 3=2; 4+=5
   max_points: 5
+  target: 4
+  target_direction: higher
   weight: 5
   data_source:
   - Pendo
@@ -139,6 +151,8 @@ inputs:
   scoring: Last login within 7 days=2; named sponsor with no login in that window=0; no named executive
     sponsor stays unscored
   max_points: 2
+  target: 7
+  target_direction: lower
   weight: 2
   data_source:
   - Salesforce
@@ -187,6 +201,8 @@ inputs:
   metric: Verified outcomes per quarter
   scoring: 2+=6; 1–2=5; zero/unknown scoring needs clarification
   max_points: 6
+  target: 2
+  target_direction: higher
   weight: 6
   data_source:
   - Verified-outcome log
@@ -210,6 +226,8 @@ inputs:
   metric: IA Previous Period Savings / Salesforce ARR
   scoring: 7x+=6; 5–<7x=4; 3–<5x=2; <3x=0
   max_points: 6
+  target: 7
+  target_direction: higher
   weight: null
   data_source:
   - CS Report
@@ -236,6 +254,8 @@ inputs:
   metric: Days from go-live to first verified outcome
   scoring: ≤115 days=3; >115 days=0; threshold needs confirmation
   max_points: 3
+  target: 115
+  target_direction: lower
   weight: 3
   data_source:
   - Not yet defined
@@ -332,6 +352,8 @@ inputs:
   metric: Percent held in trailing two quarters
   scoring: ≥80%=2; <80%=0
   max_points: 2
+  target: 80
+  target_direction: higher
   weight: 2
   data_source:
   - Chorus
@@ -442,16 +464,16 @@ inputs:
 - key: call_sentiment
   pillar: Voice of Customer / Sentiment
   name: Call sentiment / tone
-  description: Tone of recorded Chorus meetings and dials in the calendar month, separate from who
+  description: Tone of recorded Chorus meetings and dials in the trailing 30 days, separate from who
     did the talking. Chorus does not return a numeric sentiment field; each finished recording's
     summary contains the sentence "overall sentiment was …". Positive language in that clause is
     +1, negative language is -1, and a clause with both or neither is 0. The reading is the mean
     of those calls. A positive mean scores 2, a negative mean scores 0, and a mean of 0 scores 1.
-    A recording with no such sentence is left out. An entity with none stays unscored. The Chorus
-    account matches the Customer Entity, or the parent of one or more entities.
+    A recording with no such sentence is left out. An entity with no recorded call in the window
+    scores 0. The Chorus account matches the Customer Entity, or the parent of one or more entities.
   signal: leading
-  metric: Mean call sentiment from -1 to +1
-  scoring: Mean > 0 = 2; mean < 0 = 0; mean = 0 = 1
+  metric: Mean call sentiment from -1 to +1 over the trailing 30 days
+  scoring: No calls=0; mean > 0 = 2; mean < 0 = 0; mean = 0 = 1
   max_points: 2
   weight: 2
   data_source:
@@ -475,6 +497,8 @@ inputs:
   metric: Rolling representative talk-time percent
   scoring: <50%=2; >50%=0; exact neutral boundary needs confirmation
   max_points: 2
+  target: 50
+  target_direction: lower
   weight: 2
   data_source:
   - Chorus
@@ -522,6 +546,8 @@ inputs:
   metric: HELP TTFR/TTR SLA adherence percent, trailing 30 days
   scoring: ">=90%=3; <90%=0; no measured cycles stays unscored"
   max_points: 3
+  target: 90
+  target_direction: higher
   weight: 3
   data_source:
   - JIRA
@@ -590,6 +616,8 @@ inputs:
   metric: Percent ACV change at renewal
   scoring: 5%+=5; 4%=4; 3%=3; 2%=2; 0–1%=1; contraction=0
   max_points: 5
+  target: 5
+  target_direction: higher
   weight: 5
   data_source:
   - Salesforce
@@ -637,6 +665,8 @@ inputs:
   metric: Ideas in trailing 12 months and sentiment
   scoring: 1+=2; 0=0
   max_points: 2
+  target: 1
+  target_direction: higher
   weight: 2
   data_source:
   - Pendo

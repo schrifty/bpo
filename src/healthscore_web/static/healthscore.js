@@ -341,7 +341,20 @@
     return String(Math.round(value * 100) / 100);
   }
 
-  function sparkline(rows) {
+  function unitSuffix(definition) {
+    if (definition.unit === "percent") return "%";
+    if (definition.unit === "multiple") return "x";
+    if (definition.unit === "days") return " days";
+    return "";
+  }
+
+  function targetText(definition) {
+    if (definition.target == null) return null;
+    const sign = definition.target_direction === "lower" ? "≤" : "≥";
+    return `${sign} ${fmtNum(definition.target)}${unitSuffix(definition)}`;
+  }
+
+  function sparkline(rows, definition) {
     const dated = (rows || [])
       .filter((row) => row.period_key)
       .slice()
@@ -370,24 +383,38 @@
     const plotWidth = width - left - right;
     const plotHeight = height - top - bottom;
 
+    const target = definition && definition.target != null ? Number(definition.target) : null;
+    const maxPoints = definition && definition.max_points != null ? Number(definition.max_points) : null;
     const drawn = series.map((spec) => {
       const nums = [...spec.byDate.values()];
-      const min = Math.min(...nums);
-      const max = Math.max(...nums);
+      let min = Math.min(...nums);
+      let max = Math.max(...nums);
+      if (spec.key === "effective_value" && Number.isFinite(target)) {
+        min = Math.min(min, target);
+        max = Math.max(max, target);
+      }
+      if (spec.key === "effective_points" && Number.isFinite(maxPoints) && maxPoints > 0) {
+        min = Math.min(0, min);
+        max = Math.max(maxPoints, max);
+      }
       const span = max - min;
+      const yAt = (value) => (span === 0
+        ? top + plotHeight / 2
+        : top + (1 - (value - min) / span) * plotHeight);
       const points = dates
         .map((date, index) => {
           if (!spec.byDate.has(date)) return null;
           const x = left + (index / (dates.length - 1)) * plotWidth;
-          const y = span === 0
-            ? top + plotHeight / 2
-            : top + (1 - (spec.byDate.get(date) - min) / span) * plotHeight;
-          return `${x.toFixed(1)},${y.toFixed(1)}`;
+          return `${x.toFixed(1)},${yAt(spec.byDate.get(date)).toFixed(1)}`;
         })
         .filter(Boolean)
         .join(" ");
-      return { ...spec, points, min, max };
+      return { ...spec, points, min, max, yAt };
     });
+    const valueSeries = drawn.find((spec) => spec.key === "effective_value");
+    const targetLine = valueSeries && Number.isFinite(target)
+      ? `<line class="hs-chart-target" x1="${left}" x2="${width - right}" y1="${valueSeries.yAt(target).toFixed(1)}" y2="${valueSeries.yAt(target).toFixed(1)}"><title>Target ${esc(targetText(definition))}</title></line>`
+      : "";
 
     const axes = drawn.map((spec) => {
       const anchor = spec.key === "effective_points" ? "end" : "start";
@@ -399,15 +426,17 @@
         <text x="${x}" y="${height - bottom}" text-anchor="${anchor}" class="chart-label">${chartTick(spec.min)}</text>`;
     }).join("");
 
-    const legend = drawn
-      .map((spec) => `<span class="hs-chart-key ${spec.cls}">${spec.label}</span>`)
-      .join("");
+    const legend = [
+      ...drawn.map((spec) => `<span class="hs-chart-key ${spec.cls}">${spec.label}</span>`),
+      targetLine ? `<span class="hs-chart-key hs-chart-target-key">Target ${esc(targetText(definition))}</span>` : "",
+    ].join("");
     const lines = drawn
       .map((spec) => `<polyline class="hs-chart-line ${spec.cls}" points="${spec.points}"></polyline>`)
       .join("");
     return `<figure class="hs-chart-wrap">
       <figcaption class="hs-chart-legend">${legend}</figcaption>
       <svg class="hs-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Value and points history">
+        ${targetLine}
         ${lines}
         ${axes}
         <text x="${left}" y="${height - 3}" class="chart-label">${esc(dates[0])}</text>
@@ -440,13 +469,14 @@
         <dt>Description</dt><dd id="hs-description-cell">${textCell(definition, TEXT_FIELDS.description)}</dd>
         ${definition.metric ? `<dt>Measurable metric</dt><dd>${esc(definition.metric)}</dd>` : ""}
         ${definition.scoring ? `<dt>Scoring rule</dt><dd>${esc(definition.scoring)}</dd>` : ""}
+        ${targetText(definition) ? `<dt>Target</dt><dd>${esc(targetText(definition))}</dd>` : ""}
         <dt>Source</dt><dd>${sourceChips(definition)}</dd>
         <dt>Owner</dt><dd id="hs-owner-cell">${textCell(definition, TEXT_FIELDS.owner)}</dd>
         <dt>Grain</dt><dd id="hs-grain-cell">${grainCell(definition)}</dd>
         ${definition.grain && !isOverride ? `<dt>Current value${periodBadge(latest)}</dt><dd>${valueCell(definition, latest)}</dd>` : ""}
         ${definition.grain ? `<dt>${isOverride ? "Flag raised" : "Points"}${periodBadge(latest)}</dt><dd id="hs-points-cell">${pointsCell(definition, latest)}</dd>` : ""}
       </dl>
-      ${sparkline(history)}
+      ${sparkline(history, definition)}
       ${history.length ? `<table class="hs-history"><thead><tr><th>Period</th><th>Value</th><th>Points</th><th>Mode</th></tr></thead><tbody>${history.map((row) => `<tr><td>${esc(row.period_key)}</td><td>${esc(fmtNum(row.effective_value, scoreDigits(definition)))}</td><td>${esc(fmtNum(row.effective_points, scoreDigits(definition)))}</td><td>${esc(row.source_mode)}</td></tr>`).join("")}</tbody></table>` : ""}
       ${definition.grain ? "" : `<p class="muted">No grain yet — the framework defines this as ${esc(definition.cadence_note || "an undefined cadence")}, so readings cannot be stored against a period.</p>`}
       <p id="hs-entry-error" class="error" hidden></p>`;

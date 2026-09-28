@@ -13,6 +13,7 @@ from src.healthscore_web.call_sentiment import (
     month_key,
     sentiment_clause_score,
     trailing_months,
+    window_bounds,
 )
 from src.healthscore_web.framework import load_framework
 from src.healthscore_web.store import connect, observations_for_metric
@@ -85,8 +86,9 @@ def test_points_follow_the_sign_of_the_mean(value, points) -> None:
     assert call_sentiment_points(value) == points
 
 
-def test_month_key_is_the_calendar_month() -> None:
+def test_window_is_the_trailing_30_days() -> None:
     assert month_key(date(2026, 9, 28)) == "2026-09"
+    assert window_bounds(date(2026, 9, 28)) == (date(2026, 8, 30), date(2026, 9, 28))
     assert trailing_months(date(2026, 9, 28), 6)[0] == date(2026, 4, 1)
     assert trailing_months(date(2026, 9, 28), 6)[-1] == date(2026, 9, 1)
 
@@ -111,6 +113,7 @@ def test_parent_account_credits_every_child_and_unmatched_stays_unscored() -> No
     assert shared["value"] == 0
     assert shared["points"] == 1
     assert shared["period_key"] == "2026-09"
+    assert shared["meta"]["window_start"] == "2026-08-30"
     assert shared["meta"]["calls"] == 2
     assert shared["meta"]["positive"] == 1
     assert shared["meta"]["negative"] == 1
@@ -119,11 +122,15 @@ def test_parent_account_credits_every_child_and_unmatched_stays_unscored() -> No
     assert readings[OTHER]["points"] == 2
 
 
-def test_missing_sentence_stays_unscored() -> None:
+def test_missing_sentence_stays_unscored_and_no_calls_score_zero() -> None:
     readings = _score([_call("bare", account=OTHER)], {"bare": "A summary with no tone sentence."})
     assert readings[OTHER]["points"] is None
     assert readings[OTHER]["value"] is None
     assert "overall-sentiment" in readings[OTHER]["error"]
+    assert readings[SITE_A]["points"] == 0
+    assert readings[SITE_A]["value"] is None
+    assert readings[SITE_A]["error"] is None
+    assert readings[SITE_A]["meta"]["calls"] == 0
 
 
 def test_backfill_scores_each_month_and_skips_one_already_stored(
@@ -165,7 +172,7 @@ def test_backfill_scores_each_month_and_skips_one_already_stored(
     )
     assert result["months_skipped"] == ["2026-09"]
     assert [row["period_key"] for row in result["months"]] == ["2026-08"]
-    assert result["months"][0]["scored"] == 2
+    assert result["months"][0]["scored"] == 3
     conn = connect()
     try:
         august = {
@@ -174,9 +181,11 @@ def test_backfill_scores_each_month_and_skips_one_already_stored(
             if row["period_key"] == "2026-08"
         }
         september = observations_for_metric(conn, SITE_A, "call_sentiment")
+        other = observations_for_metric(conn, OTHER, "call_sentiment")
     finally:
         conn.close()
     assert august[SITE_A]["points"] == 2
+    assert any(row["period_key"] == "2026-08" and row["points"] == 0 for row in other)
     assert any(row["period_key"] == "2026-09" and row["generator"] == "manual-seed" for row in september)
 
 

@@ -3,12 +3,13 @@
 Chorus does not return a numeric sentiment field. Each recorded meeting's
 summary contains the sentence Chorus writes, "overall sentiment was …".
 That clause is the score for the call: positive language is +1, negative
-language is -1, and a clause with both or neither is 0. Calls whose summary
-has no such sentence are left out of the average.
+language is -1, and a clause with both or neither is 0.
 
-The monthly value is the mean of those call scores, from -1 to +1. A positive
-mean scores 2, a negative mean scores 0, and a mean of exactly 0 scores 1.
-An entity with no scored call in the month stays unscored.
+The reading is the mean of those call scores over the trailing 30 days, from
+-1 to +1. A positive mean scores 2, a negative mean scores 0, and a mean of
+exactly 0 scores 1. An entity with no recorded call in that window scores 0.
+Calls whose summary has no sentiment sentence stay out of the average, and an
+entity whose calls all lack that sentence stays unscored.
 
 Chorus ``account_id`` is a Salesforce Account id. It credits that Customer
 Entity, and every active Customer Entity whose parent is that account.
@@ -20,7 +21,7 @@ import logging
 import re
 from calendar import monthrange
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from src.healthscore_web.meeting_cadence import engagement_day, load_entity_parent_ids
@@ -36,6 +37,7 @@ OWNER_EMAIL = "lindsay.brown@leandna.com"
 TAGS = ["customer-success", "healthscore", "sentiment"]
 RECORDED_TYPES = frozenset({"meeting", "dial"})
 FETCH_WORKERS = 8
+WINDOW_DAYS = 30
 
 _CLAUSE = re.compile(r"overall sentiment was\s+([^.]*)", re.IGNORECASE)
 _TAG = re.compile(r"<[^>]+>")
@@ -71,6 +73,11 @@ def month_bounds(day: date) -> tuple[date, date]:
     """First and last calendar day of ``day``'s month."""
     last = monthrange(day.year, day.month)[1]
     return date(day.year, day.month, 1), date(day.year, day.month, last)
+
+
+def window_bounds(as_of: date) -> tuple[date, date]:
+    """The 30 calendar days ending on ``as_of``, inclusive."""
+    return as_of - timedelta(days=WINDOW_DAYS - 1), as_of
 
 
 def month_key(day: date) -> str:
@@ -183,13 +190,13 @@ def get_call_sentiment(
     persist: bool = False,
     generator: str = GENERATOR_NAME,
 ) -> dict[str, Any]:
-    """Score call sentiment for one calendar month."""
+    """Score call sentiment for the 30 days ending on ``as_of``."""
     if not entities:
         raise CallSentimentGeneratorError(
             "Salesforce Customer Entity inventory is empty; cannot generate call_sentiment"
         )
     today = as_of or date.today()
-    start, end = month_bounds(today)
+    start, end = window_bounds(today)
     key = period_key or month_key(today)
     if engagements is None:
         engagements = load_recorded_calls(start, end)
@@ -203,9 +210,9 @@ def get_call_sentiment(
         texts,
         skipped,
         start=start,
-        end=min(end, today) if today.year == end.year and today.month == end.month else end,
+        end=end,
         period_key=key,
-        as_of=min(today, end),
+        as_of=today,
         persist=persist,
         generator=generator,
     )
@@ -223,7 +230,7 @@ def backfill_call_sentiment(
     only_missing: bool = True,
     generator: str = GENERATOR_NAME,
 ) -> dict[str, Any]:
-    """Score each of the newest ``months`` calendar months from one Chorus pull."""
+    """Score a trailing 30-day window ending on each of the newest ``months`` month-ends."""
     if not entities:
         raise CallSentimentGeneratorError(
             "Salesforce Customer Entity inventory is empty; cannot generate call_sentiment"
@@ -243,8 +250,9 @@ def backfill_call_sentiment(
         parent_ids = {}
     scored: list[dict[str, Any]] = []
     for day in pending:
-        start, end = month_bounds(day)
-        window_end = min(end, today)
+        _, month_end = month_bounds(day)
+        window_end = min(month_end, today)
+        start, _ = window_bounds(window_end)
         grouped, skipped = _calls_by_entity(
             engagements, entities, parent_ids, start=start, end=window_end
         )
@@ -390,12 +398,12 @@ def _score_month(
                 if (score := sentiment_clause_score(summaries.get(call_id))) is not None
             ]
             value = round(sum(scores) / len(scores), 4) if scores else None
-            points = call_sentiment_points(value)
+            points = 0 if not call_ids else call_sentiment_points(value)
             error = None
-            if points is None:
+            if call_ids and points is None:
                 error = (
                     "no Chorus meeting summary with an overall-sentiment sentence "
-                    f"in {period_key}"
+                    f"in the {WINDOW_DAYS} days ending {end.isoformat()}"
                 )
                 warnings.append(
                     {
@@ -409,6 +417,7 @@ def _score_month(
                 "calls": len(call_ids),
                 "scored_calls": len(scores),
                 **counts,
+                "window_days": WINDOW_DAYS,
                 "window_start": start.isoformat(),
                 "window_end": end.isoformat(),
                 "owner": OWNER_EMAIL,
