@@ -168,7 +168,7 @@ inputs:
   max_points: 5
   weight: 5
   data_source:
-  - Apex integration logs
+  - Data Pipeline
   grain: daily
   automation: blocked
   status: needs_source

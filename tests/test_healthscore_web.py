@@ -116,6 +116,15 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert engagement["status"] == "needs_weight"
     assert engagement["max_points"] == 10
     assert engagement["data_source"] == ["Aha", "Salesforce"]
+    sla = next(row for row in framework["inputs"] if row["key"] == "sla_adherence")
+    assert sla["metric-generator"] == "get_sla_adherence"
+    assert sla["data_source"] == ["Atlassian Jira"]
+    assert sla["status"] == "defined"
+    assert sla["max_points"] == 3
+    assert sla["weight"] == 3
+    escalation = next(row for row in framework["inputs"] if row["key"] == "escalation_rate")
+    assert escalation["data_source"] == ["Atlassian Jira"]
+    assert escalation["metric-generator"] is None
     assert "Attended" in summit["description"]
     known = {name.casefold() for name in framework["available_data_sources"]}
     assert {"salesforce", "cs report", "pendo", "aha"} <= known

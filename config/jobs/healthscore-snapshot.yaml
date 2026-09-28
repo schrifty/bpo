@@ -25,3 +25,6 @@ steps:
   - name: snapshot-enhancement-engagement
     command: healthscore-snapshot
     component: enhancement_engagement
+  - name: snapshot-sla-adherence
+    command: healthscore-snapshot
+    component: sla_adherence

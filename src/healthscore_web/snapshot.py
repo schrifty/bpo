@@ -23,6 +23,11 @@ from src.healthscore_web.roi_multiple import (
     RoiMultipleGeneratorError,
     get_roi_multiple,
 )
+from src.healthscore_web.sla_adherence import (
+    METRIC_NAME as SLA_ADHERENCE_METRIC,
+    SlaAdherenceGeneratorError,
+    get_sla_adherence,
+)
 from src.healthscore_web.summit_attendance import (
     METRIC_NAME as SUMMIT_ATTENDANCE_METRIC,
     SummitAttendanceGeneratorError,
@@ -48,6 +53,7 @@ SUPPORTED = (
     ROI_MULTIPLE_METRIC,
     SUMMIT_ATTENDANCE_METRIC,
     ENHANCEMENT_ENGAGEMENT_METRIC,
+    SLA_ADHERENCE_METRIC,
     "all",
 )
 
@@ -356,6 +362,27 @@ def run_enhancement_engagement_snapshot(
     )
 
 
+def run_sla_adherence_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    issues: list[dict[str, Any]] | None = None,
+    organizations_by_entity: dict[str, list[str]] | None = None,
+    client: Any | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_sla_adherence(
+        entities=entities,
+        issues=issues,
+        organizations_by_entity=organizations_by_entity,
+        client=client,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
 def run_healthscore_snapshot(
     *,
     component: str = "all",
@@ -393,6 +420,10 @@ def run_healthscore_snapshot(
         results[ENHANCEMENT_ENGAGEMENT_METRIC] = run_enhancement_engagement_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (SLA_ADHERENCE_METRIC, "all"):
+        results[SLA_ADHERENCE_METRIC] = run_sla_adherence_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     return results
 
 
@@ -407,7 +438,7 @@ def run_healthscore_snapshot_cli(
             "Run Health Score generators into the Health Score store. "
             "Does not write KPI observations. Default runs usage_level, then "
             "usage_trend, champion_login_continuity, roi_multiple, summit_attendance, "
-            "then enhancement_engagement."
+            "enhancement_engagement, then sla_adherence."
         ),
     )
     parser.add_argument(
@@ -415,7 +446,7 @@ def run_healthscore_snapshot_cli(
         default="all",
         help=(
             "usage_level, usage_trend, champion_login_continuity, roi_multiple, "
-            "summit_attendance, enhancement_engagement, or all"
+            "summit_attendance, enhancement_engagement, sla_adherence, or all"
         ),
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -470,6 +501,7 @@ def run_healthscore_snapshot_cli(
         RoiMultipleGeneratorError,
         SummitAttendanceGeneratorError,
         EnhancementEngagementGeneratorError,
+        SlaAdherenceGeneratorError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

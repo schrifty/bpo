@@ -18,11 +18,13 @@ from src.healthscore_web.framework import (
     load_framework,
     update_component,
 )
+from src.healthscore_web.sla_adherence import SlaAdherenceGeneratorError
 from src.healthscore_web.enhancement_engagement import EnhancementEngagementGeneratorError
 from src.healthscore_web.champion_login import ChampionLoginGeneratorError
 from src.healthscore_web.roi_multiple import RoiMultipleGeneratorError
 from src.healthscore_web.summit_attendance import SummitAttendanceGeneratorError
 from src.healthscore_web.snapshot import (
+    run_sla_adherence_snapshot,
     run_enhancement_engagement_snapshot,
     run_champion_login_snapshot,
     run_roi_multiple_snapshot,
@@ -464,6 +466,24 @@ async def api_generate_roi_multiple(request: Request) -> Response:
         logger.exception("Health Score roi_multiple generate failed")
         return JSONResponse(
             {"ok": False, "error": f"roi_multiple generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_sla_adherence(request: Request) -> Response:
+    try:
+        require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    try:
+        result = run_sla_adherence_snapshot(dry_run=False)
+    except SlaAdherenceGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score sla_adherence generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"sla_adherence generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

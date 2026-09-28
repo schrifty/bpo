@@ -55,7 +55,7 @@ description says so rather than implying the data exists.
 The component list has two separate columns. **Source** is `data_source`, a
 list, so a component can name more than one system. A chip is green when that
 label matches a system in `config/data_source_registry.yaml` (a system Cortex
-can read). Any other label is red and ends with “TBD”, including sources that
+can read). Any other label is red, including sources that
 are named but not connected yet, such as Verified-outcome log. **Status** is
 `automation`: Automated, Manual, or Blocked.
 

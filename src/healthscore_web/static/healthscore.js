@@ -133,7 +133,7 @@
     const known = availableSourceSet();
     const chips = sources.map((item) => {
       const available = known.has(item.toLowerCase());
-      const label = available ? item : `${item} TBD`;
+      const label = item;
       const tone = available ? "available" : "unavailable";
       return `<span class="hs-source-chip ${tone}">${esc(label)}</span>`;
     });

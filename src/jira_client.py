@@ -1811,6 +1811,7 @@ class JiraClient:
         match_terms: list[str] | None = None,
         *,
         organizations_only: bool = False,
+        allow_llm: bool = True,
     ) -> tuple[str, list[str]]:
         """Build JQL to match a customer for **project HELP** only: JSM ``Organizations`` (and optional text).
 
@@ -1862,7 +1863,7 @@ class JiraClient:
         resolved_orgs: list[str] = list(
             _fuzzy_pick_jsm_organizations(cleaned_terms, candidates) or []
         )
-        if not resolved_orgs and organizations_only and cleaned_terms:
+        if allow_llm and not resolved_orgs and organizations_only and cleaned_terms:
             from .jsm_org_llm import resolve_jsm_customer_organizations_llm
 
             llm_orgs = resolve_jsm_customer_organizations_llm(
@@ -1990,6 +1991,62 @@ class JiraClient:
         if _prebuilt_clause is not None:
             return _prebuilt_clause
         return self._help_project_customer_filter(customer_name, match_terms)
+
+    def resolve_jsm_organizations(
+        self,
+        customer_name: str,
+        match_terms: list[str] | None = None,
+    ) -> list[str]:
+        """JSM organization labels for a customer, without summary fallback or an LLM guess."""
+        _clause, orgs = self._customer_match_clause(
+            customer_name,
+            match_terms,
+            organizations_only=True,
+            allow_llm=False,
+        )
+        return list(orgs)
+
+    def list_help_resolved_sla_issues(
+        self,
+        *,
+        days: int = 30,
+        as_of: date | datetime | None = None,
+        max_results: int | None = None,
+    ) -> dict[str, Any]:
+        """HELP tickets resolved in the trailing window, with TTFR/TTR SLA fields.
+
+        Same JQL as :meth:`get_help_sla_adherence` for the whole HELP project.
+        """
+        if days < 1:
+            return {"error": "days must be >= 1", "days": days, "project": "HELP"}
+        cap = max_results if max_results is not None else help_ttr_resolved_max_results()
+        jql = self._help_resolved_window_jql(
+            days=int(days), base_filter="key is not EMPTY", as_of=as_of
+        )
+        jql_total = self._jql_match_total(jql)
+        try:
+            raw = self._search(
+                jql,
+                max_results=cap,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=f"HELP SLA adherence issues (resolved in last {int(days)}d, portfolio)",
+            )
+        except Exception as exc:
+            logger.warning("HELP SLA issue fetch failed (days=%s): %s", days, exc)
+            return {
+                "error": str(exc),
+                "project": "HELP",
+                "window_days": int(days),
+            }
+        issues = [self._normalize_issue(issue) for issue in raw]
+        return {
+            "issues": issues,
+            "project": "HELP",
+            "window_days": int(days),
+            "jql_total": jql_total,
+            "fetch_cap": cap,
+            "truncated": jql_total is not None and jql_total > len(issues),
+        }
 
     def help_salesforce_entity_site_scoped_clause(
         self,
