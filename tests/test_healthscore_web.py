@@ -134,19 +134,22 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert engagement["data_source"] == ["Aha", "Salesforce"]
     sla = next(row for row in framework["inputs"] if row["key"] == "sla_adherence")
     assert sla["metric-generator"] == "get_sla_adherence"
-    assert sla["data_source"] == ["Atlassian Jira"]
+    assert sla["data_source"] == ["JIRA"]
     assert sla["status"] == "defined"
     assert sla["max_points"] == 3
     assert sla["weight"] == 3
     escalation = next(row for row in framework["inputs"] if row["key"] == "escalation_rate")
-    assert escalation["data_source"] == ["Atlassian Jira"]
+    assert escalation["data_source"] == ["JIRA"]
     assert escalation["metric-generator"] is None
+    volume = next(row for row in framework["inputs"] if row["key"] == "ticket_volume_trend")
+    assert volume["data_source"] == ["JIRA"]
+    assert volume["metric-generator"] is None
     assert "Attended" in summit["description"]
     known = {name.casefold() for name in framework["available_data_sources"]}
     assert {"salesforce", "cs report", "pendo", "aha"} <= known
     labels = framework["available_source_labels"]
     assert "Aha" in labels
-    assert "JIRA" not in labels
+    assert "JIRA" in labels and "Atlassian Jira" not in labels
     assert "Data API" in labels and "LeanDNA" not in labels
     assert labels.index("Pendo") < labels.index("Salesforce") < labels.index("Aha")
     verified = next(row for row in framework["inputs"] if row["key"] == "verified_outcomes")

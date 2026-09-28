@@ -495,16 +495,16 @@ inputs:
 - key: ticket_volume_trend
   pillar: Support Experience
   name: Ticket volume & trend
-  description: Number of support tickets the entity opened in the trailing 90 days and the percent change
-    from the 90 days before, from the support system. A spike to three times the prior period is proposed
-    to score 0; the other bands need data before they can be set.
+  description: Number of Jira HELP tickets the entity opened in the trailing 90 days and the percent
+    change from the 90 days before. A spike to three times the prior period is proposed to score 0;
+    the other bands need data before they can be set.
   signal: leading
   metric: 90-day ticket count and percent change
   scoring: Proposed 3x spike=0; remaining points and threshold need data
   max_points: null
   weight: 3
   data_source:
-  - Support system
+  - JIRA
   grain: monthly
   automation: automated
   status: needs_definition
@@ -528,7 +528,7 @@ inputs:
   max_points: 3
   weight: 3
   data_source:
-  - Atlassian Jira
+  - JIRA
   grain: monthly
   automation: automated
   status: defined
@@ -550,7 +550,7 @@ inputs:
   max_points: null
   weight: 2
   data_source:
-  - Atlassian Jira
+  - JIRA
   grain: monthly
   automation: automated
   status: needs_definition
