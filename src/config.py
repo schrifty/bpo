@@ -760,15 +760,6 @@ def anthropic_llm_client():
     return OpenAI(api_key=ANTHROPIC_API_KEY, base_url=_ANTHROPIC_OPENAI_BASE_URL)
 
 
-def gemini_llm_client():
-    """OpenAI-SDK client pointed at Gemini's OpenAI-compatible endpoint."""
-    from openai import OpenAI
-
-    if not GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY is not set")
-    return OpenAI(api_key=GEMINI_API_KEY, base_url=_GEMINI_BASE_URL)
-
-
 def eng_portfolio_llm_client():
     """Client for eng-portfolio generative slides (Anthropic Claude)."""
     if not ANTHROPIC_API_KEY:

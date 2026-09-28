@@ -111,38 +111,6 @@ def _normalize_weekly_buckets(row: dict) -> list[dict]:
     return buckets
 
 
-def _normalize_daily_buckets(row: dict) -> list[dict]:
-    """Convert day1...day45 fields to list of day objects.
-    
-    Args:
-        row: Shortage item row with dayN* fields.
-    
-    Returns:
-        List of normalized day dicts (up to 45 days).
-    """
-    days = []
-    for i in range(1, 46):
-        date_val = row.get(f"day{i}date")
-        if date_val is None:
-            continue
-        
-        qty = row.get(f"day{i}quantity")
-        supply = row.get(f"day{i}supply")
-        reqs = row.get(f"day{i}requirements")
-        crit = row.get(f"day{i}criticality") or "Unknown"
-        
-        days.append({
-            "day_num": i,
-            "date": date_val,
-            "quantity": float(qty) if qty is not None else 0.0,
-            "supply": float(supply) if supply is not None else 0.0,
-            "requirements": float(reqs) if reqs is not None else 0.0,
-            "criticality": crit,
-        })
-    
-    return days
-
-
 def get_shortages_by_item_weekly(
     sites: str | None = None,
     force_refresh: bool = False,
@@ -260,100 +228,6 @@ def get_shortages_by_item_weekly(
         except Exception as e:
             logger.error("LeanDNA Shortage fetch failed: %s", e)
             raise
-
-
-def get_shortages_by_item_daily(sites: str | None = None) -> list[dict]:
-    """Retrieve daily shortage forecast (45 days) from LeanDNA API.
-    
-    NOTE: Not cached in-memory (less frequently used); Drive cache only.
-    
-    Args:
-        sites: Comma-separated site IDs (optional).
-    
-    Returns:
-        List of shortage item records with normalized daily buckets.
-    """
-    endpoint = "daily"
-    cache_key = _cache_key(endpoint, sites)
-    
-    # Try Drive cache
-    drive_data = _try_load_from_drive(endpoint, cache_key)
-    if drive_data:
-        return drive_data
-    
-    url = f"{_get_base_url()}/data/MaterialShortages/ShortagesByItem/Daily"
-    logger.debug("LeanDNA Shortage (daily): fetching from API (sites=%s)", sites or "all")
-    
-    try:
-        response = requests.get(url, headers=_headers(sites), timeout=180)
-        response.raise_for_status()
-        raw_data = response.json()
-        
-        if not isinstance(raw_data, list):
-            logger.error("LeanDNA Shortage (daily) API returned non-list: %s", type(raw_data))
-            return []
-        
-        # Normalize
-        data = []
-        for row in raw_data:
-            normalized = {
-                "itemCode": row.get("itemCode"),
-                "itemDescription": row.get("itemDescription"),
-                "site": row.get("site"),
-                "criticalityLevel": row.get("criticalityLevel"),
-                "daysInShortage": row.get("daysInShortage"),
-                "ctbShortageImpactedValue": row.get("ctbShortageImpactedValue"),
-                "firstCriticalBucketDay": row.get("firstCriticalBucketDay"),
-                "days": _normalize_daily_buckets(row),
-            }
-            data.append(normalized)
-        
-        logger.info("LeanDNA Shortage (daily): fetched %d items from API", len(data))
-        
-        # Save to Drive
-        try:
-            _save_to_drive(data, endpoint, cache_key)
-        except Exception as e:
-            logger.warning("Drive cache save failed (non-fatal): %s", e)
-        
-        return data
-        
-    except Exception as e:
-        logger.error("LeanDNA Shortage (daily) fetch failed: %s", e)
-        raise
-
-
-def get_shortages_by_order(sites: str | None = None) -> list[dict]:
-    """Retrieve shortage-by-production-order report from LeanDNA API.
-    
-    Links shortages to customer orders and production orders for impact analysis.
-    
-    NOTE: Not cached (less frequently used for QBR; mainly for deep dive deck).
-    
-    Args:
-        sites: Comma-separated site IDs (optional).
-    
-    Returns:
-        List of shortage-by-order records.
-    """
-    url = f"{_get_base_url()}/data/MaterialShortages/ShortagesByOrder"
-    logger.debug("LeanDNA Shortage (by order): fetching from API (sites=%s)", sites or "all")
-    
-    try:
-        response = requests.get(url, headers=_headers(sites), timeout=180)
-        response.raise_for_status()
-        data = response.json()
-        
-        if not isinstance(data, list):
-            logger.error("LeanDNA Shortage (by order) API returned non-list: %s", type(data))
-            return []
-        
-        logger.info("LeanDNA Shortage (by order): fetched %d records from API", len(data))
-        return data
-        
-    except Exception as e:
-        logger.error("LeanDNA Shortage (by order) fetch failed: %s", e)
-        raise
 
 
 def get_shortages_with_scheduled_deliveries_weekly(sites: str | None = None) -> list[dict]:

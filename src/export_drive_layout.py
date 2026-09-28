@@ -845,19 +845,6 @@ def _upload_text_persistent_and_historical_once(
     }
 
 
-# Backward-compatible aliases for tests/docs that referenced flat dated filenames.
-def historical_filename(stem: str, *, ext: str, export_date: dt.date | None = None) -> str:
-    return historical_snapshot_filename(stem, ext=ext)
-
-
-def historical_spreadsheet_title(stem: str, export_date: dt.date | None = None) -> str:
-    return historical_snapshot_spreadsheet_title(stem)
-
-
-def parse_historical_dated_name(name: str) -> tuple[str, dt.date, str] | None:
-    return parse_historical_flat_dated_name(name)
-
-
 def portfolio_deck_export_stem(deck_id: str, *, cursor_suffix: bool = False) -> str | None:
     """Stable Drive stem for portfolio-class decks using persistent/historical layout."""
     base = _PORTFOLIO_DECK_EXPORT_STEMS.get(deck_id)

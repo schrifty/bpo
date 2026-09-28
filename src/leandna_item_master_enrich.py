@@ -121,26 +121,6 @@ def enrich_report_with_item_master(
         return report
 
 
-def get_doi_backwards_for_site(report: dict[str, Any], site_name: str) -> float | None:
-    """Extract DOI backwards for a specific site from enrichment data.
-    
-    Args:
-        report: QBR report dict with leandna_item_master enrichment.
-        site_name: Factory/site name to filter (case-insensitive match).
-    
-    Returns:
-        Mean DOI backwards for items at that site, or None if not available.
-    """
-    enrichment = report.get("leandna_item_master") or {}
-    if not enrichment.get("enabled"):
-        return None
-    
-    # This would require raw items or site-aggregated data in enrichment
-    # For now: return global mean (future: refactor to aggregate per-site in enrichment)
-    doi_bwd = enrichment.get("doi_backwards") or {}
-    return doi_bwd.get("mean")
-
-
 def format_leandna_speaker_notes_supplement(report: dict[str, Any]) -> str:
     """Generate speaker notes text from LeanDNA enrichment for supply chain/platform health slides.
     

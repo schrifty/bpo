@@ -342,34 +342,6 @@ def copy_drive_file_to_folder(file_id: str, *, name: str, parent_id: str) -> str
     return _execute_sheets_write_with_retry(f"drive.files.copy {name!r}", _call)
 
 
-def export_google_doc_as_plain_text(file_id: str, *, _max_retries: int = 5) -> str:
-    """Export a Google Doc to UTF-8 plain text (retries on rate-limit errors)."""
-    import random, time
-
-    last_err: HttpError | None = None
-    for attempt in range(_max_retries):
-        try:
-            with drive_api_lock:
-                drive = _get_drive()
-                request = drive.files().export(fileId=file_id, mimeType="text/plain")
-                buf = io.BytesIO()
-                downloader = MediaIoBaseDownload(buf, request)
-                done = False
-                while not done:
-                    _, done = downloader.next_chunk()
-                return buf.getvalue().decode("utf-8", errors="replace")
-        except HttpError as e:
-            last_err = e
-            status = getattr(e.resp, "status", 0)
-            if status not in (403, 429) or attempt >= _max_retries - 1:
-                raise
-            delay = min(60.0, (2 ** attempt) + random.random())
-            logger.warning("Drive export rate-limited (%s); retry %d/%d in %.1fs",
-                           status, attempt + 1, _max_retries, delay)
-            time.sleep(delay)
-    raise last_err  # unreachable, but keeps type-checker happy
-
-
 def get_qbr_generator_folder_id_for_drive_config() -> str:
     """Return the canonical QBR Generator folder id (YAML, Prompts, QBR template).
 
@@ -515,11 +487,6 @@ def get_cortex_sys_chart_data_folder_id() -> str | None:
     if not parent:
         return None
     return _find_or_create_cortex_folder(CORTEX_SYS_CHART_DATA_FOLDER, parent)
-
-
-def get_cortex_shared_output_root_folder_id() -> str | None:
-    """Cortex dual-write root for non-deck Output files: ``exports/`` (not QBR ``Output/``)."""
-    return get_cortex_exports_root_folder_id()
 
 
 def iter_qbr_output_root_folder_ids() -> list[str]:

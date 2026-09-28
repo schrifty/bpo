@@ -1052,13 +1052,6 @@ def _load_cs_report_column_labels() -> dict[str, str]:
         return out
 
 
-def invalidate_cs_report_column_labels_cache_for_tests() -> None:
-    """Clear display-label cache (tests only)."""
-    global _cs_report_column_labels
-    with _cs_report_column_labels_lock:
-        _cs_report_column_labels = None
-
-
 def csr_export_column_label(internal_key: str) -> str:
     """CSR display label for an internal site-row key (matches CSR UI naming where known)."""
     if internal_key in _CSR_DERIVED_EXPORT_LABELS:

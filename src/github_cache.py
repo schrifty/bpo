@@ -23,6 +23,3 @@ def cache_set(key: str, data: Any, ttl_seconds: int | None = None) -> None:
     ttl = CORTEX_GITHUB_CACHE_TTL_SECONDS if ttl_seconds is None else max(0, int(ttl_seconds))
     _dc.cache_set(_NAMESPACE, key, data, ttl)
 
-
-def clear_github_cache_for_tests() -> None:
-    _dc.clear_namespace_for_tests(_NAMESPACE)

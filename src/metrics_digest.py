@@ -87,7 +87,6 @@ def _detail_lines(
     return [f"{prefix}{_truncate_digest_detail(text, max_len=max_len)}"]
 
 
-
 def _format_plain_number(value: float) -> str:
     """Format a number with thousands separators; trim trailing decimal zeros."""
     if float(value).is_integer():
@@ -521,11 +520,6 @@ def format_digest_lines(row: DigestRow, *, widths: DigestColumnWidths | None = N
     elif overflow:
         lines.extend(_detail_lines(overflow))
     return lines
-
-
-def format_digest_line(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> str:
-    """Primary columnar line only (see :func:`format_digest_lines` for wrapped values)."""
-    return format_digest_lines(row, widths=widths)[0]
 
 
 def _format_section(

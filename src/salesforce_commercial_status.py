@@ -137,10 +137,6 @@ def is_current_book_commercial_status(status: str | None) -> bool:
     )
 
 
-def is_active_installed_base_status(status: str | None) -> bool:
-    return (status or "") == COMMERCIAL_STATUS_ACTIVE
-
-
 def renewal_in_flight_from_status(status: str | None) -> bool:
     return (status or "") == COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING
 

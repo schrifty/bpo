@@ -17,7 +17,6 @@ from .claude_slide_ir import IR_SCHEMA_FOR_PROMPT, normalize_slide_ir, render_sl
 from .config import (
     CORTEX_ENG_PORTFOLIO_CLAUDE_ALLOW_FALLBACK,
     CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL,
-    CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES,
     eng_portfolio_llm_client,
     logger,
 )
@@ -53,10 +52,6 @@ class EngPortfolioClaudeError(RuntimeError):
 
 
 EngPortfolioLlmError = EngPortfolioClaudeError
-
-
-def eng_portfolio_claude_slides_enabled() -> bool:
-    return bool(CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES)
 
 
 def _allow_fallback() -> bool:

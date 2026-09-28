@@ -427,61 +427,6 @@ def saved_at_to_calendar_date(saved_at: str) -> date | None:
         return None
 
 
-def ensure_daily_portfolio_snapshot(days: int, max_customers: int | None = None) -> None:
-    """If a snapshot folder exists, ensure Drive has a portfolio JSON when needed.
-
-    Auto-upload runs **only on Sat/Sun** in ``CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``. Weekdays skip the
-    expensive crawl; rely on Drive read (including stale weekday reuse) from
-    ``try_load_portfolio_snapshot_for_request``.
-
-    Called after ``PendoClient.preload`` on heavy portfolio runs so crawl reuses warm caches.
-    Failures are logged; the caller continues without snapshot for this run.
-    """
-    folder_id = resolve_portfolio_snapshot_folder_id()
-    if not folder_id:
-        return
-
-    import time
-
-    name = portfolio_snapshot_filename(days, max_customers)
-
-    if not is_weekend_in_snapshot_tz():
-        logger.debug(
-            "Pendo: portfolio snapshot auto-upload skipped (weekend-only schedule; weekday in %s)",
-            CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
-        )
-        return
-
-    existing = try_load_portfolio_snapshot_for_request(days, max_customers)
-    if existing is not None:
-        logger.debug(
-            "Pendo: portfolio snapshot %r already fresh enough on Drive — skip auto-upload",
-            name,
-        )
-        return
-
-    t0 = time.perf_counter()
-    logger.info(
-        "Pendo: auto-uploading portfolio snapshot %r (weekend refresh or missing; %s)...",
-        name,
-        CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
-    )
-    try:
-        from .pendo_client import PendoClient
-
-        client = PendoClient()
-        report = client.get_portfolio_report(days=days, max_customers=max_customers)
-        upload_portfolio_snapshot_to_drive(report, folder_id, days, max_customers)
-        logger.info(
-            "Pendo: portfolio snapshot %r uploaded in %.1fs (%d customers)",
-            name,
-            time.perf_counter() - t0,
-            report.get("customer_count", 0),
-        )
-    except Exception as e:
-            logger.warning("Pendo: portfolio snapshot auto-upload failed (continuing): %s", e)
-
-
 def upload_portfolio_snapshot_to_drive(
     report: dict[str, Any],
     folder_id: str,

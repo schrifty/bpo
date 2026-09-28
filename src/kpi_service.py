@@ -589,15 +589,6 @@ def column_widths_for_metrics(
     return KPIColumnWidths(name=name_w, tags=tags_w)
 
 
-def column_widths_for_tag(
-    tag: str,
-    *,
-    registry: dict[str, Any] | None = None,
-) -> KPIColumnWidths:
-    """Column widths for every KPI carrying *tag* (cheap; no generators/API)."""
-    return column_widths_for_tags((tag,), registry=registry)
-
-
 def column_widths_for_tags(
     tags: Sequence[str] | None = None,
     *,

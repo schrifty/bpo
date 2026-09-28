@@ -1255,13 +1255,6 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
     return md.rstrip() + "\n"
 
 
-def ensure_customer_pendo_export_folders(customer: str) -> dict[str, str]:
-    """Return persistent and historical folder ids under Output/Customer Exports/{customer}/."""
-    from .export_drive_layout import ensure_customer_export_folders
-
-    return ensure_customer_export_folders(customer)
-
-
 def _write_local(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")

@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .kpi_observation import KPIObservation
-from .metrics_registry import LEGACY_MONTHLY_GENERATORS
 
 SCHEMA_VERSION = 3
 GRAIN_HOURLY = "hourly"
@@ -41,18 +40,6 @@ _RETIRED_TRAILING_SUPPORT_METRICS = (
     "Engineering Escalation Rate (30 Days)",
     "Data Escalation Rate (30 Days)",
 )
-
-# Previous-calendar-month scorecard generators (period_key = YYYY-MM of that month).
-MONTH_CLOSE_GENERATORS = LEGACY_MONTHLY_GENERATORS
-
-
-def grain_for_generator(generator: str) -> str:
-    """Legacy fallback for registry rows that predate the required grain field."""
-    name = (generator or "").strip()
-    if name in MONTH_CLOSE_GENERATORS:
-        return GRAIN_MONTHLY
-    return GRAIN_DAILY
-
 
 def default_kpi_store_path() -> Path:
     from .config import CORTEX_CACHE_ROOT

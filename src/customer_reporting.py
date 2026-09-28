@@ -8,8 +8,6 @@ Canonical customer identity for contracts and ARR lives in Salesforce — see
 from __future__ import annotations
 
 import threading
-from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -94,11 +92,6 @@ def reporting_group(customer_name: str) -> str:
     return resolve_corporate_label(raw)
 
 
-def cs_report_name_to_reporting_group(cs_customer: str) -> str:
-    """Alias for CS Report ``customer`` column values."""
-    return reporting_group(cs_customer)
-
-
 def build_reporting_group_index() -> dict[str, list[str]]:
     """``{corporate_label: [source alias strings]}`` for manifest / LLM context."""
     rev: dict[str, set[str]] = {}
@@ -106,18 +99,3 @@ def build_reporting_group_index() -> dict[str, list[str]]:
         rev.setdefault(group, set()).add(alias_lower)
     return {g: sorted(names, key=str.lower) for g, names in sorted(rev.items())}
 
-
-def portfolio_rows_by_reporting_group(
-    rows: list[dict[str, Any]],
-    *,
-    name_key: str = "customer",
-) -> dict[str, list[dict[str, Any]]]:
-    """Bucket dict rows by :func:`reporting_group` (SF corporate label)."""
-    out: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        label = str(row.get(name_key) or "").strip()
-        group = reporting_group(label)
-        out.setdefault(group, []).append(row)
-    return out

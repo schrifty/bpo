@@ -267,27 +267,6 @@ def build_engineer_audience_scope(
     }
 
 
-def build_engineer_email_set(
-    client: JiraClient, *, timeout: float = 60.0
-) -> dict[str, Any]:
-    """Legacy alias — prefer :func:`build_engineer_audience_scope`."""
-    scope = build_engineer_audience_scope(client, timeout=timeout)
-    if scope.get("error"):
-        return {
-            "error": scope["error"],
-            "emails": set(),
-            "headcount": 0,
-        }
-    return {
-        "error": None,
-        "emails": scope["emails"],
-        "headcount": scope["headcount"],
-        "engineer_names": scope["engineer_names"],
-        "non_engineer_names": scope["non_engineer_names"],
-        "source": scope.get("source"),
-    }
-
-
 def build_eng_team_roster(
     client: JiraClient,
     *,

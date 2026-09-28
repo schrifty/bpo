@@ -79,11 +79,6 @@ def build_secret_env(payload: dict[str, Any], *, sa_dir: str | None = None) -> d
     return env
 
 
-def apply_secret_payload(payload: dict[str, Any]) -> None:
-    for key, val in build_secret_env(payload).items():
-        os.environ[key] = val
-
-
 def render_shell_exports(env: dict[str, str]) -> str:
     return "\n".join(f"export {key}={shlex.quote(val)}" for key, val in sorted(env.items()))
 

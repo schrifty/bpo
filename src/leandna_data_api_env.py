@@ -53,14 +53,6 @@ def load_leandna_env_config(bucket: LeanDNAEnvBucket) -> LeanDNAEnvConfig:
     )
 
 
-def leandna_env_credentials_configured(bucket: LeanDNAEnvBucket) -> bool:
-    try:
-        load_leandna_env_config(bucket)
-        return True
-    except ValueError:
-        return False
-
-
 def _normalize_bearer_token(raw: str) -> str:
     t = (raw or "").strip()
     if t.lower().startswith("bearer "):

@@ -819,23 +819,6 @@ def ensure_persistent_exports_in_base(parent_id: str, historical_id: str) -> lis
     return created
 
 
-def normalize_historical_data_folder(
-    historical_id: str,
-    *,
-    parent_id: str,
-    today: dt.date | None = None,
-    include_todays_dated: bool = True,
-) -> dict[str, Any]:
-    """Backward-compatible alias for normalizing loose files under ``Historical Data/``."""
-    return normalize_loose_historical_data(
-        parent_id,
-        historical_id=historical_id,
-        context=HISTORICAL_DATA_FOLDER,
-        today=today,
-        include_todays_dated=include_todays_dated,
-    )
-
-
 def restore_misplaced_output_root_metrics_decks(
     parent_id: str,
     *,
@@ -976,18 +959,6 @@ def migrate_export_folder_to_historical_data(
     }
 
 
-def repair_customer_export_drive_layout(customer: str) -> dict[str, Any]:
-    """Repair one ``Customer Exports/{customer}/`` folder (promote persistent, dedupe historical)."""
-    folders = ensure_customer_export_folders(customer)
-    parent_id = folders["persistent_folder_id"]
-    result = migrate_export_folder_to_historical_data(
-        parent_id,
-        context=f"{CUSTOMER_EXPORTS_FOLDER}/{customer}",
-        portfolio_root=False,
-    )
-    return {"customer": customer, **result}
-
-
 def archive_previous_month_in_folder(
     parent_id: str,
     archive_month: str,
@@ -1047,18 +1018,6 @@ def _dedupe_keeper_rank(folder: dict[str, Any]) -> tuple[int, str]:
     fid = str(folder.get("id") or "")
     has_content = 1 if (fid and _folder_has_children(fid)) else 0
     return (has_content, _folder_recency(folder))
-
-
-def find_child_folders_by_name(parent_id: str, name: str) -> list[dict[str, Any]]:
-    """Return non-trashed subfolders of *parent_id* named exactly *name*, best keeper first."""
-    matches = [
-        child
-        for child in _list_folder_children(parent_id)
-        if str(child.get("mimeType") or "") == _MIME_FOLDER
-        and str(child.get("name") or "") == name
-    ]
-    matches.sort(key=_dedupe_keeper_rank, reverse=True)
-    return matches
 
 
 def dedupe_child_folders_by_name(parent_id: str) -> list[dict[str, str]]:

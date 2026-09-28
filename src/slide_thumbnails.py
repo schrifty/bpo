@@ -32,8 +32,3 @@ def download_thumbnail_b64(url: str, max_retries: int = 3) -> str:
                 time.sleep(2 ** attempt)
     raise last_err
 
-
-def get_slide_thumbnail_b64(slides_svc, pres_id: str, page_id: str) -> str:
-    """Get a slide thumbnail URL and download it as base64."""
-    url = get_slide_thumbnail_url(slides_svc, pres_id, page_id)
-    return download_thumbnail_b64(url)

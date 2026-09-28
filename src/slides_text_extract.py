@@ -30,26 +30,6 @@ def extract_text(element: dict[str, Any]) -> list[str]:
     return texts
 
 
-def describe_elements(slide: dict[str, Any]) -> dict[str, int]:
-    """Summarize visual element types on a Google Slides page."""
-    counts = {"text_boxes": 0, "tables": 0, "images": 0, "shapes": 0, "charts": 0}
-    for element in slide.get("pageElements", []):
-        if "table" in element:
-            counts["tables"] += 1
-        elif "image" in element:
-            counts["images"] += 1
-        elif "sheetsChart" in element:
-            counts["charts"] += 1
-        elif "shape" in element:
-            if element["shape"].get("text", {}).get("textElements"):
-                counts["text_boxes"] += 1
-            else:
-                counts["shapes"] += 1
-        elif "elementGroup" in element:
-            counts["shapes"] += 1
-    return counts
-
-
 def extract_slide_text_elements(page_elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Extract text and visual-data markers from slide elements."""
     items: list[dict[str, Any]] = []

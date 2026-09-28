@@ -60,20 +60,6 @@ def _rollup_as_synthetic_account(label: str) -> dict[str, Any]:
     }
 
 
-def contract_rollups_from_report(report: dict[str, Any]) -> list[dict[str, Any]]:
-    """All ``matched_customer_contract_rollups`` rows from the portfolio revenue book."""
-    book = report.get("_llm_export_salesforce_revenue_book")
-    if not isinstance(book, dict):
-        book = report.get("portfolio_revenue_book")
-    if not isinstance(book, dict):
-        return []
-    return [
-        r
-        for r in (book.get("matched_customer_contract_rollups") or [])
-        if isinstance(r, dict) and str(r.get("customer") or "").strip()
-    ]
-
-
 def _aggregate_commercial_status(statuses: list[str]) -> str:
     from .salesforce_commercial_status import (
         COMMERCIAL_STATUS_ACTIVE,
@@ -246,15 +232,6 @@ def top_active_ultimate_parents_by_arr_for_llm_export(
     if n <= 0:
         return rows
     return rows[:n]
-
-
-def top_active_customers_by_arr_for_csr(
-    report: dict[str, Any],
-    *,
-    top_n: int,
-) -> list[dict[str, Any]]:
-    """Build ranked selection rows from active contract rollups grouped by ultimate parent."""
-    return top_active_ultimate_parents_by_arr_for_llm_export(report, top_n=top_n)
 
 
 def attach_csr_top_customers_for_llm_export(report: dict[str, Any]) -> dict[str, Any]:
