@@ -8,9 +8,64 @@
 
 .hs-hero {
   display: flex;
-  justify-content: flex-start;
-  align-items: end;
-  gap: 2rem;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 1.25rem;
+}
+
+.hs-score-hero {
+  min-width: 11.5rem;
+  padding: 0.45rem 1.1rem 0.55rem;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: #fff;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  line-height: 1.1;
+}
+
+.hs-score-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hs-score-value {
+  font-size: 2.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.hs-score-note {
+  margin-top: 0.15rem;
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+
+.hs-score-empty {
+  color: var(--muted);
+}
+
+.hs-score-red {
+  background: #fde8e8;
+  border-color: #c0392b;
+  color: #8b1e1e;
+}
+
+.hs-score-yellow {
+  background: #fff4cc;
+  border-color: #d4a017;
+  color: #7a5a00;
+}
+
+.hs-score-green {
+  background: #e3f6ea;
+  border-color: #1f8a4c;
+  color: #0d6b3a;
 }
 
 .hs-stat-label {

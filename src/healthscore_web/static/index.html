@@ -6,7 +6,7 @@
   <title>Cortex Healthscore</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="stylesheet" href="/static/styles.css?v=available-sources-2" />
-  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=detail-fields" />
+  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=score-hero" />
 </head>
 <body>
   <header class="top">
@@ -60,6 +60,11 @@
           </div>
           <select id="hs-entity"><option value="">Choose an active entity…</option></select>
         </div>
+        <div id="hs-score-hero" class="hs-score-hero hs-score-empty" aria-live="polite">
+          <div class="hs-score-label">Health score</div>
+          <div class="hs-score-value">—</div>
+          <div class="hs-score-note"></div>
+        </div>
       </div>
 
       <p id="hs-global-error" class="error" hidden></p>
@@ -105,6 +110,6 @@
     </form>
   </dialog>
 
-  <script src="/healthscore/static/healthscore.js?v=detail-fields"></script>
+  <script src="/healthscore/static/healthscore.js?v=score-hero"></script>
 </body>
 </html>

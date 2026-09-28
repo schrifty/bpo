@@ -197,7 +197,28 @@
     </tr>`;
   }
 
+  function renderHero() {
+    const hero = $("hs-score-hero");
+    if (!hero) return;
+    const value = hero.querySelector(".hs-score-value");
+    const note = hero.querySelector(".hs-score-note");
+    const raw = state.score ? Number(state.score.score) : NaN;
+    if (!Number.isFinite(raw)) {
+      hero.className = "hs-score-hero hs-score-empty";
+      value.textContent = "—";
+      note.textContent = state.entity ? "No scored inputs yet" : "Choose an entity";
+      return;
+    }
+    const shown = Math.round(raw);
+    const band = shown <= 33 ? "red" : shown <= 67 ? "yellow" : "green";
+    hero.className = `hs-score-hero hs-score-${band}`;
+    value.textContent = String(shown);
+    const coverage = state.score.coverage_pct;
+    note.textContent = coverage == null ? "" : `${coverage}% of weight scored`;
+  }
+
   function renderScore() {
+    renderHero();
     const score = state.score;
     const components = score ? score.components : state.framework.inputs.map((row) => ({ ...row, latest: null, contribution: null }));
     const groups = pillarGroups(components);
