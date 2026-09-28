@@ -92,7 +92,7 @@ inputs:
   - key: writeback_usage
     pillar: Product Adoption & Usage
     name: Writeback usage
-    description: "Whether the entity wrote data back to its ERP from LeanDNA at least once during the week. The CS Report does not carry a writeback signal today, so the yes/no is entered by hand."
+    description: "Whether the entity wrote data back to its ERP from LeanDNA at least once during the week. Yes scores 2, no scores 0. Blocked until the CS Report carries a weekly writeback yes/no."
     signal: leading
     metric: Weekly writeback use, yes/no
     scoring: "Yes=2; no=0"
@@ -100,8 +100,9 @@ inputs:
     weight: 2
     data_source: [CS Report]
     grain: weekly
-    automation: manual
+    automation: blocked
     status: needs_source
+    notes: Waiting on a CS Report field for weekly writeback use.
     metric-id: null
     metric-generator: null
     tags: [customer-success, healthscore, adoption]
@@ -144,7 +145,7 @@ inputs:
   - key: verified_outcomes
     pillar: Value Realization / ROI
     name: Verified outcomes achieved
-    description: "Number of business outcomes the CSM verified and logged for the entity during the quarter. No system records these yet, so the count is entered by hand; two or more score 6, one scores 5, and how zero or unknown scores is still open."
+    description: "Number of business outcomes the CSM verified and logged for the entity during the quarter. Two or more score 6 and one scores 5; how zero or unknown scores is still open. Blocked until a system records verified outcomes."
     signal: lagging
     metric: Verified outcomes per quarter
     scoring: "2+=6; 1–2=5; zero/unknown scoring needs clarification"
@@ -152,8 +153,9 @@ inputs:
     weight: 6
     data_source: [Verified-outcome log]
     grain: quarterly
-    automation: manual
+    automation: blocked
     status: needs_source
+    notes: Waiting on a system that records CSM-verified outcomes.
     metric-id: null
     metric-generator: null
     tags: [customer-success, healthscore, value]
