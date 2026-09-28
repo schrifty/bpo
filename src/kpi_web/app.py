@@ -87,6 +87,11 @@ def create_app(
             healthscore_api.api_generate_sla_adherence,
             methods=["POST"],
         ),
+        Route(
+            "/healthscore/api/generate/call_sentiment",
+            healthscore_api.api_generate_call_sentiment,
+            methods=["POST"],
+        ),
         Route("/api/health", api.api_health, methods=["GET"]),
         Route("/api/me", api.api_me, methods=["GET"]),
         Route("/api/meta", api.api_meta, methods=["GET"]),

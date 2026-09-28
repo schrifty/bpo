@@ -442,22 +442,25 @@ inputs:
 - key: call_sentiment
   pillar: Voice of Customer / Sentiment
   name: Call sentiment / tone
-  description: Tone of recorded customer calls during the month, from the Chorus sentiment score (or Claude
-    on transcripts) and its trend, separate from who did the talking. Positive scores 2, negative 0; the
-    neutral cut-off is not yet defined.
+  description: Tone of recorded Chorus meetings and dials in the calendar month, separate from who
+    did the talking. Chorus does not return a numeric sentiment field; each finished recording's
+    summary contains the sentence "overall sentiment was …". Positive language in that clause is
+    +1, negative language is -1, and a clause with both or neither is 0. The reading is the mean
+    of those calls. A positive mean scores 2, a negative mean scores 0, and a mean of 0 scores 1.
+    A recording with no such sentence is left out. An entity with none stays unscored. The Chorus
+    account matches the Customer Entity, or the parent of one or more entities.
   signal: leading
-  metric: Chorus sentiment score and trend
-  scoring: Positive=2; negative=0; neutral threshold needs definition
+  metric: Mean call sentiment from -1 to +1
+  scoring: Mean > 0 = 2; mean < 0 = 0; mean = 0 = 1
   max_points: 2
   weight: 2
   data_source:
   - Chorus
-  - Claude
   grain: monthly
   automation: automated
-  status: needs_definition
+  status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_call_sentiment
   tags:
   - customer-success
   - healthscore

@@ -19,6 +19,7 @@ from src.healthscore_web.framework import (
     load_framework,
     update_component,
 )
+from src.healthscore_web.call_sentiment import CallSentimentGeneratorError
 from src.healthscore_web.meeting_cadence import MeetingCadenceGeneratorError
 from src.healthscore_web.sla_adherence import SlaAdherenceGeneratorError
 from src.healthscore_web.enhancement_engagement import EnhancementEngagementGeneratorError
@@ -26,6 +27,7 @@ from src.healthscore_web.champion_login import ChampionLoginGeneratorError
 from src.healthscore_web.roi_multiple import RoiMultipleGeneratorError
 from src.healthscore_web.summit_attendance import SummitAttendanceGeneratorError
 from src.healthscore_web.snapshot import (
+    run_call_sentiment_snapshot,
     run_meeting_cadence_snapshot,
     run_sla_adherence_snapshot,
     run_enhancement_engagement_snapshot,
@@ -639,6 +641,27 @@ async def api_generate_meeting_cadence(request: Request) -> Response:
         logger.exception("Health Score meeting_cadence generate failed")
         return JSONResponse(
             {"ok": False, "error": f"meeting_cadence generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_call_sentiment(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "call_sentiment")
+    if denied:
+        return denied
+    try:
+        result = run_call_sentiment_snapshot(dry_run=False)
+    except CallSentimentGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score call_sentiment generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"call_sentiment generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

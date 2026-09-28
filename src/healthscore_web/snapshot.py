@@ -23,6 +23,12 @@ from src.healthscore_web.roi_multiple import (
     RoiMultipleGeneratorError,
     get_roi_multiple,
 )
+from src.healthscore_web.call_sentiment import (
+    METRIC_NAME as CALL_SENTIMENT_METRIC,
+    CallSentimentGeneratorError,
+    backfill_call_sentiment,
+    get_call_sentiment,
+)
 from src.healthscore_web.meeting_cadence import (
     METRIC_NAME as MEETING_CADENCE_METRIC,
     MeetingCadenceGeneratorError,
@@ -60,6 +66,7 @@ SUPPORTED = (
     ENHANCEMENT_ENGAGEMENT_METRIC,
     MEETING_CADENCE_METRIC,
     SLA_ADHERENCE_METRIC,
+    CALL_SENTIMENT_METRIC,
     "all",
 )
 
@@ -389,6 +396,47 @@ def run_meeting_cadence_snapshot(
     )
 
 
+def run_call_sentiment_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    engagements: list[dict[str, Any]] | None = None,
+    summaries: dict[str, str] | None = None,
+    parent_ids: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_call_sentiment(
+        entities=entities,
+        engagements=engagements,
+        summaries=summaries,
+        parent_ids=parent_ids,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
+def backfill_call_sentiment_history(
+    *,
+    months: int,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    only_missing: bool = True,
+) -> dict[str, Any]:
+    """Persist call_sentiment for each of the newest ``months`` calendar months."""
+    if entities is None:
+        entities = _active_entities()
+    return backfill_call_sentiment(
+        months=months,
+        entities=entities,
+        as_of=as_of,
+        persist=not dry_run,
+        only_missing=only_missing,
+    )
+
+
 def run_sla_adherence_snapshot(
     *,
     dry_run: bool = False,
@@ -455,6 +503,10 @@ def run_healthscore_snapshot(
         results[SLA_ADHERENCE_METRIC] = run_sla_adherence_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (CALL_SENTIMENT_METRIC, "all"):
+        results[CALL_SENTIMENT_METRIC] = run_call_sentiment_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     return results
 
 
@@ -469,7 +521,7 @@ def run_healthscore_snapshot_cli(
             "Run Health Score generators into the Health Score store. "
             "Does not write KPI observations. Default runs usage_level, then "
             "usage_trend, champion_login_continuity, roi_multiple, summit_attendance, "
-            "enhancement_engagement, meeting_cadence, then sla_adherence."
+            "enhancement_engagement, meeting_cadence, sla_adherence, then call_sentiment."
         ),
     )
     parser.add_argument(
@@ -478,7 +530,7 @@ def run_healthscore_snapshot_cli(
         help=(
             "usage_level, usage_trend, champion_login_continuity, roi_multiple, "
             "summit_attendance, enhancement_engagement, meeting_cadence, "
-            "sla_adherence, or all"
+            "sla_adherence, call_sentiment, or all"
         ),
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -494,17 +546,35 @@ def run_healthscore_snapshot_cli(
         ),
     )
     parser.add_argument(
+        "--history-months",
+        type=int,
+        default=None,
+        help="Backfill call_sentiment for the newest N calendar months from Chorus",
+    )
+    parser.add_argument(
         "--refresh-history",
         action="store_true",
         help=(
-            "With --history-weeks, recompute weeks that already have readings "
-            "instead of skipping them"
+            "With --history-weeks or --history-months, recompute periods that "
+            "already have readings instead of skipping them"
         ),
     )
     args = parser.parse_args(list(argv) if argv is not None else None)
     as_of = date.fromisoformat(args.as_of) if args.as_of else None
     try:
-        if args.history_weeks:
+        if args.history_months and args.history_weeks:
+            raise ValueError("pass only one of --history-months and --history-weeks")
+        if args.history_months:
+            name = str(args.component or "all").strip().lower()
+            if name not in (CALL_SENTIMENT_METRIC, "all"):
+                raise ValueError("--history-months applies to call_sentiment")
+            result: dict[str, Any] = backfill_call_sentiment_history(
+                months=args.history_months,
+                dry_run=args.dry_run,
+                as_of=as_of,
+                only_missing=not args.refresh_history,
+            )
+        elif args.history_weeks:
             only_missing = not args.refresh_history
             result: dict[str, Any] = backfill_usage_level_history(
                 weeks=args.history_weeks,
@@ -535,6 +605,7 @@ def run_healthscore_snapshot_cli(
         EnhancementEngagementGeneratorError,
         MeetingCadenceGeneratorError,
         SlaAdherenceGeneratorError,
+        CallSentimentGeneratorError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

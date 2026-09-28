@@ -189,6 +189,20 @@ weights, sources, and governance rules are validated.
 | POST | `/healthscore/api/generate/enhancement_engagement` | Run the Aha enhancement engagement generator |
 | POST | `/healthscore/api/generate/meeting_cadence` | Run the Chorus meeting cadence generator |
 | POST | `/healthscore/api/generate/sla_adherence` | Run the JSM HELP SLA adherence generator |
+| POST | `/healthscore/api/generate/call_sentiment` | Run the Chorus call-sentiment generator |
+
+**Call sentiment / tone** (`get_call_sentiment`) scores finished Chorus meetings
+and dials in one calendar month. Chorus has no numeric sentiment field. The
+generator reads the "overall sentiment was …" sentence in each recording's
+summary. Positive language is +1, negative language is -1, and a clause with
+both or neither is 0. The reading is the mean. Above 0 scores 2, below 0 scores
+0, and exactly 0 scores 1. Recordings without that sentence are left out, and
+an entity with none stays unscored. `--history-months N` writes the newest N
+calendar months from one Chorus pull and skips months already stored.
+
+```bash
+cortex healthscore-snapshot --component call_sentiment --history-months 6
+```
 
 All API routes require the same Google Workspace session as `/kpis`.
 Salesforce inventory failures return an error; the app does not substitute
