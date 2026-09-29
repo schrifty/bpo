@@ -262,6 +262,29 @@
   border-left: 0.28rem solid transparent;
 }
 
+.hs-pillar-static {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.hs-pillar-bullet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.4rem;
+  height: 0.4rem;
+  flex: 0 0 auto;
+}
+
+.hs-pillar-bullet::before {
+  content: "";
+  width: 0.28rem;
+  height: 0.28rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 .hs-components tbody tr.hs-collapsed {
   display: none;
 }

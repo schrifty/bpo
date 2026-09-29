@@ -230,14 +230,27 @@
     $("hs-entity-source").textContent = `${source} · ${state.entities.length} active`;
   }
 
+  function influenceBar(contribution, weight) {
+    const pct = weight ? Math.max(0, Math.min(100, (contribution / weight) * 100)) : 0;
+    const shownWeight = Math.round(Number(weight) * 100) / 100;
+    return `<div class="hs-influence">${contribution.toFixed(2)} / ${shownWeight}
+      <div class="hs-influence-track"><span class="hs-influence-fill" style="width:${pct}%"></span></div>
+    </div>`;
+  }
+
   function influenceCell(component) {
     const contribution = component.contribution;
     const weight = component.weight;
     if (contribution == null || weight == null) return '<span class="muted">Unscored</span>';
-    const pct = weight ? Math.max(0, Math.min(100, (contribution / weight) * 100)) : 0;
-    return `<div class="hs-influence">${contribution.toFixed(2)} / ${weight}
-      <div class="hs-influence-track"><span class="hs-influence-fill" style="width:${pct}%"></span></div>
-    </div>`;
+    return influenceBar(contribution, weight);
+  }
+
+  function pillarInfluence(items) {
+    const scored = items.filter((item) => item.contribution != null && item.weight != null);
+    if (!scored.length) return '<span class="muted">Unscored</span>';
+    const contribution = scored.reduce((sum, item) => sum + Number(item.contribution), 0);
+    const weight = scored.reduce((sum, item) => sum + Number(item.weight), 0);
+    return influenceBar(contribution, weight);
   }
 
   function formatWeight(value) {
@@ -261,7 +274,7 @@
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
   }
 
-  function pillarHeader(name, weight, { toggle = false, flag = false } = {}) {
+  function pillarHeader(name, weight, { toggle = false, flag = false, influence = "" } = {}) {
     const weightCell = weight == null ? "—" : formatWeight(weight);
     const open = openPillars.has(name);
     const cls = ["hs-pillar-row", toggle ? "hs-pillar-toggle-row" : "", flag ? "hs-flag-pillar" : "", open ? "open" : ""]
@@ -270,11 +283,12 @@
       ? `<button type="button" class="hs-pillar-toggle" aria-expanded="${open ? "true" : "false"}">
           <span class="hs-pillar-chevron" aria-hidden="true"></span>${esc(name)}
         </button>`
-      : esc(name);
+      : `<span class="hs-pillar-static"><span class="hs-pillar-bullet" aria-hidden="true"></span>${esc(name)}</span>`;
     return `<tr class="${cls}"${toggle ? ` data-pillar="${esc(name)}"` : ""}>
       <th scope="rowgroup">${label}</th>
       <td>${weightCell}</td>
-      <td colspan="3"></td>
+      <td>${influence}</td>
+      <td colspan="2"></td>
     </tr>`;
   }
 
@@ -356,7 +370,7 @@
       for (const flag of flags) rows.push(componentRows(flag, !openPillars.has(FLAGS_PILLAR)));
     }
     for (const group of groups) {
-      rows.push(pillarHeader(group.name, group.total, { toggle: true }));
+      rows.push(pillarHeader(group.name, group.total, { toggle: true, influence: pillarInfluence(group.items) }));
       for (const component of group.items) rows.push(componentRows(component, !openPillars.has(group.name)));
     }
     if (unassigned > 0) rows.push(pillarHeader("Unassigned", unassigned));
