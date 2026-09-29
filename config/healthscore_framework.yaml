@@ -490,12 +490,15 @@ inputs:
 - key: call_talk_ratio
   pillar: Voice of Customer / Sentiment
   name: Call talk-time ratio
-  description: Share of recorded call time spoken by LeanDNA staff rather than the customer, from Chorus,
-    rolling over the month. Under 50% scores 2 (the customer is doing most of the talking); over 50% scores
-    0.
+  description: Share of recorded call time spoken by LeanDNA staff, from Chorus, over the trailing 30
+    days. Each finished meeting or dial contributes the talk time Chorus assigns to reps, divided
+    into the talk time of every speaker, including speakers Chorus could not identify. The reading
+    is that share across the window, as a percent. At or under 50% scores 2; over 50% scores 0.
+    An entity with no recorded call in the window stays unscored. A recording with no talk-time
+    split is left out, and an entity whose calls all lack that split stays unscored.
   signal: leading
-  metric: Rolling representative talk-time percent
-  scoring: <50%=2; >50%=0; exact neutral boundary needs confirmation
+  metric: Representative talk-time percent over the trailing 30 days
+  scoring: No calls=unscored; <=50%=2; >50%=0
   max_points: 2
   target: 50
   target_direction: lower
@@ -504,9 +507,9 @@ inputs:
   - Chorus
   grain: monthly
   automation: automated
-  status: needs_definition
+  status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_call_talk_ratio
   unit: percent
   tags:
   - customer-success

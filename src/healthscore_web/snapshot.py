@@ -29,6 +29,12 @@ from src.healthscore_web.call_sentiment import (
     backfill_call_sentiment,
     get_call_sentiment,
 )
+from src.healthscore_web.call_talk_ratio import (
+    METRIC_NAME as CALL_TALK_RATIO_METRIC,
+    CallTalkRatioGeneratorError,
+    backfill_call_talk_ratio,
+    get_call_talk_ratio,
+)
 from src.healthscore_web.meeting_cadence import (
     METRIC_NAME as MEETING_CADENCE_METRIC,
     MeetingCadenceGeneratorError,
@@ -82,6 +88,7 @@ SUPPORTED = (
     TICKET_VOLUME_METRIC,
     ESCALATION_RATE_METRIC,
     CALL_SENTIMENT_METRIC,
+    CALL_TALK_RATIO_METRIC,
     "all",
 )
 
@@ -432,6 +439,47 @@ def run_call_sentiment_snapshot(
     )
 
 
+def run_call_talk_ratio_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    engagements: list[dict[str, Any]] | None = None,
+    shares: dict[str, Any] | None = None,
+    parent_ids: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_call_talk_ratio(
+        entities=entities,
+        engagements=engagements,
+        shares=shares,
+        parent_ids=parent_ids,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
+def backfill_call_talk_ratio_history(
+    *,
+    months: int,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    only_missing: bool = True,
+) -> dict[str, Any]:
+    """Persist call_talk_ratio for each of the newest ``months`` calendar months."""
+    if entities is None:
+        entities = _active_entities()
+    return backfill_call_talk_ratio(
+        months=months,
+        entities=entities,
+        as_of=as_of,
+        persist=not dry_run,
+        only_missing=only_missing,
+    )
+
+
 def backfill_call_sentiment_history(
     *,
     months: int,
@@ -632,6 +680,10 @@ def run_healthscore_snapshot(
         results[CALL_SENTIMENT_METRIC] = run_call_sentiment_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (CALL_TALK_RATIO_METRIC, "all"):
+        results[CALL_TALK_RATIO_METRIC] = run_call_talk_ratio_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     return results
 
 
@@ -647,7 +699,7 @@ def run_healthscore_snapshot_cli(
             "Does not write KPI observations. Default runs usage_level, then "
             "usage_trend, champion_login_continuity, roi_multiple, summit_attendance, "
             "enhancement_engagement, meeting_cadence, sla_adherence, "
-            "ticket_volume_trend, escalation_rate, then call_sentiment."
+            "ticket_volume_trend, escalation_rate, call_sentiment, then call_talk_ratio."
         ),
     )
     parser.add_argument(
@@ -656,7 +708,8 @@ def run_healthscore_snapshot_cli(
         help=(
             "usage_level, usage_trend, champion_login_continuity, roi_multiple, "
             "summit_attendance, enhancement_engagement, meeting_cadence, "
-            "sla_adherence, ticket_volume_trend, escalation_rate, call_sentiment, or all"
+            "sla_adherence, ticket_volume_trend, escalation_rate, call_sentiment, "
+            "call_talk_ratio, or all"
         ),
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -676,8 +729,8 @@ def run_healthscore_snapshot_cli(
         type=int,
         default=None,
         help=(
-            "Backfill the newest N months for call_sentiment, sla_adherence, "
-            "ticket_volume_trend, or escalation_rate"
+            "Backfill the newest N months for call_sentiment, call_talk_ratio, "
+            "sla_adherence, ticket_volume_trend, or escalation_rate"
         ),
     )
     parser.add_argument(
@@ -703,6 +756,7 @@ def run_healthscore_snapshot_cli(
             }
             history_runners = {
                 CALL_SENTIMENT_METRIC: backfill_call_sentiment_history,
+                CALL_TALK_RATIO_METRIC: backfill_call_talk_ratio_history,
                 SLA_ADHERENCE_METRIC: backfill_sla_adherence_history,
                 TICKET_VOLUME_METRIC: backfill_ticket_volume_history,
                 ESCALATION_RATE_METRIC: backfill_escalation_rate_history,
@@ -717,8 +771,8 @@ def run_healthscore_snapshot_cli(
                 result = history_runners[name](**history_kwargs)
             else:
                 raise ValueError(
-                    "--history-months applies to call_sentiment, sla_adherence, "
-                    "ticket_volume_trend, or escalation_rate"
+                    "--history-months applies to call_sentiment, call_talk_ratio, "
+                    "sla_adherence, ticket_volume_trend, or escalation_rate"
                 )
         elif args.history_weeks:
             only_missing = not args.refresh_history
@@ -754,6 +808,7 @@ def run_healthscore_snapshot_cli(
         TicketVolumeGeneratorError,
         EscalationRateGeneratorError,
         CallSentimentGeneratorError,
+        CallTalkRatioGeneratorError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
