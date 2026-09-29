@@ -8,7 +8,9 @@
     selected: null,
     me: null,
   };
-  const flagsPanel = { open: false, triggered: false };
+  const FLAGS_PILLAR = "Override flags";
+  const openPillars = new Set();
+  let flagsTriggered = false;
 
   function esc(value) {
     return String(value ?? "")
@@ -259,10 +261,18 @@
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
   }
 
-  function pillarHeader(name, weight) {
+  function pillarHeader(name, weight, { toggle = false, flag = false } = {}) {
     const weightCell = weight == null ? "—" : formatWeight(weight);
-    return `<tr class="hs-pillar-row">
-      <th scope="rowgroup">${esc(name)}</th>
+    const open = openPillars.has(name);
+    const cls = ["hs-pillar-row", toggle ? "hs-pillar-toggle-row" : "", flag ? "hs-flag-pillar" : "", open ? "open" : ""]
+      .filter(Boolean).join(" ");
+    const label = toggle
+      ? `<button type="button" class="hs-pillar-toggle" aria-expanded="${open ? "true" : "false"}">
+          <span class="hs-pillar-chevron" aria-hidden="true"></span>${esc(name)}
+        </button>`
+      : esc(name);
+    return `<tr class="${cls}"${toggle ? ` data-pillar="${esc(name)}"` : ""}>
+      <th scope="rowgroup">${label}</th>
       <td>${weightCell}</td>
       <td colspan="3"></td>
     </tr>`;
@@ -278,7 +288,7 @@
     const on = isFlag && flagIsOn(component);
     const rowClass = [
       isFlag ? "hs-flag-row" : "",
-      collapsed ? "hs-flag-collapsed" : "",
+      collapsed ? "hs-collapsed" : "",
       component.key === state.selected ? "active" : "",
       component.deactivated ? "deactivated" : "",
     ].filter(Boolean).join(" ");
@@ -335,34 +345,27 @@
     const overrides = score ? score.overrides : state.framework.overrides.map((row) => ({ ...row, latest: null }));
     const flags = [...overrides].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     const anyOn = flags.some(flagIsOn);
-    if (anyOn !== flagsPanel.triggered) {
-      flagsPanel.open = anyOn;
-      flagsPanel.triggered = anyOn;
+    if (anyOn !== flagsTriggered) {
+      if (anyOn) openPillars.add(FLAGS_PILLAR);
+      else openPillars.delete(FLAGS_PILLAR);
+      flagsTriggered = anyOn;
     }
     const rows = [];
     if (flags.length) {
-      rows.push(`<tr class="hs-pillar-row hs-flag-pillar${flagsPanel.open ? " open" : ""}" data-flag-toggle>
-        <th scope="rowgroup">
-          <button type="button" class="hs-flag-toggle" aria-expanded="${flagsPanel.open ? "true" : "false"}">
-            <span class="hs-flag-chevron" aria-hidden="true"></span>
-            Override flags
-          </button>
-        </th>
-        <td>—</td>
-        <td colspan="3"></td>
-      </tr>`);
-      for (const flag of flags) rows.push(componentRows(flag, !flagsPanel.open));
+      rows.push(pillarHeader(FLAGS_PILLAR, null, { toggle: true, flag: true }));
+      for (const flag of flags) rows.push(componentRows(flag, !openPillars.has(FLAGS_PILLAR)));
     }
     for (const group of groups) {
-      rows.push(pillarHeader(group.name, group.total));
-      for (const component of group.items) rows.push(componentRows(component, false));
+      rows.push(pillarHeader(group.name, group.total, { toggle: true }));
+      for (const component of group.items) rows.push(componentRows(component, !openPillars.has(group.name)));
     }
     if (unassigned > 0) rows.push(pillarHeader("Unassigned", unassigned));
     $("hs-components-body").innerHTML = rows.join("");
-    const toggle = $("hs-components-body").querySelector("[data-flag-toggle]");
-    if (toggle) {
-      toggle.addEventListener("click", () => {
-        flagsPanel.open = !flagsPanel.open;
+    for (const header of $("hs-components-body").querySelectorAll("tr[data-pillar]")) {
+      header.addEventListener("click", () => {
+        const name = header.dataset.pillar;
+        if (openPillars.has(name)) openPillars.delete(name);
+        else openPillars.add(name);
         renderScore();
       });
     }
@@ -371,6 +374,15 @@
       row.addEventListener("contextmenu", (event) => openRowMenu(event, row.dataset.component));
     }
     if (state.selected) selectComponent(state.selected);
+    else showDetail(false);
+  }
+
+  function showDetail(visible) {
+    const detail = $("hs-detail");
+    const layout = document.querySelector(".hs-layout");
+    if (detail) detail.classList.toggle("hidden", !visible);
+    if (layout) layout.classList.toggle("hs-no-detail", !visible);
+    if (!visible && detail) detail.innerHTML = "";
   }
 
   function componentDefinition(key) {
@@ -506,6 +518,7 @@
     const latest = componentLatest(key);
     const history = componentHistory(key);
     const isOverride = !Object.prototype.hasOwnProperty.call(definition, "pillar");
+    showDetail(true);
     $("hs-detail").innerHTML = `
       <div class="detail-head">
         ${nameHeading(definition)}

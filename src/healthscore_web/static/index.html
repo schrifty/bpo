@@ -6,7 +6,7 @@
   <title>Cortex Healthscore</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="stylesheet" href="/static/styles.css?v=available-sources-2" />
-  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=override-accordion" />
+  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=pillar-accordion" />
 </head>
 <body>
   <header class="top">
@@ -70,7 +70,7 @@
 
       <p id="hs-global-error" class="error" hidden></p>
 
-      <div class="hs-layout">
+      <div class="hs-layout hs-no-detail">
         <section class="panel hs-components-panel">
           <div class="hs-section-head">
             <h2>Score components</h2>
@@ -84,12 +84,7 @@
           </div>
         </section>
 
-        <aside id="hs-detail" class="detail-pane hs-detail">
-          <div class="hs-detail-empty">
-            <h2>Choose a component</h2>
-            <p class="muted">Its definition, scoring rule, provenance, and history will appear here.</p>
-          </div>
-        </aside>
+        <aside id="hs-detail" class="detail-pane hs-detail hidden"></aside>
       </div>
     </section>
   </main>
@@ -110,6 +105,6 @@
 
   <div id="hs-row-menu" class="hs-row-menu hidden" role="menu"></div>
 
-  <script src="/healthscore/static/healthscore.js?v=override-accordion"></script>
+  <script src="/healthscore/static/healthscore.js?v=pillar-accordion"></script>
 </body>
 </html>
