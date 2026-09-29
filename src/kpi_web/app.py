@@ -63,6 +63,11 @@ def create_app(
             methods=["POST"],
         ),
         Route(
+            "/healthscore/api/generate/champion_turnover",
+            healthscore_api.api_generate_champion_turnover,
+            methods=["POST"],
+        ),
+        Route(
             "/healthscore/api/generate/roi_multiple",
             healthscore_api.api_generate_roi_multiple,
             methods=["POST"],

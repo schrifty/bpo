@@ -374,20 +374,26 @@ inputs:
   pillar: Relationship & Engagement
   name: Champion / stakeholder turnover
   description: Whether the entity's primary champion or economic buyer left the company or changed role
-    during the week, from Salesforce contact changes. Either departure scores 0;
-    otherwise 4. The change signal is not yet sourced.
+    during the week. A primary champion is the Account executive sponsor, or a Contact whose buying
+    role is Champion, Technical Buyer, or Executive Sponsor, or whose user role includes Buyer. An
+    economic buyer is a Contact whose buying role is Budget Holder or Decision Maker. Salesforce Contact
+    history from Monday through the run date counts a move to a different Account, or a title change
+    beyond punctuation and filler words. A UserGems job-start or role-start date in that week counts as
+    a role change. Either event scores 0. Tracked people with no such change score 4. An Account with
+    none of these people stays unscored.
   signal: leading
   metric: Tracked-contact departure or role-change flag
-  scoring: Primary champion leaves=0; economic buyer leaves=0; otherwise=4
+  scoring: Champion or economic buyer leaves or changes role=0; tracked people with no change=4; no
+    primary champion or economic buyer stays unscored
   max_points: 4
   weight: 4
   data_source:
   - Salesforce
   grain: weekly
-  automation: blocked
-  status: needs_source
+  automation: automated
+  status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_champion_turnover
   tags:
   - customer-success
   - healthscore

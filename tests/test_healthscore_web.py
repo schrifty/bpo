@@ -115,8 +115,12 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert "trailing 7 days" in champion["description"]
     assert champion["data_source"] == ["Salesforce"]
     turnover = next(row for row in framework["inputs"] if row["key"] == "champion_turnover")
+    assert turnover["metric-generator"] == "get_champion_turnover"
+    assert turnover["status"] == "defined"
+    assert turnover["automation"] == "automated"
     assert turnover["data_source"] == ["Salesforce"]
     assert "external research" not in turnover["description"].casefold()
+    assert "stays unscored" in turnover["description"]
     assert champion["automation"] == "automated"
     roi = next(row for row in framework["inputs"] if row["key"] == "roi_multiple")
     assert roi["metric-generator"] == "get_roi_multiple"
@@ -1180,6 +1184,29 @@ def test_generate_champion_login_api_is_authenticated(
     res = client.post("/healthscore/api/generate/champion_login_continuity")
     assert res.status_code == 200
     assert res.json()["generator"] == "get_champion_login_continuity"
+
+
+def test_generate_champion_turnover_api_is_authenticated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
+    monkeypatch.setattr(
+        "src.healthscore_web.api.run_champion_turnover_snapshot",
+        lambda **kwargs: {
+            "ok": True,
+            "generator": "get_champion_turnover",
+            "scored": 1,
+            "unscored": 0,
+            "warnings": [],
+            "readings": [],
+        },
+    )
+    client = _score_owner_client(tmp_path, monkeypatch)
+    assert client.post("/healthscore/api/generate/champion_turnover").status_code == 401
+    _login(client)
+    res = client.post("/healthscore/api/generate/champion_turnover")
+    assert res.status_code == 200
+    assert res.json()["generator"] == "get_champion_turnover"
 
 
 def test_roi_multiple_points_follow_framework_bands() -> None:

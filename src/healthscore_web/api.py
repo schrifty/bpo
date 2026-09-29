@@ -26,6 +26,7 @@ from src.healthscore_web.sla_adherence import SlaAdherenceGeneratorError
 from src.healthscore_web.ticket_volume_trend import TicketVolumeGeneratorError
 from src.healthscore_web.enhancement_engagement import EnhancementEngagementGeneratorError
 from src.healthscore_web.champion_login import ChampionLoginGeneratorError
+from src.healthscore_web.champion_turnover import ChampionTurnoverGeneratorError
 from src.healthscore_web.roi_multiple import RoiMultipleGeneratorError
 from src.healthscore_web.summit_attendance import SummitAttendanceGeneratorError
 from src.healthscore_web.snapshot import (
@@ -36,6 +37,7 @@ from src.healthscore_web.snapshot import (
     run_ticket_volume_snapshot,
     run_enhancement_engagement_snapshot,
     run_champion_login_snapshot,
+    run_champion_turnover_snapshot,
     run_roi_multiple_snapshot,
     run_summit_attendance_snapshot,
     run_usage_level_snapshot,
@@ -603,6 +605,27 @@ async def api_generate_champion_login(request: Request) -> Response:
         logger.exception("Health Score champion_login_continuity generate failed")
         return JSONResponse(
             {"ok": False, "error": f"champion_login_continuity generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_champion_turnover(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "champion_turnover")
+    if denied:
+        return denied
+    try:
+        result = run_champion_turnover_snapshot(dry_run=False)
+    except ChampionTurnoverGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score champion_turnover generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"champion_turnover generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

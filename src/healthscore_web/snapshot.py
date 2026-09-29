@@ -18,6 +18,11 @@ from src.healthscore_web.champion_login import (
     ChampionLoginGeneratorError,
     get_champion_login_continuity,
 )
+from src.healthscore_web.champion_turnover import (
+    METRIC_NAME as CHAMPION_TURNOVER_METRIC,
+    ChampionTurnoverGeneratorError,
+    get_champion_turnover,
+)
 from src.healthscore_web.roi_multiple import (
     METRIC_NAME as ROI_MULTIPLE_METRIC,
     RoiMultipleGeneratorError,
@@ -80,6 +85,7 @@ SUPPORTED = (
     USAGE_LEVEL_METRIC,
     USAGE_TREND_METRIC,
     CHAMPION_LOGIN_METRIC,
+    CHAMPION_TURNOVER_METRIC,
     ROI_MULTIPLE_METRIC,
     SUMMIT_ATTENDANCE_METRIC,
     ENHANCEMENT_ENGAGEMENT_METRIC,
@@ -133,6 +139,27 @@ def run_champion_login_snapshot(
     return get_champion_login_continuity(
         entities=entities,
         sponsor_rows=sponsor_rows,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
+def run_champion_turnover_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    sponsor_rows: list[dict[str, Any]] | None = None,
+    contacts: list[dict[str, Any]] | None = None,
+    history: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_champion_turnover(
+        entities=entities,
+        sponsor_rows=sponsor_rows,
+        contacts=contacts,
+        history=history,
         as_of=as_of,
         persist=not dry_run,
     )
@@ -648,6 +675,10 @@ def run_healthscore_snapshot(
         results[CHAMPION_LOGIN_METRIC] = run_champion_login_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (CHAMPION_TURNOVER_METRIC, "all"):
+        results[CHAMPION_TURNOVER_METRIC] = run_champion_turnover_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     if name in (ROI_MULTIPLE_METRIC, "all"):
         results[ROI_MULTIPLE_METRIC] = run_roi_multiple_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
@@ -697,7 +728,8 @@ def run_healthscore_snapshot_cli(
         description=(
             "Run Health Score generators into the Health Score store. "
             "Does not write KPI observations. Default runs usage_level, then "
-            "usage_trend, champion_login_continuity, roi_multiple, summit_attendance, "
+            "usage_trend, champion_login_continuity, champion_turnover, roi_multiple, "
+            "summit_attendance, "
             "enhancement_engagement, meeting_cadence, sla_adherence, "
             "ticket_volume_trend, escalation_rate, call_sentiment, then call_talk_ratio."
         ),
@@ -706,7 +738,8 @@ def run_healthscore_snapshot_cli(
         "--component",
         default="all",
         help=(
-            "usage_level, usage_trend, champion_login_continuity, roi_multiple, "
+            "usage_level, usage_trend, champion_login_continuity, champion_turnover, "
+            "roi_multiple, "
             "summit_attendance, enhancement_engagement, meeting_cadence, "
             "sla_adherence, ticket_volume_trend, escalation_rate, call_sentiment, "
             "call_talk_ratio, or all"
@@ -800,6 +833,7 @@ def run_healthscore_snapshot_cli(
         UsageLevelGeneratorError,
         UsageTrendGeneratorError,
         ChampionLoginGeneratorError,
+        ChampionTurnoverGeneratorError,
         RoiMultipleGeneratorError,
         SummitAttendanceGeneratorError,
         EnhancementEngagementGeneratorError,
