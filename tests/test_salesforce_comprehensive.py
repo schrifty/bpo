@@ -707,6 +707,19 @@ def test_customer_name_matches_entity_account_when_label_ends_in_parentheses():
     )
 
 
+def test_customer_name_matches_entity_account_ignores_commas():
+    """CS Report ``Carrier Singapore, Container`` is the Salesforce entity name without the comma."""
+    assert _customer_name_matches_entity_account(
+        "CARRIER SINGAPORE, CONTAINER",
+        {
+            "Name": "Carrier Transicold (Singapore)",
+            "LeanDNA_Entity_Name__c": "Carrier: Carrier Singapore Container",
+            "parent_name": "REF (Carrier)",
+            "ultimate_parent_name": "",
+        },
+    )
+
+
 def test_jira_customer_search_terms_include_safe_cohort_aliases():
     with patch(
         "src.jira_client._load_cohort_customer_alias_map",

@@ -154,18 +154,25 @@ def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _label_match_text(value: str) -> str:
+    """Drop commas and collapse space so ``Singapore, Container`` matches ``Singapore Container``."""
+    return " ".join(value.replace(",", " ").split())
+
+
 def _customer_label_matches_text(label_upper: str, text: str) -> bool:
     """Whole-label match so e.g. ``CONTROL`` does not match *Johnson Controls*.
 
-    ``\\b`` is only a boundary next to a word character. A label that ends in
-    punctuation, such as ``(1304)``, still matches when that punctuation ends
-    the text or is followed by a non-word character.
+    Commas are ignored. ``\\b`` is only a boundary next to a word character, so
+    a label that ends in punctuation, such as ``(1304)``, still matches when
+    that punctuation ends the text or is followed by a non-word character.
     """
-    if not label_upper or not text:
+    label = _label_match_text(label_upper)
+    body = _label_match_text(text)
+    if not label or not body:
         return False
-    start = r"\b" if label_upper[0].isalnum() else r"(?<!\w)"
-    end = r"\b" if label_upper[-1].isalnum() else r"(?!\w)"
-    return bool(re.search(start + re.escape(label_upper) + end, text, re.IGNORECASE))
+    start = r"\b" if label[0].isalnum() else r"(?<!\w)"
+    end = r"\b" if label[-1].isalnum() else r"(?!\w)"
+    return bool(re.search(start + re.escape(label) + end, body, re.IGNORECASE))
 
 
 def _customer_name_matches_entity_account(name_upper: str, a: dict[str, Any]) -> bool:
