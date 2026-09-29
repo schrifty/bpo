@@ -1060,6 +1060,7 @@ def test_get_champion_login_continuity_scores_sponsor_login(
     dry = get_champion_login_continuity(
         entities=entities,
         sponsor_rows=rows,
+        champion_contacts=[],
         as_of=date.fromisoformat("2026-09-25"),
         persist=False,
     )
@@ -1071,12 +1072,13 @@ def test_get_champion_login_continuity_scores_sponsor_login(
     assert by_id["001-stale"]["points"] == 0
     assert by_id["001-stale"]["value"] == 24
     assert by_id["001-none"]["points"] is None
-    assert by_id["001-none"]["error"] == "Salesforce Account has no executive sponsor"
+    assert "no executive sponsor" in by_id["001-none"]["error"]
     assert dry["warnings"][0]["id"] == "001-none"
 
     persisted = get_champion_login_continuity(
         entities=entities[:1],
         sponsor_rows=rows[:1],
+        champion_contacts=[],
         as_of=date.fromisoformat("2026-09-25"),
         persist=True,
     )
@@ -1084,11 +1086,75 @@ def test_get_champion_login_continuity_scores_sponsor_login(
     assert persisted["readings"][0]["points"] == 2
 
 
+def test_champion_login_accepts_buyer_and_buying_roles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    entities = [
+        {"id": "001-buyer", "name": "Buyer Only"},
+        {"id": "001-both", "name": "Sponsor And Buyer"},
+        {"id": "001-end-user", "name": "End User"},
+    ]
+    sponsors = [
+        {"Id": "001-buyer"},
+        {
+            "Id": "001-both",
+            "Executive_Sponsor__c": "003-sponsor",
+            "Executive_Sponsor_Last_Login__c": "2026-09-01T15:00:00.000+0000",
+        },
+        {"Id": "001-end-user"},
+    ]
+    contacts = [
+        {
+            "Id": "003-buyer",
+            "AccountId": "001-buyer",
+            "User_Role__c": "Buyer,Engineer",
+            "Pendo_Last_Visit__c": "2026-09-24T12:00:00.000+0000",
+        },
+        {
+            "Id": "003-champion",
+            "AccountId": "001-both",
+            "Buyer_Role_HubSpot_Sync__c": "Champion",
+            "Pendo_Last_Visit__c": "2026-09-23T12:00:00.000+0000",
+        },
+        {
+            "Id": "003-end-user",
+            "AccountId": "001-end-user",
+            "Buyer_Role_HubSpot_Sync__c": "End User",
+            "User_Role__c": "Planner",
+            "Pendo_Last_Visit__c": "2026-09-24T12:00:00.000+0000",
+        },
+        {
+            "Id": "003-technical",
+            "AccountId": "001-buyer",
+            "Buyer_Role_HubSpot_Sync__c": "Technical Buyer",
+            "Pendo_Last_Visit__c": "2026-09-10T12:00:00.000+0000",
+        },
+    ]
+    result = get_champion_login_continuity(
+        entities=entities,
+        sponsor_rows=sponsors,
+        champion_contacts=contacts,
+        as_of=date.fromisoformat("2026-09-25"),
+        persist=False,
+    )
+    by_id = {row["entity_id"]: row for row in result["readings"]}
+    assert by_id["001-buyer"]["points"] == 2
+    assert by_id["001-buyer"]["value"] == 1
+    assert by_id["001-buyer"]["meta"]["login_contact_id"] == "003-buyer"
+    assert by_id["001-both"]["points"] == 2
+    assert by_id["001-both"]["value"] == 2
+    assert by_id["001-both"]["meta"]["login_contact_id"] == "003-champion"
+    assert by_id["001-end-user"]["points"] is None
+    assert by_id["001-end-user"]["error"]
+
+
 def test_champion_login_fails_loud_when_salesforce_returns_no_rows() -> None:
     with pytest.raises(ChampionLoginGeneratorError, match="no Customer Entity"):
         get_champion_login_continuity(
             entities=_entities(),
             sponsor_rows=[],
+            champion_contacts=[],
             as_of=date.fromisoformat("2026-09-25"),
         )
 

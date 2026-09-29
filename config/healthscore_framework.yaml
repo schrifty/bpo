@@ -143,13 +143,16 @@ inputs:
 - key: champion_login_continuity
   pillar: Product Adoption & Usage
   name: Champion login continuity
-  description: Whether the executive sponsor named on the Salesforce Customer Entity Account logged in
-    to LeanDNA during the trailing 7 days, measured as days since the Account's executive-sponsor last-login
-    timestamp. Accounts with no named sponsor stay unscored.
+  description: Days since the most recent LeanDNA login among the entity's champions. A champion is
+    the executive sponsor on the Salesforce Customer Entity Account, or a Contact on that Account
+    whose buying role is Champion, Technical Buyer, or Executive Sponsor, or whose user role includes
+    Buyer. Sponsor login is the Account's executive-sponsor last-login timestamp. Contact login is
+    Pendo last visit. A login in the trailing 7 days scores 2. Named champions with no login in that
+    window score 0. An Account with none of these people stays unscored.
   signal: leading
-  metric: Days since the executive sponsor's last login
-  scoring: Last login within 7 days=2; named sponsor with no login in that window=0; no named executive
-    sponsor stays unscored
+  metric: Days since a champion's last login
+  scoring: Last login within 7 days=2; named champion with no login in that window=0; no executive
+    sponsor, champion, technical buyer, or buyer stays unscored
   max_points: 2
   target: 7
   target_direction: lower
