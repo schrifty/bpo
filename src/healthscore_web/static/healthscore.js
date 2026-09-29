@@ -325,27 +325,34 @@
   function renderHero() {
     const hero = $("hs-score-hero");
     if (!hero) return;
-    const value = hero.querySelector(".hs-score-value");
+    const valueEl = $("hs-score-input-value");
+    const coverageEl = $("hs-score-coverage");
+    const healthEl = $("hs-score-health");
     const note = hero.querySelector(".hs-score-note");
     const raw = state.score ? Number(state.score.score) : NaN;
     if (!Number.isFinite(raw)) {
       hero.className = "hs-score-hero hs-score-empty";
-      value.textContent = "—";
+      valueEl.textContent = "—";
+      coverageEl.textContent = "—";
+      healthEl.textContent = "—";
       note.textContent = state.entity ? "No scored inputs yet" : "Choose an entity";
       return;
     }
-    const shown = Math.round(raw);
-    const band = shown <= 33 ? "red" : shown <= 67 ? "yellow" : "green";
+    const valueShown = Math.round(raw);
+    const coverage = Number(state.score.coverage_pct);
+    const coverageShown = Number.isFinite(coverage) ? coverage : 0;
+    const health = Math.round(valueShown * coverageShown / 100);
+    const band = health <= 33 ? "red" : health <= 67 ? "yellow" : "green";
     hero.className = `hs-score-hero hs-score-${band}`;
-    value.textContent = String(shown);
-    const coverage = state.score.coverage_pct;
-    const parts = [];
+    valueEl.textContent = String(valueShown);
+    coverageEl.textContent = `${coverageShown}%`;
+    healthEl.textContent = String(health);
     if (state.score.score_zeroed) {
       const names = (state.score.zeroed_by || []).filter(Boolean);
-      parts.push(names.length ? `Set to 0 by ${names.join(", ")}` : "Set to 0 by an override flag");
+      note.textContent = names.length ? `Set to 0 by ${names.join(", ")}` : "Set to 0 by an override flag";
+    } else {
+      note.textContent = "";
     }
-    if (coverage != null) parts.push(`${coverage}% of weight scored`);
-    note.textContent = parts.join(" · ");
   }
 
   function renderScore() {

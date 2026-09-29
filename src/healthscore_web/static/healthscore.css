@@ -14,16 +14,30 @@
 }
 
 .hs-score-hero {
-  min-width: 11.5rem;
-  padding: 0.45rem 1.1rem 0.55rem;
+  min-width: 22rem;
+  padding: 0.45rem 1.15rem 0.5rem;
   border-radius: 12px;
   border: 2px solid var(--line);
   background: #fff;
   display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 0.1rem 1.35rem;
   align-content: center;
   justify-items: center;
   text-align: center;
   line-height: 1.1;
+}
+
+.hs-score-stat {
+  display: grid;
+  justify-items: center;
+  gap: 0.05rem;
+}
+
+.hs-score-stat-value {
+  font-size: 1.45rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .hs-score-label {
@@ -34,16 +48,21 @@
 }
 
 .hs-score-value {
-  font-size: 2.6rem;
+  font-size: 2.15rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.03em;
 }
 
 .hs-score-note {
+  grid-column: 1 / -1;
   margin-top: 0.15rem;
   font-size: 0.7rem;
   opacity: 0.85;
+}
+
+.hs-score-note:empty {
+  display: none;
 }
 
 .hs-score-empty {
