@@ -405,6 +405,42 @@ def test_backfill_usage_level_fails_loud_when_weeks_missing(
         backfill_usage_level_history(weeks=15, dry_run=True, entities=_entities())
 
 
+def test_csr_site_matches_matamoros_codes_and_carrier_singapore() -> None:
+    from src.healthscore_web.usage_level import csr_site_matches_entity
+
+    matamoros = {
+        "name": "Johnson Controls: JCI Matamoros (1301&1302)",
+        "entity_name": "Johnson Controls: JCI Matamoros (1301&1302)",
+        "parent_name": "Johnson Controls - Security",
+        "ultimate_parent_name": None,
+    }
+    assert csr_site_matches_entity({"entity": "JCI Matamoros (SP)"}, matamoros)
+    carrier = {
+        "name": "Carrier Transicold (Singapore)",
+        "entity_name": "Carrier: Carrier Singapore Container",
+        "parent_name": "REF (Carrier)",
+        "ultimate_parent_name": None,
+    }
+    assert csr_site_matches_entity({"entity": "Carrier Singapore, Container"}, carrier)
+    lithia = {
+        "name": "Johnson Controls - DC Lithia",
+        "entity_name": "Johnson Controls: JCI DC Lithia (1304)",
+        "parent_name": "Johnson Controls Fire Suppression",
+        "ultimate_parent_name": None,
+    }
+    assert csr_site_matches_entity({"entity": "JCI DC Lithia (1304)"}, lithia)
+    assert not csr_site_matches_entity({"entity": "JCI DC Lithia Springs (1114)"}, lithia)
+    fougeres = {
+        "name": "Safran Electronics and Defense : Fougeres",
+        "entity_name": "Safran Electronics and Defense: Fougères",
+        "parent_name": "Safran Electronics & Defense, Avionics",
+        "ultimate_parent_name": None,
+    }
+    assert csr_site_matches_entity(
+        {"entity": "Safran Electronics and Defense: Fougères"}, fougeres
+    )
+
+
 def test_usage_level_points_follow_framework_bands() -> None:
     assert usage_level_points(None) == 0
     assert usage_level_points(0) == 1

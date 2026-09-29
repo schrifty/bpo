@@ -16,6 +16,7 @@ import datetime
 import hashlib
 import threading
 import time
+import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -155,8 +156,16 @@ def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
 
 
 def _label_match_text(value: str) -> str:
-    """Drop commas and collapse space so ``Singapore, Container`` matches ``Singapore Container``."""
-    return " ".join(value.replace(",", " ").split())
+    """Normalize a customer label for comparison.
+
+    Commas and accents are ignored, and space around a colon is collapsed, so
+    ``Fougeres`` matches ``Fougères`` and ``Defense : Site`` matches ``Defense: Site``.
+    """
+    text = unicodedata.normalize("NFKD", value)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.replace(",", " ")
+    text = re.sub(r"\s*:\s*", ": ", text)
+    return " ".join(text.split())
 
 
 def _customer_label_matches_text(label_upper: str, text: str) -> bool:

@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import date
 from typing import Any
 
 from src.cs_report_client import _build_csr_site_entry, load_latest_csr_week_rows
 from src.healthscore_web.store import connect, period_key_for, upsert_reading
-from src.salesforce_client import _customer_label_matches_text
+from src.salesforce_client import _customer_label_matches_text, _label_match_text
 
 logger = logging.getLogger(__name__)
 
@@ -95,18 +96,35 @@ def _labels_for_entity(entity: dict[str, Any]) -> list[str]:
     return out
 
 
+def _core_entity_label(value: str) -> str:
+    """Name with the company prefix and parenthetical site code removed.
+
+    ``Johnson Controls: JCI Matamoros (1301&1302)`` and ``JCI Matamoros (SP)``
+    both reduce to ``jci matamoros``. The remainders are compared in full, so
+    ``JCI DC Lithia`` does not match ``JCI DC Lithia Springs``.
+    """
+    text = _label_match_text(value)
+    if ":" in text:
+        text = text.split(":", 1)[1].strip()
+    text = re.sub(r"\([^)]*\)", " ", text)
+    return " ".join(text.casefold().split())
+
+
 def csr_site_matches_entity(site: dict[str, Any], entity: dict[str, Any]) -> bool:
     csr_entity = str(site.get("entity") or "").strip()
     if not csr_entity:
         return False
     csr_folded = csr_entity.casefold()
     csr_upper = csr_entity.upper()
+    csr_core = _core_entity_label(csr_entity)
     for label in _labels_for_entity(entity):
         if label.casefold() == csr_folded:
             return True
         if _customer_label_matches_text(csr_upper, label):
             return True
         if _customer_label_matches_text(label.upper(), csr_entity):
+            return True
+        if csr_core and _core_entity_label(label) == csr_core:
             return True
     return False
 
