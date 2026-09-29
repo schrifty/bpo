@@ -6,13 +6,15 @@ Technical Buyer, or Executive Sponsor, or whose user role (``User_Role__c``)
 includes Buyer. An economic buyer is a Contact whose buying role is Budget
 Holder or Decision Maker.
 
-The week runs from Monday through the run date. A tracked person turned over
-when Salesforce Contact history in that week shows they moved to a different
-Account, or their title changed beyond punctuation and filler words, or
-UserGems recorded ``UserGem__JobStartedDate__c`` or
-``UserGem__RoleStartedDate__c`` in that week. Either event scores 0. Tracked
-people with no such change score 4. An Account with none of these people stays
-unscored.
+The reading covers the trailing 3 months through the run date. It scores -5
+when a tracked person leaves in that window, and 5 otherwise. Leaving is an
+Account move off the entity, or a UserGems job-start date in the window. A
+title or role change does not count. An Account with none of these people
+scores 5. An Account missing from the executive-sponsor query stays unscored.
+
+The same run writes the ``champion_departure_external`` override flag from the
+same signal: on (value 1) when someone left in the window, off (value 0)
+otherwise. While it is on the entity's health score is 0.
 
 ``UserGem__NoLongerAtCompany__c`` is not a weekly signal. It is a standing
 boolean, Contact history does not track it, and it has no departure date.
@@ -20,9 +22,10 @@ boolean, Contact history does not track it, and it has no departure date.
 
 from __future__ import annotations
 
+import calendar
 import logging
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from src.healthscore_web.champion_login import (
@@ -34,12 +37,17 @@ from src.healthscore_web.store import connect, period_key_for, upsert_reading
 logger = logging.getLogger(__name__)
 
 METRIC_NAME = "champion_turnover"
+FLAG_METRIC = "champion_departure_external"
+FLAG_TAGS = ["customer-success", "healthscore", "override"]
 GRAIN = "weekly"
 GENERATOR_NAME = "get_champion_turnover"
 OWNER_NAME = "Lindsay Brown"
 OWNER_EMAIL = "lindsay.brown@leandna.com"
 TAGS = ["customer-success", "healthscore", "relationship"]
-FULL_POINTS = 4
+LEFT_POINTS = -5
+STAY_POINTS = 5
+LOOKBACK_MONTHS = 3
+DEPARTURE_KINDS = frozenset({"left_account", "job_started"})
 CHAMPION_BUYING_ROLES = ("Champion", "Technical Buyer", "Executive Sponsor")
 ECONOMIC_BUYER_ROLES = ("Budget Holder", "Decision Maker")
 CONTACT_FIELDS = (
@@ -50,7 +58,6 @@ CONTACT_FIELDS = (
     "UserGem__JobStartedDate__c",
     "UserGem__RoleStartedDate__c",
 )
-NO_TRACKED_ERROR = "Salesforce Account has no primary champion or economic buyer"
 MISSING_SPONSOR_ROW_ERROR = "Salesforce Customer Entity missing from executive-sponsor query"
 _TITLE_STOPWORDS = frozenset({"a", "an", "and", "of", "the"})
 _SALESFORCE_ID_RE = re.compile(r"^[a-zA-Z0-9]{15}(?:[a-zA-Z0-9]{3})?$")
@@ -61,23 +68,23 @@ class ChampionTurnoverGeneratorError(RuntimeError):
     pass
 
 
-def champion_turnover_points(*, tracked: bool, turned_over: bool) -> int | None:
-    """0 when a tracked person left or changed role, 4 when none did.
+def departure_points(events: list[dict[str, Any]]) -> int:
+    """-5 when a tracked person left, 5 otherwise.
 
-    ``None`` means the Account has no primary champion or economic buyer, and
-    stays unscored.
+    Leaving is an Account move off the entity or a UserGems job start in the
+    trailing 3 months. A title or role change does not count.
     """
-    if not tracked:
-        return None
-    if turned_over:
-        return 0
-    return FULL_POINTS
+    left = any(str(event.get("kind") or "") in DEPARTURE_KINDS for event in events)
+    return LEFT_POINTS if left else STAY_POINTS
 
 
-def week_bounds(as_of: date) -> tuple[date, date]:
-    """Monday of the ISO week through ``as_of``."""
-    start = as_of - timedelta(days=as_of.weekday())
-    return start, as_of
+def trailing_start(as_of: date, months: int = LOOKBACK_MONTHS) -> date:
+    """The calendar date ``months`` before ``as_of``, clamped to the month."""
+    month_index = as_of.month - 1 - months
+    year = as_of.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(as_of.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
 
 
 def title_key(value: Any) -> str:
@@ -163,12 +170,12 @@ def load_contacts_by_ids(contact_ids: list[str]) -> list[dict[str, Any]]:
     return rows
 
 
-def load_contact_history(week_start: date, week_end: date) -> list[dict[str, Any]]:
-    """Title and Account changes in the week, inclusive of both dates."""
+def load_contact_history(window_start: date, window_end: date) -> list[dict[str, Any]]:
+    """Title and Account changes from ``window_start`` through ``window_end``."""
     from src.salesforce_client import SalesforceClient
 
-    start = f"{week_start.isoformat()}T00:00:00Z"
-    end = f"{week_end.isoformat()}T23:59:59Z"
+    start = f"{window_start.isoformat()}T00:00:00Z"
+    end = f"{window_end.isoformat()}T23:59:59Z"
     soql = (
         "SELECT ContactId, Field, OldValue, NewValue, CreatedDate FROM ContactHistory "
         "WHERE Field IN ('Title', 'Account') "
@@ -203,7 +210,8 @@ def get_champion_turnover(
             "Salesforce Customer Entity inventory is empty; cannot generate champion_turnover"
         )
     today = as_of or date.today()
-    week_start, week_end = week_bounds(today)
+    window_start = trailing_start(today)
+    window_end = today
     try:
         rows = sponsor_rows if sponsor_rows is not None else load_executive_sponsor_rows()
     except ChampionTurnoverGeneratorError:
@@ -220,10 +228,10 @@ def get_champion_turnover(
     if contacts is None:
         contacts = load_turnover_contacts()
     if history is None:
-        history = load_contact_history(week_start, week_end)
+        history = load_contact_history(window_start, window_end)
     if loaded_contacts:
         contacts = _with_related_contacts(contacts, rows, history)
-    week_history = [row for row in history if week_start <= _history_date(row) <= week_end]
+    window_history = [row for row in history if window_start <= _history_date(row) <= window_end]
     by_account = _contacts_by_account(contacts)
     by_contact = _contacts_by_id(contacts)
     qualifying = {
@@ -231,22 +239,24 @@ def get_champion_turnover(
         for contact_id, contact in by_contact.items()
         if (roles := contact_turnover_roles(contact))
     }
-    history_by_contact = _history_by_contact(week_history)
+    history_by_contact = _history_by_contact(window_history)
     sponsors = _rows_by_id(rows)
     warnings: list[dict[str, str]] = []
     overridden: list[str] = []
     readings: list[dict[str, Any]] = []
+    flag_readings: list[dict[str, Any]] = []
     conn = connect() if persist else None
     try:
         for entity in entities:
             entity_id = str(entity["id"])
             sponsor = _lookup_id(sponsors, entity_id)
             people = _lookup_account_contacts(by_account, entity_id)
-            departed = _departed_contacts(entity, week_history, qualifying)
+            departed = _departed_contacts(entity, window_history, qualifying)
             if sponsor is None and not people and not departed:
                 tracked: dict[str, set[str]] = {}
                 events: list[dict[str, Any]] = []
                 error = MISSING_SPONSOR_ROW_ERROR
+                points = None
             else:
                 sponsor_id = str((sponsor or {}).get("Executive_Sponsor__c") or "").strip()
                 tracked = _tracked_people(entity_id, people, sponsor_id, departed, qualifying)
@@ -256,11 +266,11 @@ def get_champion_turnover(
                     by_contact,
                     history_by_contact,
                     sponsor_id,
-                    week_start,
-                    week_end,
+                    window_start,
+                    window_end,
                 )
-                error = None if tracked else NO_TRACKED_ERROR
-            points = champion_turnover_points(tracked=bool(tracked), turned_over=bool(events))
+                error = None
+                points = departure_points(events)
             if error:
                 warnings.append(
                     {
@@ -278,16 +288,18 @@ def get_champion_turnover(
             reading = _reading(
                 entity=entity,
                 today=today,
-                week_start=week_start,
-                week_end=week_end,
+                window_start=window_start,
+                window_end=window_end,
                 tracked=tracked,
                 events=events,
                 points=points,
                 error=error,
                 generator=generator,
             )
+            flag = _flag_reading(reading)
             if conn is None:
                 readings.append(reading)
+                flag_readings.append(flag)
                 continue
             saved = upsert_reading(
                 conn,
@@ -303,17 +315,34 @@ def get_champion_turnover(
                 meta=reading["meta"],
                 error=error,
             )
-            if saved.get("overridden"):
+            saved_flag = upsert_reading(
+                conn,
+                entity_id=entity_id,
+                entity_name=str(entity.get("name") or ""),
+                metric_name=FLAG_METRIC,
+                grain=GRAIN,
+                as_of=today,
+                value=flag["value"],
+                points=None,
+                generator=generator,
+                tags=FLAG_TAGS,
+                meta=flag["meta"],
+                error=error,
+            )
+            if saved.get("overridden") or saved_flag.get("overridden"):
                 overridden.append(entity_id)
             readings.append(saved)
+            flag_readings.append(saved_flag)
     finally:
         if conn is not None:
             conn.close()
     scored = sum(1 for row in readings if row.get("points") is not None)
+    raised = sum(1 for row in flag_readings if row.get("value") not in (None, 0, 0.0))
     return {
         "ok": True,
         "generator": GENERATOR_NAME,
         "metric_name": METRIC_NAME,
+        "flag_metric": FLAG_METRIC,
         "grain": GRAIN,
         "owner": OWNER_EMAIL,
         "owner_display": OWNER_NAME,
@@ -321,8 +350,23 @@ def get_champion_turnover(
         "scored": scored,
         "unscored": len(readings) - scored,
         "overridden": len(overridden),
+        "raised": raised,
         "warnings": warnings,
         "readings": readings,
+        "flag_readings": flag_readings,
+    }
+
+
+def _flag_reading(reading: dict[str, Any]) -> dict[str, Any]:
+    """The ``champion_departure_external`` override: on only when someone left."""
+    departures = reading["meta"]["departures"]
+    value = None if reading["points"] is None else (1.0 if departures else 0.0)
+    return {
+        **reading,
+        "metric_name": FLAG_METRIC,
+        "value": value,
+        "points": None,
+        "tags": list(FLAG_TAGS),
     }
 
 
@@ -330,14 +374,15 @@ def _reading(
     *,
     entity: dict[str, Any],
     today: date,
-    week_start: date,
-    week_end: date,
+    window_start: date,
+    window_end: date,
     tracked: dict[str, set[str]],
     events: list[dict[str, Any]],
     points: int | None,
     error: str | None,
     generator: str,
 ) -> dict[str, Any]:
+    departures = [event for event in events if str(event.get("kind") or "") in DEPARTURE_KINDS]
     return {
         "entity_id": str(entity["id"]),
         "entity_name": entity.get("name"),
@@ -345,7 +390,7 @@ def _reading(
         "grain": GRAIN,
         "period_key": period_key_for(GRAIN, today),
         "as_of": today.isoformat(),
-        "value": None if points is None else (1.0 if events else 0.0),
+        "value": None if points is None else (1.0 if departures else 0.0),
         "points": points,
         "generator": generator,
         "tags": list(TAGS),
@@ -359,10 +404,11 @@ def _reading(
                 "ContactHistory.Title",
                 "ContactHistory.Account",
             ],
-            "week_start": week_start.isoformat(),
-            "week_end": week_end.isoformat(),
+            "window_start": window_start.isoformat(),
+            "window_end": window_end.isoformat(),
             "tracked_contacts": len(tracked),
             "events": events,
+            "departures": departures,
             "owner": OWNER_EMAIL,
         },
         "error": error,

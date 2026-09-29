@@ -19,6 +19,7 @@ from src.healthscore_web.champion_login import (
     get_champion_login_continuity,
 )
 from src.healthscore_web.champion_turnover import (
+    FLAG_METRIC as CHAMPION_DEPARTURE_FLAG_METRIC,
     METRIC_NAME as CHAMPION_TURNOVER_METRIC,
     ChampionTurnoverGeneratorError,
     get_champion_turnover,
@@ -86,6 +87,7 @@ SUPPORTED = (
     USAGE_TREND_METRIC,
     CHAMPION_LOGIN_METRIC,
     CHAMPION_TURNOVER_METRIC,
+    CHAMPION_DEPARTURE_FLAG_METRIC,
     ROI_MULTIPLE_METRIC,
     SUMMIT_ATTENDANCE_METRIC,
     ENHANCEMENT_ENGAGEMENT_METRIC,
@@ -675,7 +677,8 @@ def run_healthscore_snapshot(
         results[CHAMPION_LOGIN_METRIC] = run_champion_login_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
-    if name in (CHAMPION_TURNOVER_METRIC, "all"):
+    if name in (CHAMPION_TURNOVER_METRIC, CHAMPION_DEPARTURE_FLAG_METRIC, "all"):
+        # One Salesforce pass scores the input and writes the departure flag.
         results[CHAMPION_TURNOVER_METRIC] = run_champion_turnover_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
@@ -728,7 +731,8 @@ def run_healthscore_snapshot_cli(
         description=(
             "Run Health Score generators into the Health Score store. "
             "Does not write KPI observations. Default runs usage_level, then "
-            "usage_trend, champion_login_continuity, champion_turnover, roi_multiple, "
+            "usage_trend, champion_login_continuity, champion_turnover (which also "
+            "writes the champion_departure_external override), roi_multiple, "
             "summit_attendance, "
             "enhancement_engagement, meeting_cadence, sla_adherence, "
             "ticket_volume_trend, escalation_rate, call_sentiment, then call_talk_ratio."
@@ -739,6 +743,7 @@ def run_healthscore_snapshot_cli(
         default="all",
         help=(
             "usage_level, usage_trend, champion_login_continuity, champion_turnover, "
+            "champion_departure_external, "
             "roi_multiple, "
             "summit_attendance, enhancement_engagement, meeting_cadence, "
             "sla_adherence, ticket_volume_trend, escalation_rate, call_sentiment, "

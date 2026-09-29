@@ -884,7 +884,9 @@
     const field = overrideField(definition);
     const prior = latest && latest.overridden ? fmtNum(latest[`override_${field}`]) : latest && latest[field] != null ? fmtNum(latest[field]) : "";
     const max = field === "points" && definition.max_points != null ? definition.max_points : field === "value" ? 1 : null;
-    cell.innerHTML = `<input class="value-input" type="text" inputmode="decimal" aria-label="Override ${field} for ${esc(definition.name)}" title="Clear the box to drop the override and show the generated reading" /><span class="muted hs-points-hint">${max != null ? `0–${max} · ` : ""}Enter saves · Esc cancels</span>`;
+    const min = field === "points" && definition.min_points != null ? definition.min_points : max != null ? 0 : null;
+    const range = max == null ? "" : `${min}–${max} · `;
+    cell.innerHTML = `<input class="value-input" type="text" inputmode="decimal" aria-label="Override ${field} for ${esc(definition.name)}" title="Clear the box to drop the override and show the generated reading" /><span class="muted hs-points-hint">${range}Enter saves · Esc cancels</span>`;
     const input = cell.querySelector("input");
     input.value = prior === "—" ? "" : prior;
     input.focus();

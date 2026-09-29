@@ -111,6 +111,14 @@ def _active_salesforce_entities() -> list[dict[str, Any]]:
     return entities
 
 
+def _bounded_points(raw: float, definition: dict[str, Any]) -> float:
+    """Clamp a reading to the component's point range, which may go below zero."""
+    limit = float(definition["max_points"])
+    floor = definition.get("min_points")
+    low = float(floor) if floor is not None else 0.0
+    return max(low, min(float(raw), limit))
+
+
 def _score_numbers(
     framework: dict[str, Any], points_by_metric: dict[str, float | None]
 ) -> dict[str, Any]:
@@ -124,7 +132,7 @@ def _score_numbers(
         raw = points_by_metric.get(str(definition["key"]))
         if definition.get("deactivated") or raw is None or weight is None or max_points in (None, 0):
             continue
-        points = max(0.0, min(float(raw), float(max_points)))
+        points = _bounded_points(float(raw), definition)
         contribution += points / float(max_points) * float(weight)
         covered_weight += float(weight)
     return {
@@ -215,7 +223,7 @@ def _score_payload(
             and weight is not None
             and max_points not in (None, 0)
         ):
-            points = max(0.0, min(float(row["effective_points"]), float(max_points)))
+            points = _bounded_points(float(row["effective_points"]), definition)
             value = points / float(max_points) * float(weight)
             item["contribution"] = round(value, 4)
             pillar = pillars[str(definition["pillar"])]
@@ -280,7 +288,7 @@ def _score_history(
                 or not max_points
             ):
                 continue
-            points = max(0.0, min(float(row["effective_points"]), float(max_points)))
+            points = _bounded_points(float(row["effective_points"]), definition)
             contribution += points / float(max_points) * float(weight)
             covered += float(weight)
         raised = _raised_override_names(
@@ -514,8 +522,10 @@ async def api_set_component(request: Request) -> Response:
         points_raw = raw.get("points")
         points = None if points_raw in (None, "") else float(points_raw)
         max_points = definition.get("max_points")
-        if points is not None and points < 0:
-            raise ValueError("points cannot be negative")
+        floor = definition.get("min_points")
+        low = float(floor) if floor is not None else 0.0
+        if points is not None and points < low:
+            raise ValueError(f"points cannot be below {low:g}")
         if points is not None and max_points is not None and points > float(max_points):
             raise ValueError(f"points cannot exceed {max_points}")
         value_raw = raw.get("value", raw.get("raw_value"))

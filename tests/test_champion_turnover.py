@@ -7,7 +7,7 @@ import pytest
 
 from src.healthscore_web.champion_turnover import (
     ChampionTurnoverGeneratorError,
-    champion_turnover_points,
+    departure_points,
     get_champion_turnover,
     title_changed,
 )
@@ -70,7 +70,19 @@ def _score(
     as_of: date = AS_OF,
     persist: bool = False,
 ) -> dict:
-    result = get_champion_turnover(
+    return {row["entity_id"]: row for row in _run(contacts, history, sponsors=sponsors, entities=entities, as_of=as_of, persist=persist)["readings"]}
+
+
+def _run(
+    contacts: list[dict],
+    history: list[dict] | None = None,
+    *,
+    sponsors: list[dict] | None = None,
+    entities: list[dict] | None = None,
+    as_of: date = AS_OF,
+    persist: bool = False,
+) -> dict:
+    return get_champion_turnover(
         entities=entities or ENTITIES,
         sponsor_rows=sponsors if sponsors is not None else SPONSORS,
         contacts=contacts,
@@ -78,13 +90,18 @@ def _score(
         as_of=as_of,
         persist=persist,
     )
-    return {row["entity_id"]: row for row in result["readings"]}
 
 
-def test_points_follow_tracked_and_turnover_flags() -> None:
-    assert champion_turnover_points(tracked=False, turned_over=False) is None
-    assert champion_turnover_points(tracked=True, turned_over=False) == 4
-    assert champion_turnover_points(tracked=True, turned_over=True) == 0
+def _flags(contacts: list[dict], history: list[dict] | None = None, **kwargs) -> dict:
+    return {row["entity_id"]: row for row in _run(contacts, history, **kwargs)["flag_readings"]}
+
+
+def test_departure_points_are_minus_five_or_five() -> None:
+    assert departure_points([]) == 5
+    assert departure_points([{"kind": "title_change"}]) == 5
+    assert departure_points([{"kind": "role_started"}]) == 5
+    assert departure_points([{"kind": "left_account"}]) == -5
+    assert departure_points([{"kind": "job_started"}]) == -5
 
 
 def test_title_normalization_ignores_punctuation_and_word_order() -> None:
@@ -99,27 +116,27 @@ def test_title_normalization_ignores_punctuation_and_word_order() -> None:
     assert title_changed("Vice President, Operations", "Senior VP, Global Operations")
 
 
-def test_stable_buyer_scores_full_points() -> None:
+def test_stable_buyer_scores_five() -> None:
     by_id = _score([_contact("003-buyer", SITE, user_role="Buyer,Engineer")])
-    assert by_id[SITE]["points"] == 4
+    assert by_id[SITE]["points"] == 5
     assert by_id[SITE]["value"] == 0
     assert by_id[SITE]["error"] is None
     assert by_id[SITE]["period_key"] == "2026-W40"
-    assert by_id[SITE]["meta"]["week_start"] == "2026-09-28"
-    assert by_id[SITE]["meta"]["week_end"] == "2026-09-29"
+    assert by_id[SITE]["meta"]["window_start"] == "2026-06-29"
+    assert by_id[SITE]["meta"]["window_end"] == "2026-09-29"
     assert by_id[SITE]["meta"]["tracked_contacts"] == 2
 
 
-def test_cosmetic_title_edit_does_not_score_turnover() -> None:
+def test_cosmetic_title_edit_stays_at_five() -> None:
     by_id = _score(
         [_contact("003-buyer", SITE, user_role="Buyer")],
         [_history("003-buyer", "Title", "Director, Logistics", "Director of Logistics")],
     )
-    assert by_id[SITE]["points"] == 4
+    assert by_id[SITE]["points"] == 5
     assert by_id[SITE]["meta"]["events"] == []
 
 
-def test_real_title_change_scores_zero_for_champion_and_economic_buyer() -> None:
+def test_title_change_does_not_count_as_leaving() -> None:
     by_id = _score(
         [
             _contact("003-champion", SITE, buying="Technical Buyer"),
@@ -130,15 +147,13 @@ def test_real_title_change_scores_zero_for_champion_and_economic_buyer() -> None
             _history("003-budget", "Title", "Director of Finance", "Chief Financial Officer"),
         ],
     )
-    assert by_id[SITE]["points"] == 0
-    assert by_id[SITE]["value"] == 1
-    assert by_id[SITE]["meta"]["events"][0]["kind"] == "title_change"
-    assert by_id[SITE]["meta"]["events"][0]["roles"] == ["champion"]
-    assert by_id[OTHER]["points"] == 0
-    assert by_id[OTHER]["meta"]["events"][0]["roles"] == ["economic_buyer"]
+    assert by_id[SITE]["points"] == 5
+    assert by_id[SITE]["value"] == 0
+    assert by_id[SITE]["meta"]["departures"] == []
+    assert by_id[OTHER]["points"] == 5
 
 
-def test_buyer_who_left_the_account_scores_zero_once() -> None:
+def test_buyer_who_left_the_account_scores_minus_five_once() -> None:
     by_id = _score(
         [_contact("003-buyer", OTHER, user_role="Buyer")],
         [
@@ -146,8 +161,9 @@ def test_buyer_who_left_the_account_scores_zero_once() -> None:
             _history("003-buyer", "Account", "Site A", "Other"),
         ],
     )
-    assert by_id[SITE]["points"] == 0
-    assert by_id[SITE]["meta"]["events"] == [
+    assert by_id[SITE]["points"] == -5
+    assert by_id[SITE]["value"] == 1
+    assert by_id[SITE]["meta"]["departures"] == [
         {
             "contact_id": "003-buyer",
             "kind": "left_account",
@@ -155,48 +171,47 @@ def test_buyer_who_left_the_account_scores_zero_once() -> None:
             "detail": "moved to a different Account",
         }
     ]
-    assert by_id[OTHER]["points"] == 4
+    assert by_id[OTHER]["points"] == 5
 
 
-def test_move_onto_the_account_is_not_turnover() -> None:
+def test_move_onto_the_account_is_not_a_departure() -> None:
     by_id = _score(
         [_contact("003-buyer", SITE, user_role="Buyer")],
         [_history("003-buyer", "Account", "Somewhere Else", "Site A")],
     )
-    assert by_id[SITE]["points"] == 4
+    assert by_id[SITE]["points"] == 5
 
 
-def test_job_and_role_start_dates_in_the_week_score_zero() -> None:
+def test_job_start_scores_minus_five_and_role_start_does_not() -> None:
     by_id = _score(
         [
             _contact("003-decision", SITE, buying="Decision Maker", job_started="2026-09-28"),
             _contact("003-champion", OTHER, buying="Champion", role_started="2026-09-29"),
         ]
     )
-    assert by_id[SITE]["points"] == 0
-    assert by_id[SITE]["meta"]["events"][0]["kind"] == "job_started"
-    assert by_id[OTHER]["points"] == 0
-    assert by_id[OTHER]["meta"]["events"][0]["kind"] == "role_started"
+    assert by_id[SITE]["points"] == -5
+    assert by_id[SITE]["meta"]["departures"][0]["kind"] == "job_started"
+    assert by_id[OTHER]["points"] == 5
 
 
-def test_role_change_outside_the_week_is_ignored() -> None:
+def test_departure_before_the_three_month_window_scores_five() -> None:
     by_id = _score(
-        [_contact("003-buyer", SITE, user_role="Buyer", job_started="2026-09-21")],
+        [_contact("003-buyer", SITE, user_role="Buyer", job_started="2026-06-28")],
         [
             _history(
                 "003-buyer",
-                "Title",
-                "Chief Operating Officer",
-                "President",
-                created="2026-09-21T14:00:00.000+0000",
+                "Account",
+                SITE,
+                OTHER,
+                created="2026-06-28T14:00:00.000+0000",
             )
         ],
     )
-    assert by_id[SITE]["points"] == 4
-    assert by_id[SITE]["meta"]["events"] == []
+    assert by_id[SITE]["points"] == 5
+    assert by_id[SITE]["meta"]["departures"] == []
 
 
-def test_sponsor_change_counts_without_a_buying_role() -> None:
+def test_sponsor_who_left_scores_minus_five_without_a_buying_role() -> None:
     by_id = _score(
         [],
         [
@@ -208,12 +223,12 @@ def test_sponsor_change_counts_without_a_buying_role() -> None:
             )
         ],
     )
-    assert by_id[SITE]["points"] == 0
-    assert by_id[SITE]["meta"]["events"][0]["roles"] == ["champion"]
-    assert by_id[OTHER]["points"] is None
+    assert by_id[SITE]["points"] == -5
+    assert by_id[SITE]["meta"]["departures"][0]["roles"] == ["champion"]
+    assert by_id[OTHER]["points"] == 5
 
 
-def test_end_user_and_buyers_plural_stay_unscored() -> None:
+def test_end_user_and_buyers_plural_score_five() -> None:
     by_id = _score(
         [
             _contact("003-end", SITE, buying="End User", user_role="Planner"),
@@ -221,12 +236,12 @@ def test_end_user_and_buyers_plural_stay_unscored() -> None:
         ],
         sponsors=[{"Id": SITE}, {"Id": OTHER}],
     )
-    assert by_id[SITE]["points"] is None
-    assert "no primary champion or economic buyer" in by_id[SITE]["error"]
-    assert by_id[OTHER]["points"] is None
+    assert by_id[SITE]["points"] == 5
+    assert by_id[SITE]["error"] is None
+    assert by_id[OTHER]["points"] == 5
 
 
-def test_named_sponsor_without_a_contact_stays_unscored() -> None:
+def test_named_sponsor_without_a_contact_scores_five() -> None:
     by_id = _score(
         [],
         sponsors=[
@@ -234,7 +249,7 @@ def test_named_sponsor_without_a_contact_stays_unscored() -> None:
             {"Id": OTHER},
         ],
     )
-    assert by_id[SITE]["points"] is None
+    assert by_id[SITE]["points"] == 5
     assert by_id[SITE]["meta"]["tracked_contacts"] == 0
 
 
@@ -268,6 +283,31 @@ def test_empty_entity_inventory_fails_loud() -> None:
         )
 
 
+def test_departure_flag_follows_the_same_signal() -> None:
+    left = _flags(
+        [_contact("003-buyer", OTHER, user_role="Buyer")],
+        [_history("003-buyer", "Account", SITE, OTHER)],
+    )
+    assert left[SITE]["metric_name"] == "champion_departure_external"
+    assert left[SITE]["value"] == 1
+    assert left[SITE]["points"] is None
+    assert left[SITE]["tags"] == ["customer-success", "healthscore", "override"]
+    assert left[SITE]["meta"]["departures"][0]["kind"] == "left_account"
+    assert left[OTHER]["value"] == 0
+
+    titled = _flags(
+        [_contact("003-champion", SITE, buying="Technical Buyer")],
+        [_history("003-champion", "Title", "Chief Operating Officer", "President")],
+    )
+    assert titled[SITE]["value"] == 0
+
+    nobody = _flags([], sponsors=[{"Id": SITE}, {"Id": OTHER}])
+    assert nobody[SITE]["value"] == 0
+
+    missing = _flags([], sponsors=[{"Id": OTHER}])
+    assert missing[SITE]["value"] is None
+
+
 def test_persist_writes_the_weekly_reading(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
     by_id = _score(
@@ -276,11 +316,15 @@ def test_persist_writes_the_weekly_reading(tmp_path: Path, monkeypatch: pytest.M
         sponsors=[SPONSORS[0]],
         persist=True,
     )
-    assert by_id[SITE]["points"] == 4
+    assert by_id[SITE]["points"] == 5
     conn = connect()
     try:
         stored = observations_for_metric(conn, SITE, "champion_turnover")
+        flag = observations_for_metric(conn, SITE, "champion_departure_external")
     finally:
         conn.close()
-    assert stored[-1]["points"] == 4
+    assert stored[-1]["points"] == 5
     assert stored[-1]["period_key"] == "2026-W40"
+    assert flag[-1]["value"] == 0
+    assert flag[-1]["points"] is None
+    assert flag[-1]["period_key"] == "2026-W40"

@@ -120,7 +120,22 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert turnover["automation"] == "automated"
     assert turnover["data_source"] == ["Salesforce"]
     assert "external research" not in turnover["description"].casefold()
-    assert "stays unscored" in turnover["description"]
+    assert turnover["pillar"] == "Relationship & Engagement"
+    assert turnover["weight"] == 4
+    assert turnover["max_points"] == 5
+    assert turnover["min_points"] == -5
+    assert "trailing 3" in turnover["description"]
+    assert "-5" in turnover["scoring"]
+    departure = next(
+        row for row in framework["overrides"] if row["key"] == "champion_departure_external"
+    )
+    assert departure["metric-generator"] == "get_champion_turnover"
+    assert departure["data_source"] == ["Salesforce"]
+    assert departure["automation"] == "automated"
+    assert departure["status"] == "defined"
+    assert departure["grain"] == "weekly"
+    assert "trailing" in departure["description"]
+    assert "external" not in departure["description"].casefold()
     assert champion["automation"] == "automated"
     roi = next(row for row in framework["inputs"] if row["key"] == "roi_multiple")
     assert roi["metric-generator"] == "get_roi_multiple"
@@ -320,16 +335,16 @@ def test_healthscore_report_lists_entities_by_weighted_score_descending(
     assert "Healthscore report" in client.get("/healthscore/report").text
 
     _login(client)
-    # usage_level weight 6, max 6. Wide also fills champion_turnover (4) and
-    # meeting_cadence (2), so its contribution is 9 against Green's 6 even
-    # though its healthscore is lower.
+    # usage_level weight 6, max 6. Wide also fills champion_turnover at 5 of 5
+    # (weight 4) and meeting_cadence (2), so its contribution is 9 against
+    # Green's 6 even though its healthscore is lower.
     for entity_id, points in (("001-red", 0), ("001-yellow", 4), ("001-green", 6), ("001-wide", 3)):
         saved = client.put(
             f"/healthscore/api/entities/{entity_id}/components/usage_level",
             json={"as_of": "2026-09-30", "points": points},
         )
         assert saved.status_code == 200, saved.text
-    for metric, points in (("champion_turnover", 4), ("meeting_cadence", 2)):
+    for metric, points in (("champion_turnover", 5), ("meeting_cadence", 2)):
         saved = client.put(
             f"/healthscore/api/entities/001-wide/components/{metric}",
             json={"as_of": "2026-09-30", "points": points},
@@ -352,6 +367,35 @@ def test_healthscore_report_lists_entities_by_weighted_score_descending(
     assert [row["band"] for row in body["entities"]] == ["green", "green", "yellow", "red", None]
     assert body["counts"] == {"red": 1, "yellow": 1, "green": 2, "unscored": 1}
     assert body["entity_count"] == 5
+
+
+def test_champion_turnover_minus_five_lowers_the_score(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", _entities)
+    client = _score_owner_client(tmp_path, monkeypatch)
+    _login(client)
+    saved = client.put(
+        "/healthscore/api/entities/001-active/components/usage_level",
+        json={"as_of": "2026-09-30", "points": 6},
+    )
+    assert saved.status_code == 200, saved.text
+    left = client.put(
+        "/healthscore/api/entities/001-active/components/champion_turnover",
+        json={"as_of": "2026-09-30", "points": -5},
+    )
+    assert left.status_code == 200, left.text
+    body = client.get("/healthscore/api/entities/001-active/score").json()
+    turnover = next(row for row in body["components"] if row["key"] == "champion_turnover")
+    assert turnover["contribution"] == -4
+    assert turnover["pillar"] == "Relationship & Engagement"
+    assert body["score"] == 20
+    assert body["covered_weight"] == 10
+    too_low = client.put(
+        "/healthscore/api/entities/001-active/components/champion_turnover",
+        json={"as_of": "2026-09-30", "points": -6},
+    )
+    assert too_low.status_code == 400
 
 
 def test_override_flag_sets_healthscore_to_zero(
