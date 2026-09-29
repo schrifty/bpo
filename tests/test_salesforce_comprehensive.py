@@ -684,6 +684,29 @@ def test_customer_name_matches_entity_account_word_boundary_not_controls():
     )
 
 
+def test_customer_name_matches_entity_account_when_label_ends_in_parentheses():
+    """A CS Report entity ending in (1304) is contained in the Salesforce entity name."""
+    needle = "JCI DC LITHIA (1304)"
+    assert _customer_name_matches_entity_account(
+        needle,
+        {
+            "Name": "Johnson Controls - DC Lithia",
+            "LeanDNA_Entity_Name__c": "Johnson Controls: JCI DC Lithia (1304)",
+            "parent_name": "Johnson Controls Fire Suppression",
+            "ultimate_parent_name": "",
+        },
+    )
+    assert not _customer_name_matches_entity_account(
+        needle,
+        {
+            "Name": "JCI DC Lithia (13040)",
+            "LeanDNA_Entity_Name__c": "",
+            "parent_name": "",
+            "ultimate_parent_name": "",
+        },
+    )
+
+
 def test_jira_customer_search_terms_include_safe_cohort_aliases():
     with patch(
         "src.jira_client._load_cohort_customer_alias_map",

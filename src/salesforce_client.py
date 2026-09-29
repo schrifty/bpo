@@ -155,10 +155,17 @@ def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
 
 
 def _customer_label_matches_text(label_upper: str, text: str) -> bool:
-    """Word-boundary match so e.g. ``CONTROL`` does not match *Johnson Controls*."""
+    """Whole-label match so e.g. ``CONTROL`` does not match *Johnson Controls*.
+
+    ``\\b`` is only a boundary next to a word character. A label that ends in
+    punctuation, such as ``(1304)``, still matches when that punctuation ends
+    the text or is followed by a non-word character.
+    """
     if not label_upper or not text:
         return False
-    return bool(re.search(rf"\b{re.escape(label_upper)}\b", text, re.IGNORECASE))
+    start = r"\b" if label_upper[0].isalnum() else r"(?<!\w)"
+    end = r"\b" if label_upper[-1].isalnum() else r"(?!\w)"
+    return bool(re.search(start + re.escape(label_upper) + end, text, re.IGNORECASE))
 
 
 def _customer_name_matches_entity_account(name_upper: str, a: dict[str, Any]) -> bool:
