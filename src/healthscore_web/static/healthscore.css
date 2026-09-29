@@ -216,6 +216,52 @@
   border-bottom: 1px solid var(--line);
 }
 
+.hs-components tbody tr.hs-flag-pillar {
+  cursor: pointer;
+}
+
+.hs-components tbody tr.hs-flag-pillar th,
+.hs-components tbody tr.hs-flag-pillar td {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.hs-flag-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.hs-flag-chevron {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 0.28rem solid transparent;
+  border-bottom: 0.28rem solid transparent;
+  border-left: 0.4rem solid currentColor;
+}
+
+.hs-flag-pillar.open .hs-flag-chevron {
+  border-top: 0.4rem solid currentColor;
+  border-right: 0.28rem solid transparent;
+  border-bottom: 0;
+  border-left: 0.28rem solid transparent;
+}
+
+.hs-components tbody tr.hs-flag-collapsed {
+  display: none;
+}
+
 .hs-components tbody tr.active {
   background: #e6e6e6;
   box-shadow: inset 3px 0 0 var(--accent);
@@ -360,41 +406,6 @@
   display: block;
   height: 100%;
   background: var(--accent);
-}
-
-.hs-overrides {
-  padding: 0.7rem 1rem 0.9rem;
-  border-top: 1px solid var(--line);
-}
-
-.hs-overrides h3 {
-  margin: 0 0 0.45rem;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
-
-#hs-overrides-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.hs-override {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0.28rem 0.5rem;
-  background: #fff;
-  font-size: 0.73rem;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.hs-override.raised {
-  border-color: var(--danger);
-  background: var(--danger-bg);
-  color: var(--danger);
 }
 
 .hs-detail {

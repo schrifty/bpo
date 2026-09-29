@@ -354,6 +354,56 @@ def test_healthscore_report_lists_entities_by_weighted_score_descending(
     assert body["entity_count"] == 5
 
 
+def test_override_flag_sets_healthscore_to_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entities = [
+        {**_entities()[0], "id": "001-open", "name": "Open Entity"},
+        {**_entities()[0], "id": "001-flagged", "name": "Flagged Entity"},
+    ]
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", lambda: entities)
+    client = _score_owner_client(tmp_path, monkeypatch)
+    _login(client)
+    for entity_id in ("001-open", "001-flagged"):
+        saved = client.put(
+            f"/healthscore/api/entities/{entity_id}/components/usage_level",
+            json={"as_of": "2026-09-30", "points": 6},
+        )
+        assert saved.status_code == 200, saved.text
+    raised = client.put(
+        "/healthscore/api/entities/001-flagged/components/merger_acquisition",
+        json={"as_of": "2026-09-30", "value": 1},
+    )
+    assert raised.status_code == 200, raised.text
+
+    score = client.get("/healthscore/api/entities/001-flagged/score")
+    assert score.status_code == 200, score.text
+    body = score.json()
+    assert body["score"] == 0
+    assert body["score_zeroed"] is True
+    assert "M&A activity / parent company change" in body["zeroed_by"]
+    assert body["coverage_pct"] == pytest.approx(6.82, abs=0.01)
+    assert any(row["score"] == 0 and row["score_zeroed"] for row in body["history"])
+
+    report = client.get("/healthscore/api/report")
+    assert report.status_code == 200, report.text
+    by_name = {row["name"]: row for row in report.json()["entities"]}
+    assert by_name["Open Entity"]["weighted_score"] == 6
+    assert by_name["Flagged Entity"]["weighted_score"] == 0
+    assert by_name["Flagged Entity"]["shown_score"] == 0
+    names = [row["name"] for row in report.json()["entities"]]
+    assert names.index("Open Entity") < names.index("Flagged Entity")
+
+    cleared = client.put(
+        "/healthscore/api/entities/001-flagged/components/merger_acquisition",
+        json={"as_of": "2026-09-30", "value": 0},
+    )
+    assert cleared.status_code == 200, cleared.text
+    restored = client.get("/healthscore/api/entities/001-flagged/score")
+    assert restored.json()["score"] == 100
+    assert restored.json()["score_zeroed"] is False
+
+
 def test_healthscore_rejects_non_salesforce_entity_and_excess_points(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

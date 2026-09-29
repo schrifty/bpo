@@ -316,29 +316,44 @@ def periods_for_metric(conn: sqlite3.Connection, metric_name: str) -> list[str]:
     return [str(row["period_key"]) for row in rows]
 
 
-def latest_effective_points_by_entity(
+def latest_effective_by_entity(
     conn: sqlite3.Connection,
-) -> dict[str, dict[str, float | None]]:
-    """Newest effective points per entity and metric.
+) -> tuple[dict[str, dict[str, float | None]], dict[str, dict[str, float | None]]]:
+    """Newest effective points and values per entity and metric.
 
     Rows are read newest period first, so the first sighting of a metric wins,
-    matching :func:`latest_by_metric`.
+    matching :func:`latest_by_metric`. The second map is the override-flag
+    value (``override_value``, otherwise ``value``).
     """
     rows = conn.execute(
         """
-        SELECT entity_id, metric_name, points, override_points
+        SELECT entity_id, metric_name, points, override_points, value, override_value
         FROM healthscore_observation
         ORDER BY period_key DESC, metric_name ASC
         """
     ).fetchall()
-    out: dict[str, dict[str, float | None]] = {}
+    points: dict[str, dict[str, float | None]] = {}
+    values: dict[str, dict[str, float | None]] = {}
     for row in rows:
-        metrics = out.setdefault(str(row["entity_id"]), {})
-        metrics.setdefault(
-            str(row["metric_name"]),
+        entity_id = str(row["entity_id"])
+        metric = str(row["metric_name"])
+        points.setdefault(entity_id, {}).setdefault(
+            metric,
             row["override_points"] if row["override_points"] is not None else row["points"],
         )
-    return out
+        values.setdefault(entity_id, {}).setdefault(
+            metric,
+            row["override_value"] if row["override_value"] is not None else row["value"],
+        )
+    return points, values
+
+
+def latest_effective_points_by_entity(
+    conn: sqlite3.Connection,
+) -> dict[str, dict[str, float | None]]:
+    """Newest effective points per entity and metric."""
+    points, _values = latest_effective_by_entity(conn)
+    return points
 
 
 def latest_by_metric(

@@ -47,7 +47,7 @@ from src.healthscore_web.store import (
     clear_override,
     connect,
     latest_by_metric,
-    latest_effective_points_by_entity,
+    latest_effective_by_entity,
     observations_for_entity,
     period_key_for,
     set_override,
@@ -140,6 +140,41 @@ def _score_numbers(
     }
 
 
+def _flag_is_on(value: Any) -> bool:
+    """An override flag is on when its latest value is present and not zero."""
+    if value is None or value == "":
+        return False
+    try:
+        return float(value) != 0
+    except (TypeError, ValueError):
+        return bool(value)
+
+
+def _raised_override_names(
+    framework: dict[str, Any], values_by_key: dict[str, Any]
+) -> list[str]:
+    """Names of active override flags whose latest value is on."""
+    names: list[str] = []
+    for definition in framework.get("overrides") or []:
+        if definition.get("deactivated"):
+            continue
+        if _flag_is_on(values_by_key.get(str(definition["key"]))):
+            names.append(str(definition.get("name") or definition["key"]))
+    return names
+
+
+def _apply_override_flags(
+    numbers: dict[str, Any], raised: list[str]
+) -> dict[str, Any]:
+    """A raised override flag sets the healthscore to 0 without changing weight."""
+    numbers = dict(numbers)
+    numbers["score_zeroed"] = bool(raised)
+    numbers["zeroed_by"] = list(raised)
+    if raised:
+        numbers["score"] = 0.0
+    return numbers
+
+
 def shown_score(score: float | None) -> int | None:
     """Nearest integer, matching ``Math.round`` for the non-negative scores we show."""
     if score is None:
@@ -191,14 +226,25 @@ def _score_payload(
         {**definition, "latest": latest.get(str(definition["key"]))}
         for definition in framework["overrides"]
     ]
-    numbers = _score_numbers(
-        framework,
-        {
-            str(definition["key"]): (latest.get(str(definition["key"])) or {}).get(
-                "effective_points"
-            )
-            for definition in framework["inputs"]
-        },
+    numbers = _apply_override_flags(
+        _score_numbers(
+            framework,
+            {
+                str(definition["key"]): (latest.get(str(definition["key"])) or {}).get(
+                    "effective_points"
+                )
+                for definition in framework["inputs"]
+            },
+        ),
+        _raised_override_names(
+            framework,
+            {
+                str(definition["key"]): (latest.get(str(definition["key"])) or {}).get(
+                    "effective_value"
+                )
+                for definition in framework["overrides"]
+            },
+        ),
     )
     return {
         **numbers,
@@ -237,14 +283,28 @@ def _score_history(
             points = max(0.0, min(float(row["effective_points"]), float(max_points)))
             contribution += points / float(max_points) * float(weight)
             covered += float(weight)
-        if covered:
-            out.append(
-                {
-                    "period_key": period,
-                    "score": round(contribution / covered * 100, 2),
-                    "covered_weight": round(covered, 2),
-                }
-            )
+        raised = _raised_override_names(
+            framework,
+            {
+                str(definition["key"]): (latest.get(str(definition["key"])) or {}).get(
+                    "effective_value"
+                )
+                for definition in framework["overrides"]
+            },
+        )
+        if not covered and not raised:
+            continue
+        score = round(contribution / covered * 100, 2) if covered else None
+        if raised:
+            score = 0.0
+        out.append(
+            {
+                "period_key": period,
+                "score": score,
+                "covered_weight": round(covered, 2),
+                "score_zeroed": bool(raised),
+            }
+        )
     return out
 
 
@@ -274,7 +334,7 @@ async def api_report(request: Request) -> Response:
         framework = load_framework()
         conn = connect()
         try:
-            points = latest_effective_points_by_entity(conn)
+            points, flag_values = latest_effective_by_entity(conn)
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001
@@ -285,8 +345,14 @@ async def api_report(request: Request) -> Response:
         )
     rows = []
     for entity in entities:
-        numbers = _score_numbers(framework, points.get(entity["id"], {}))
+        numbers = _apply_override_flags(
+            _score_numbers(framework, points.get(entity["id"], {})),
+            _raised_override_names(framework, flag_values.get(entity["id"], {})),
+        )
         score = numbers["score"]
+        weighted = None if score is None else round(float(numbers["contribution"]), 4)
+        if numbers["score_zeroed"]:
+            weighted = 0.0
         rows.append(
             {
                 "id": entity["id"],
@@ -295,9 +361,8 @@ async def api_report(request: Request) -> Response:
                 "shown_score": shown_score(score),
                 "band": score_band(score),
                 "coverage_pct": numbers["coverage_pct"],
-                "weighted_score": (
-                    None if score is None else round(float(numbers["contribution"]), 4)
-                ),
+                "weighted_score": weighted,
+                "score_zeroed": numbers["score_zeroed"],
             }
         )
     rows.sort(

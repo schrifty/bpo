@@ -8,6 +8,7 @@
     selected: null,
     me: null,
   };
+  const flagsPanel = { open: false, triggered: false };
 
   function esc(value) {
     return String(value ?? "")
@@ -166,7 +167,7 @@
   }
 
   function generatorPill(component) {
-    if (!component || !Object.prototype.hasOwnProperty.call(component, "pillar")) return "";
+    if (!component || typeof component !== "object") return "";
     if (String(component.automation || "").toLowerCase() === "manual") return "";
     const generator = component["metric-generator"];
     if (generator && String(generator).trim()) return "";
@@ -259,10 +260,41 @@
   }
 
   function pillarHeader(name, weight) {
+    const weightCell = weight == null ? "—" : formatWeight(weight);
     return `<tr class="hs-pillar-row">
       <th scope="rowgroup">${esc(name)}</th>
-      <td>${formatWeight(weight)}</td>
+      <td>${weightCell}</td>
       <td colspan="3"></td>
+    </tr>`;
+  }
+
+  function flagIsOn(component) {
+    const value = component && component.latest ? component.latest.effective_value : null;
+    return value != null && value !== "" && Number(value) !== 0;
+  }
+
+  function componentRows(component, collapsed) {
+    const isFlag = !Object.prototype.hasOwnProperty.call(component, "pillar");
+    const on = isFlag && flagIsOn(component);
+    const rowClass = [
+      isFlag ? "hs-flag-row" : "",
+      collapsed ? "hs-flag-collapsed" : "",
+      component.key === state.selected ? "active" : "",
+      component.deactivated ? "deactivated" : "",
+    ].filter(Boolean).join(" ");
+    const signal = isFlag
+      ? (on ? '<span class="hs-status">On</span>' : "")
+      : `<span class="hs-status">${esc(component.signal)}</span>`;
+    const weight = isFlag
+      ? '<span class="muted">—</span>'
+      : (component.weight == null ? '<span class="hs-status">TBD</span>' : formatWeight(component.weight));
+    const influence = isFlag ? '<span class="muted">—</span>' : influenceCell(component);
+    return `<tr data-component="${esc(component.key)}" class="${rowClass}">
+      <td><div class="hs-component-name">${esc(component.name)}</div>${signal}</td>
+      <td>${weight}</td>
+      <td>${influence}</td>
+      <td>${sourceChips(component)}</td>
+      <td><span class="hs-status-pills">${statusBadge(component)}${generatorPill(component)}</span></td>
     </tr>`;
   }
 
@@ -283,7 +315,13 @@
     hero.className = `hs-score-hero hs-score-${band}`;
     value.textContent = String(shown);
     const coverage = state.score.coverage_pct;
-    note.textContent = coverage == null ? "" : `${coverage}% of weight scored`;
+    const parts = [];
+    if (state.score.score_zeroed) {
+      const names = (state.score.zeroed_by || []).filter(Boolean);
+      parts.push(names.length ? `Set to 0 by ${names.join(", ")}` : "Set to 0 by an override flag");
+    }
+    if (coverage != null) parts.push(`${coverage}% of weight scored`);
+    note.textContent = parts.join(" · ");
   }
 
   function renderScore() {
@@ -294,38 +332,43 @@
     const assigned = groups.reduce((sum, group) => sum + group.total, 0);
     const unassigned = Math.round((100 - assigned) * 100) / 100;
     $("hs-unassigned-weight").textContent = `Unassigned weight: ${formatWeight(unassigned)}`;
+    const overrides = score ? score.overrides : state.framework.overrides.map((row) => ({ ...row, latest: null }));
+    const flags = [...overrides].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    const anyOn = flags.some(flagIsOn);
+    if (anyOn !== flagsPanel.triggered) {
+      flagsPanel.open = anyOn;
+      flagsPanel.triggered = anyOn;
+    }
     const rows = [];
+    if (flags.length) {
+      rows.push(`<tr class="hs-pillar-row hs-flag-pillar${flagsPanel.open ? " open" : ""}" data-flag-toggle>
+        <th scope="rowgroup">
+          <button type="button" class="hs-flag-toggle" aria-expanded="${flagsPanel.open ? "true" : "false"}">
+            <span class="hs-flag-chevron" aria-hidden="true"></span>
+            Override flags
+          </button>
+        </th>
+        <td>—</td>
+        <td colspan="3"></td>
+      </tr>`);
+      for (const flag of flags) rows.push(componentRows(flag, !flagsPanel.open));
+    }
     for (const group of groups) {
       rows.push(pillarHeader(group.name, group.total));
-      for (const component of group.items) {
-        const rowClass = [
-          component.key === state.selected ? "active" : "",
-          component.deactivated ? "deactivated" : "",
-        ].filter(Boolean).join(" ");
-        rows.push(`<tr data-component="${esc(component.key)}" class="${rowClass}">
-          <td><div class="hs-component-name">${esc(component.name)}</div><span class="hs-status">${esc(component.signal)}</span></td>
-          <td>${component.weight == null ? '<span class="hs-status">TBD</span>' : formatWeight(component.weight)}</td>
-          <td>${influenceCell(component)}</td>
-          <td>${sourceChips(component)}</td>
-          <td><span class="hs-status-pills">${statusBadge(component)}${generatorPill(component)}</span></td>
-        </tr>`);
-      }
+      for (const component of group.items) rows.push(componentRows(component, false));
     }
     if (unassigned > 0) rows.push(pillarHeader("Unassigned", unassigned));
     $("hs-components-body").innerHTML = rows.join("");
+    const toggle = $("hs-components-body").querySelector("[data-flag-toggle]");
+    if (toggle) {
+      toggle.addEventListener("click", () => {
+        flagsPanel.open = !flagsPanel.open;
+        renderScore();
+      });
+    }
     for (const row of $("hs-components-body").querySelectorAll("tr[data-component]")) {
       row.addEventListener("click", () => selectComponent(row.dataset.component));
       row.addEventListener("contextmenu", (event) => openRowMenu(event, row.dataset.component));
-    }
-    const overrides = score ? score.overrides : state.framework.overrides.map((row) => ({ ...row, latest: null }));
-    $("hs-overrides-list").innerHTML = overrides
-      .map((item) => {
-        const raised = Boolean(item.latest && item.latest.effective_value);
-        return `<button type="button" class="hs-override${raised ? " raised" : ""}" data-component="${esc(item.key)}">${esc(item.name)}${raised ? " · raised" : ""}</button>`;
-      })
-      .join("");
-    for (const button of $("hs-overrides-list").querySelectorAll("button")) {
-      button.addEventListener("click", () => selectComponent(button.dataset.component));
     }
     if (state.selected) selectComponent(state.selected);
   }
