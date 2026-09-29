@@ -145,10 +145,14 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert sla["weight"] == 3
     escalation = next(row for row in framework["inputs"] if row["key"] == "escalation_rate")
     assert escalation["data_source"] == ["JIRA"]
-    assert escalation["metric-generator"] is None
+    assert escalation["metric-generator"] == "get_escalation_rate"
+    assert escalation["max_points"] == 2
+    assert escalation["status"] == "defined"
     volume = next(row for row in framework["inputs"] if row["key"] == "ticket_volume_trend")
     assert volume["data_source"] == ["JIRA"]
-    assert volume["metric-generator"] is None
+    assert volume["metric-generator"] == "get_ticket_volume_trend"
+    assert volume["max_points"] == 3
+    assert volume["status"] == "defined"
     assert "Attended" in summit["description"]
     known = {name.casefold() for name in framework["available_data_sources"]}
     assert {"salesforce", "cs report", "pendo", "aha"} <= known

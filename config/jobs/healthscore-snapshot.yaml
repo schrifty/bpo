@@ -28,3 +28,9 @@ steps:
   - name: snapshot-sla-adherence
     command: healthscore-snapshot
     component: sla_adherence
+  - name: snapshot-ticket-volume
+    command: healthscore-snapshot
+    component: ticket_volume_trend
+  - name: snapshot-escalation-rate
+    command: healthscore-snapshot
+    component: escalation_rate

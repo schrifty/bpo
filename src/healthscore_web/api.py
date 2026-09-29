@@ -21,7 +21,9 @@ from src.healthscore_web.framework import (
 )
 from src.healthscore_web.call_sentiment import CallSentimentGeneratorError
 from src.healthscore_web.meeting_cadence import MeetingCadenceGeneratorError
+from src.healthscore_web.escalation_rate import EscalationRateGeneratorError
 from src.healthscore_web.sla_adherence import SlaAdherenceGeneratorError
+from src.healthscore_web.ticket_volume_trend import TicketVolumeGeneratorError
 from src.healthscore_web.enhancement_engagement import EnhancementEngagementGeneratorError
 from src.healthscore_web.champion_login import ChampionLoginGeneratorError
 from src.healthscore_web.roi_multiple import RoiMultipleGeneratorError
@@ -29,7 +31,9 @@ from src.healthscore_web.summit_attendance import SummitAttendanceGeneratorError
 from src.healthscore_web.snapshot import (
     run_call_sentiment_snapshot,
     run_meeting_cadence_snapshot,
+    run_escalation_rate_snapshot,
     run_sla_adherence_snapshot,
+    run_ticket_volume_snapshot,
     run_enhancement_engagement_snapshot,
     run_champion_login_snapshot,
     run_roi_multiple_snapshot,
@@ -662,6 +666,48 @@ async def api_generate_call_sentiment(request: Request) -> Response:
         logger.exception("Health Score call_sentiment generate failed")
         return JSONResponse(
             {"ok": False, "error": f"call_sentiment generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_ticket_volume_trend(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "ticket_volume_trend")
+    if denied:
+        return denied
+    try:
+        result = run_ticket_volume_snapshot(dry_run=False)
+    except TicketVolumeGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score ticket_volume_trend generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"ticket_volume_trend generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_escalation_rate(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "escalation_rate")
+    if denied:
+        return denied
+    try:
+        result = run_escalation_rate_snapshot(dry_run=False)
+    except EscalationRateGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score escalation_rate generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"escalation_rate generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

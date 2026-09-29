@@ -17,7 +17,8 @@ import logging
 from datetime import date
 from typing import Any
 
-from src.healthscore_web.store import connect, period_key_for, upsert_reading
+from src.healthscore_web.jsm_match import JsmMatchError, monthly_as_ofs, resolve_organizations
+from src.healthscore_web.store import connect, period_key_for, periods_for_metric, upsert_reading
 
 logger = logging.getLogger(__name__)
 
@@ -88,19 +89,11 @@ def adherence_percent(issues: list[dict[str, Any]]) -> tuple[float | None, int, 
     return round(100 * met / measured, 1), met, measured
 
 
-def _match_terms(entity: dict[str, Any]) -> list[str]:
-    terms: list[str] = []
-    for key in ("entity_name", "parent_name"):
-        raw = str(entity.get(key) or "").strip()
-        if raw:
-            terms.append(raw)
-    return terms
-
-
 def load_help_sla_issues(
     *,
     client: Any | None = None,
     as_of: date | None = None,
+    allow_empty: bool = False,
 ) -> dict[str, Any]:
     from src.jira_client import JiraClient
 
@@ -118,7 +111,7 @@ def load_help_sla_issues(
             f"Jira HELP SLA adherence fetch failed: {payload['error']}"
         )
     issues = payload.get("issues")
-    if not isinstance(issues, list) or not issues:
+    if not isinstance(issues, list) or (not issues and not allow_empty):
         raise SlaAdherenceGeneratorError(
             "Jira HELP returned no resolved tickets in the trailing 30 days"
         )
@@ -147,21 +140,10 @@ def get_sla_adherence(
         issues = payload["issues"]
         truncated = bool(payload.get("truncated"))
     if organizations_by_entity is None:
-        from src.jira_client import JiraClient
-
-        jira = client if client is not None else JiraClient()
-        organizations_by_entity = {}
-        for entity in entities:
-            entity_id = str(entity["id"])
-            name = str(entity.get("name") or "").strip()
-            try:
-                organizations_by_entity[entity_id] = jira.resolve_jsm_organizations(
-                    name, _match_terms(entity) or None
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise SlaAdherenceGeneratorError(
-                    f"JSM organization match failed for {name or entity_id}: {exc}"
-                ) from exc
+        try:
+            organizations_by_entity = resolve_organizations(entities, client=client)
+        except JsmMatchError as exc:
+            raise SlaAdherenceGeneratorError(str(exc)) from exc
     by_org: dict[str, list[dict[str, Any]]] = {}
     for issue in issues:
         for org in _issue_organizations(issue):
@@ -262,4 +244,82 @@ def get_sla_adherence(
         "truncated": truncated,
         "warnings": warnings,
         "readings": readings,
+    }
+
+
+def backfill_sla_adherence(
+    *,
+    months: int,
+    entities: list[dict[str, Any]],
+    as_of: date | None = None,
+    issues_by_as_of: dict[str, list[dict[str, Any]]] | None = None,
+    organizations_by_entity: dict[str, list[str]] | None = None,
+    client: Any | None = None,
+    persist: bool = False,
+    only_missing: bool = True,
+    generator: str = GENERATOR_NAME,
+) -> dict[str, Any]:
+    """Score the trailing 30 days ending on each of the newest ``months`` snapshot dates."""
+    if not entities:
+        raise SlaAdherenceGeneratorError(
+            "Salesforce Customer Entity inventory is empty; cannot generate sla_adherence"
+        )
+    today = as_of or date.today()
+    try:
+        days = monthly_as_ofs(today, months)
+    except JsmMatchError as exc:
+        raise SlaAdherenceGeneratorError(str(exc)) from exc
+    existing: set[str] = set()
+    if only_missing and persist:
+        conn = connect()
+        try:
+            existing = set(periods_for_metric(conn, METRIC_NAME))
+        finally:
+            conn.close()
+    pending = [day for day in days if period_key_for(GRAIN, day) not in existing]
+    skipped = [period_key_for(GRAIN, day) for day in days if period_key_for(GRAIN, day) in existing]
+    if pending and organizations_by_entity is None:
+        try:
+            organizations_by_entity = resolve_organizations(entities, client=client)
+        except JsmMatchError as exc:
+            raise SlaAdherenceGeneratorError(str(exc)) from exc
+    scored: list[dict[str, Any]] = []
+    for day in pending:
+        key = period_key_for(GRAIN, day)
+        if issues_by_as_of is not None:
+            issues = list(issues_by_as_of.get(day.isoformat(), []))
+            truncated = False
+        else:
+            payload = load_help_sla_issues(client=client, as_of=day, allow_empty=True)
+            issues = payload["issues"]
+            truncated = bool(payload.get("truncated"))
+        result = get_sla_adherence(
+            entities=entities,
+            issues=issues,
+            organizations_by_entity=organizations_by_entity,
+            truncated=truncated,
+            client=client,
+            as_of=day,
+            persist=persist,
+            generator=generator,
+        )
+        scored.append(
+            {
+                "period_key": key,
+                "as_of": day.isoformat(),
+                "scored": result.get("scored"),
+                "unscored": result.get("unscored"),
+                "ok": result.get("ok"),
+            }
+        )
+    return {
+        "ok": True,
+        "generator": GENERATOR_NAME,
+        "metric_name": METRIC_NAME,
+        "grain": GRAIN,
+        "months_requested": months,
+        "months_scored": len(scored),
+        "months_skipped": skipped,
+        "dry_run": not persist,
+        "months": scored,
     }

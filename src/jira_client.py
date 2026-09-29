@@ -1395,6 +1395,64 @@ class JiraClient:
             "truncated": jql_total is not None and jql_total > len(issues),
         }
 
+    def list_help_created_issues(
+        self,
+        *,
+        start: date,
+        end: date,
+        max_results: int | None = None,
+    ) -> dict[str, Any]:
+        """HELP tickets created from ``start`` through ``end``, inclusive.
+
+        Outage and Healthcheck labels are excluded. ``end`` is the last
+        included calendar day.
+        """
+        if end < start:
+            return {
+                "error": "end is before start",
+                "project": "HELP",
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            }
+        cap = max_results if max_results is not None else help_trends_max_results()
+        end_exclusive = end + timedelta(days=1)
+        jql = (
+            f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} "
+            f'AND created >= "{start.isoformat()}" AND created < "{end_exclusive.isoformat()}" '
+            "ORDER BY created ASC"
+        )
+        jql_total = self._jql_match_total(jql)
+        fields = list(_CUSTOMER_TICKET_SLIDE_FIELDS)
+        if SEVERITY_FIELD not in fields:
+            fields.append(SEVERITY_FIELD)
+        try:
+            raw = self._search(
+                jql,
+                max_results=cap,
+                fields=fields,
+                data_description=(
+                    f"HELP created issues ({start.isoformat()} through {end.isoformat()})"
+                ),
+            )
+        except Exception as exc:
+            logger.warning("HELP created-issue fetch failed: %s", exc)
+            return {
+                "error": str(exc),
+                "project": "HELP",
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            }
+        issues = [self._normalize_issue(issue) for issue in raw]
+        return {
+            "issues": issues,
+            "project": "HELP",
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "jql_total": jql_total,
+            "fetch_cap": cap,
+            "truncated": jql_total is not None and jql_total > len(issues),
+        }
+
     def help_salesforce_entity_site_scoped_clause(
         self,
         entity_row: dict[str, Any],

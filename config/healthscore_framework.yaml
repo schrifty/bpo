@@ -515,21 +515,24 @@ inputs:
 - key: ticket_volume_trend
   pillar: Support Experience
   name: Ticket volume & trend
-  description: Number of Jira HELP tickets the entity opened in the trailing 90 days and the percent
-    change from the 90 days before. A spike to three times the prior period is proposed to score 0;
-    the other bands need data before they can be set.
+  description: Percent change in Jira HELP tickets the entity opened in the trailing 90 days versus
+    the 90 days before. Tickets are attributed by JSM organization, and Outage and Healthcheck
+    labels are excluded. Three times the prior window, or any tickets when the prior window had
+    none, scores 0. Any smaller change, including no tickets in either window, scores 3. No JSM
+    organization match stays unscored.
   signal: leading
-  metric: 90-day ticket count and percent change
-  scoring: Proposed 3x spike=0; remaining points and threshold need data
-  max_points: null
+  metric: Percent change in HELP tickets opened, trailing 90 days vs the 90 days before
+  scoring: 3x prior or no baseline with new tickets=0; otherwise=3; no JSM organization stays unscored
+  max_points: 3
   weight: 3
   data_source:
   - JIRA
   grain: monthly
   automation: automated
-  status: needs_definition
+  status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_ticket_volume_trend
+  unit: percent
   tags:
   - customer-success
   - healthscore
@@ -564,20 +567,25 @@ inputs:
 - key: escalation_rate
   pillar: Support Experience
   name: Escalation rate & severity mix
-  description: Share of the entity's Jira HELP tickets in the month that were Sev-1 or Sev-2, and the
-    share labeled jira_escalated. Point thresholds are not yet defined.
+  description: Higher of two shares of the entity's Jira HELP tickets created in the calendar month
+    named by the reading. One share is Bug Severity S1 or S2. The other is the jira_escalated label.
+    Outage and Healthcheck are excluded. Tickets are attributed by JSM organization. Both shares
+    at 0, including a month with no tickets, scores 2. Any S1, S2, or jira_escalated ticket scores
+    0. No JSM organization match stays unscored.
   signal: leading
-  metric: Sev-1/2 percent and escalated percent
-  scoring: Point thresholds need definition
-  max_points: null
+  metric: Higher of Sev-1/2 percent and jira_escalated percent
+  scoring: Both shares 0=2; any S1/S2 or jira_escalated=0; no JSM organization stays unscored
+  max_points: 2
+  target: 0
+  target_direction: lower
   weight: 2
   data_source:
   - JIRA
   grain: monthly
   automation: automated
-  status: needs_definition
+  status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_escalation_rate
   unit: percent
   tags:
   - customer-success

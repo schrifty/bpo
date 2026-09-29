@@ -124,6 +124,27 @@ tickets resolved in the trailing 30 days with a completed time-to-first-response
 or time-to-resolution cycle, the percent that did not breach. Tickets are
 attributed by JSM organization. 90% or more scores 3, below that scores 0.
 No organization match or no measured cycle stays unscored.
+`--history-months N` scores that 30-day window on each of the newest N
+snapshot dates (today, then prior month-ends) and skips periods already stored.
+
+**Ticket volume & trend** (`get_ticket_volume_trend`) is the percent change in
+HELP tickets opened in the trailing 90 days versus the 90 days before, by JSM
+organization, excluding Outage and Healthcheck. Three times the prior window,
+or any tickets when the prior window had none, scores 0. Any smaller change,
+including no tickets in either window, scores 3. No organization match stays
+unscored.
+
+**Escalation rate & severity mix** (`get_escalation_rate`) is the higher of
+the Bug Severity S1/S2 share and the `jira_escalated` share of HELP tickets
+created in the calendar month named by the reading. Both shares at 0,
+including a month with no tickets, scores 2. Any S1, S2, or escalated ticket
+scores 0. No organization match stays unscored.
+
+```bash
+cortex healthscore-snapshot --component sla_adherence --history-months 6
+cortex healthscore-snapshot --component ticket_volume_trend --history-months 6
+cortex healthscore-snapshot --component escalation_rate --history-months 6
+```
 
 ### History depth
 
@@ -189,6 +210,8 @@ weights, sources, and governance rules are validated.
 | POST | `/healthscore/api/generate/enhancement_engagement` | Run the Aha enhancement engagement generator |
 | POST | `/healthscore/api/generate/meeting_cadence` | Run the Chorus meeting cadence generator |
 | POST | `/healthscore/api/generate/sla_adherence` | Run the JSM HELP SLA adherence generator |
+| POST | `/healthscore/api/generate/ticket_volume_trend` | Run the HELP ticket-volume generator |
+| POST | `/healthscore/api/generate/escalation_rate` | Run the HELP escalation-rate generator |
 | POST | `/healthscore/api/generate/call_sentiment` | Run the Chorus call-sentiment generator |
 
 **Call sentiment / tone** (`get_call_sentiment`) scores finished Chorus meetings

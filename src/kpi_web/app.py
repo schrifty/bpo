@@ -88,6 +88,16 @@ def create_app(
             methods=["POST"],
         ),
         Route(
+            "/healthscore/api/generate/ticket_volume_trend",
+            healthscore_api.api_generate_ticket_volume_trend,
+            methods=["POST"],
+        ),
+        Route(
+            "/healthscore/api/generate/escalation_rate",
+            healthscore_api.api_generate_escalation_rate,
+            methods=["POST"],
+        ),
+        Route(
             "/healthscore/api/generate/call_sentiment",
             healthscore_api.api_generate_call_sentiment,
             methods=["POST"],
