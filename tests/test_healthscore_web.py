@@ -302,13 +302,14 @@ def test_healthscore_routes_and_manual_component_history(
     assert len(body["observations"]) == 2
 
 
-def test_healthscore_report_lists_entities_lowest_score_first(
+def test_healthscore_report_lists_entities_by_weighted_score_descending(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     entities = [
         {**_entities()[0], "id": "001-red", "name": "Red Entity"},
         {**_entities()[0], "id": "001-yellow", "name": "Yellow Entity"},
         {**_entities()[0], "id": "001-green", "name": "Green Entity"},
+        {**_entities()[0], "id": "001-wide", "name": "Wide Entity"},
         {**_entities()[0], "id": "001-none", "name": "Unscored Entity"},
     ]
     monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", lambda: entities)
@@ -319,10 +320,18 @@ def test_healthscore_report_lists_entities_lowest_score_first(
     assert "Healthscore report" in client.get("/healthscore/report").text
 
     _login(client)
-    # usage_level weight 6, max 6 → points/6*100.
-    for entity_id, points in (("001-red", 0), ("001-yellow", 4), ("001-green", 6)):
+    # usage_level weight 6, max 6. Wide also fills champion_turnover (4) and
+    # meeting_cadence (2), so its contribution is 9 against Green's 6 even
+    # though its healthscore is lower.
+    for entity_id, points in (("001-red", 0), ("001-yellow", 4), ("001-green", 6), ("001-wide", 3)):
         saved = client.put(
             f"/healthscore/api/entities/{entity_id}/components/usage_level",
+            json={"as_of": "2026-09-30", "points": points},
+        )
+        assert saved.status_code == 200, saved.text
+    for metric, points in (("champion_turnover", 4), ("meeting_cadence", 2)):
+        saved = client.put(
+            f"/healthscore/api/entities/001-wide/components/{metric}",
             json={"as_of": "2026-09-30", "points": points},
         )
         assert saved.status_code == 200, saved.text
@@ -331,15 +340,18 @@ def test_healthscore_report_lists_entities_lowest_score_first(
     assert report.status_code == 200, report.text
     body = report.json()
     assert [row["name"] for row in body["entities"]] == [
-        "Red Entity",
-        "Yellow Entity",
+        "Wide Entity",
         "Green Entity",
+        "Yellow Entity",
+        "Red Entity",
         "Unscored Entity",
     ]
-    assert [row["band"] for row in body["entities"]] == ["red", "yellow", "green", None]
-    assert [row["shown_score"] for row in body["entities"]] == [0, 67, 100, None]
-    assert body["counts"] == {"red": 1, "yellow": 1, "green": 1, "unscored": 1}
-    assert body["entity_count"] == 4
+    weighted = [row["weighted_score"] for row in body["entities"]]
+    assert weighted == [9, 6, 4, 0, None]
+    assert body["entities"][0]["shown_score"] < body["entities"][1]["shown_score"]
+    assert [row["band"] for row in body["entities"]] == ["green", "green", "yellow", "red", None]
+    assert body["counts"] == {"red": 1, "yellow": 1, "green": 2, "unscored": 1}
+    assert body["entity_count"] == 5
 
 
 def test_healthscore_rejects_non_salesforce_entity_and_excess_points(

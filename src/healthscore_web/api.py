@@ -259,7 +259,12 @@ async def report_page(request: Request) -> Response:
 
 
 async def api_report(request: Request) -> Response:
-    """Every active entity, lowest score first (red, then yellow, then green)."""
+    """Every active entity, highest healthscore times weight scored first.
+
+    Healthscore is the 0–100 score on covered inputs. Weight scored is the
+    covered weight. Their product is that entity's contribution, so a broader
+    scored book ranks above a thin perfect score. Unscored entities stay last.
+    """
     try:
         require_user(request)
     except KPIWebAuthError as exc:
@@ -290,13 +295,15 @@ async def api_report(request: Request) -> Response:
                 "shown_score": shown_score(score),
                 "band": score_band(score),
                 "coverage_pct": numbers["coverage_pct"],
+                "weighted_score": (
+                    None if score is None else round(float(numbers["contribution"]), 4)
+                ),
             }
         )
     rows.sort(
         key=lambda row: (
-            row["shown_score"] is None,
-            row["shown_score"] if row["shown_score"] is not None else 0,
-            row["score"] if row["score"] is not None else 0,
+            row["weighted_score"] is None,
+            -(row["weighted_score"] if row["weighted_score"] is not None else 0),
             row["name"].casefold(),
         )
     )
