@@ -167,6 +167,7 @@
 
   function generatorPill(component) {
     if (!component || !Object.prototype.hasOwnProperty.call(component, "pillar")) return "";
+    if (String(component.automation || "").toLowerCase() === "manual") return "";
     const generator = component["metric-generator"];
     if (generator && String(generator).trim()) return "";
     return `<span class="hs-source-badge no-generator" title="This input has no metric generator."><i class="dot no-generator"></i>No generator</span>`;
