@@ -165,6 +165,13 @@
     return `<span class="hs-source-badge ${esc(key)}"><i class="dot ${esc(key)}"></i>${esc(label)}</span>`;
   }
 
+  function generatorPill(component) {
+    if (!component || !Object.prototype.hasOwnProperty.call(component, "pillar")) return "";
+    const generator = component["metric-generator"];
+    if (generator && String(generator).trim()) return "";
+    return `<span class="hs-source-badge no-generator" title="This input has no metric generator."><i class="dot no-generator"></i>No generator</span>`;
+  }
+
   function closeRowMenu() {
     const menu = $("hs-row-menu");
     if (!menu) return;
@@ -299,7 +306,7 @@
           <td>${component.weight == null ? '<span class="hs-status">TBD</span>' : formatWeight(component.weight)}</td>
           <td>${influenceCell(component)}</td>
           <td>${sourceChips(component)}</td>
-          <td>${statusBadge(component)}</td>
+          <td><span class="hs-status-pills">${statusBadge(component)}${generatorPill(component)}</span></td>
         </tr>`);
       }
     }
@@ -462,6 +469,7 @@
       <div class="hs-meta-row">
         ${definition.signal ? `<span class="hs-status">${esc(definition.signal)}</span>` : '<span class="hs-status">override</span>'}
         ${statusBadge(definition)}
+        ${generatorPill(definition)}
       </div>
       <dl class="hs-detail-grid">
         ${isOverride ? "" : `<dt>Pillar</dt><dd id="hs-pillar-cell">${pillarCell(definition)}</dd>`}

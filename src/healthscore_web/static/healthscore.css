@@ -159,6 +159,7 @@
 .dot.manual { background: #315f9c; }
 .dot.blocked { background: var(--danger); }
 .dot.deactivated { background: #8a8a8a; }
+.dot.no-generator { background: var(--danger); }
 
 .hs-table-scroll {
   flex: 1;
@@ -300,6 +301,18 @@
 .hs-source-badge.deactivated {
   background: #eee;
   color: #5c5c5c;
+}
+
+.hs-source-badge.no-generator {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.hs-status-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
 }
 
 .hs-row-menu {
