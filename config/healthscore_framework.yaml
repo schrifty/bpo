@@ -783,6 +783,7 @@ overrides:
     it is on the health score is 0.
   data_source:
   - Salesforce
+  - Web Research
   grain: weekly
   automation: automated
   status: defined
@@ -814,6 +815,7 @@ overrides:
     The scan uses utterance text only. A month with no such mention leaves the flag off.
   data_source:
   - Chorus
+  - Web Research
   grain: monthly
   automation: automated
   status: defined

@@ -130,7 +130,7 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
         row for row in framework["overrides"] if row["key"] == "champion_departure_external"
     )
     assert departure["metric-generator"] == "get_champion_turnover"
-    assert departure["data_source"] == ["Salesforce"]
+    assert departure["data_source"] == ["Salesforce", "Web Research"]
     assert departure["automation"] == "automated"
     assert departure["status"] == "defined"
     assert departure["grain"] == "weekly"

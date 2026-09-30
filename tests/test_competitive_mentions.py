@@ -55,7 +55,7 @@ def _score(engagements: list[dict], transcripts: dict[str, str]) -> dict:
 
 def test_framework_competitive_mentions_uses_chorus_only() -> None:
     component = next(row for row in load_framework()["overrides"] if row["key"] == "competitive_mentions")
-    assert component["data_source"] == ["Chorus"]
+    assert component["data_source"] == ["Chorus", "Web Research"]
     assert component["metric-generator"] == "get_competitive_mentions"
     assert component["status"] == "defined"
     assert "Gmail" not in component["description"]
