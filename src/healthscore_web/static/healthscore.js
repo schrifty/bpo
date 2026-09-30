@@ -312,7 +312,7 @@
     return value != null && value !== "" && Number(value) !== 0;
   }
 
-  function componentRows(component, collapsed) {
+  function componentRows(component, collapsed, group) {
     const isFlag = !Object.prototype.hasOwnProperty.call(component, "pillar");
     const on = isFlag && flagIsOn(component);
     const rowClass = [
@@ -328,7 +328,7 @@
       ? '<span class="muted">—</span>'
       : (component.weight == null ? '<span class="hs-status">TBD</span>' : formatWeight(component.weight));
     const influence = isFlag ? '<span class="muted">—</span>' : influenceCell(component);
-    return `<tr data-component="${esc(component.key)}" class="${rowClass}">
+    return `<tr data-component="${esc(component.key)}" data-group="${esc(group)}" class="${rowClass}">
       <td><div class="hs-component-name">${esc(component.name)}</div>${signal}</td>
       <td>${weight}</td>
       <td>${influence}</td>
@@ -389,21 +389,16 @@
     const rows = [];
     if (flags.length) {
       rows.push(pillarHeader(FLAGS_PILLAR, null, { toggle: true, flag: true }));
-      for (const flag of flags) rows.push(componentRows(flag, !openPillars.has(FLAGS_PILLAR)));
+      for (const flag of flags) rows.push(componentRows(flag, !openPillars.has(FLAGS_PILLAR), FLAGS_PILLAR));
     }
     for (const group of groups) {
       rows.push(pillarHeader(group.name, group.total, { toggle: true, influence: pillarInfluence(group.items) }));
-      for (const component of group.items) rows.push(componentRows(component, !openPillars.has(group.name)));
+      for (const component of group.items) rows.push(componentRows(component, !openPillars.has(group.name), group.name));
     }
     if (unassigned > 0) rows.push(pillarHeader("Unassigned", unassigned));
     $("hs-components-body").innerHTML = rows.join("");
     for (const header of $("hs-components-body").querySelectorAll("tr[data-pillar]")) {
-      header.addEventListener("click", () => {
-        const name = header.dataset.pillar;
-        if (openPillars.has(name)) openPillars.delete(name);
-        else openPillars.add(name);
-        renderScore();
-      });
+      header.addEventListener("click", () => togglePillar(header));
     }
     for (const row of $("hs-components-body").querySelectorAll("tr[data-component]")) {
       row.addEventListener("click", () => selectComponent(row.dataset.component));
@@ -411,6 +406,20 @@
     }
     if (state.selected) selectComponent(state.selected);
     else showDetail(false);
+  }
+
+  function togglePillar(header) {
+    // Flip the rows in place so the triangle can rotate instead of being rebuilt.
+    const name = header.dataset.pillar;
+    const open = !openPillars.has(name);
+    if (open) openPillars.add(name);
+    else openPillars.delete(name);
+    header.classList.toggle("open", open);
+    const button = header.querySelector(".hs-pillar-toggle");
+    if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
+    for (const row of $("hs-components-body").querySelectorAll("tr[data-component]")) {
+      if (row.dataset.group === name) row.classList.toggle("hs-collapsed", !open);
+    }
   }
 
   function showDetail(visible) {

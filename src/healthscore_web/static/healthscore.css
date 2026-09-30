@@ -228,8 +228,11 @@
 .hs-components tbody tr.hs-pillar-row td {
   position: static;
   z-index: auto;
-  padding-top: 0.5rem;
-  padding-bottom: 0.5rem;
+  /* Fixed height so bars with a score track match bars without one. */
+  height: 2.4rem;
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
   line-height: 1;
   vertical-align: middle;
   background: var(--accent-soft);
@@ -277,6 +280,14 @@
   border-bottom: 0.28rem solid transparent;
   border-left: 0.4rem solid currentColor;
   transform-origin: 40% 50%;
+  transition: transform 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hs-pillar-chevron,
+  .hs-pillar-bullet {
+    transition: none;
+  }
 }
 
 .hs-pillar-row.open .hs-pillar-chevron {
