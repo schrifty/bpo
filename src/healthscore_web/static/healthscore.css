@@ -69,6 +69,15 @@
   color: var(--muted);
 }
 
+/* An override condition holds the score at 0, so only the score and its reason are shown. */
+.hs-score-zeroed {
+  grid-template-columns: auto;
+}
+
+.hs-score-zeroed .hs-score-stat:not(.hs-score-result) {
+  display: none;
+}
+
 .hs-score-red {
   background: #fde8e8;
   border-color: #c0392b;
@@ -252,6 +261,25 @@
 .hs-components tbody tr.hs-flag-pillar td {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+.hs-components tbody tr.hs-flag-row.on td {
+  background: #d50000;
+  color: #fff;
+}
+
+.hs-components tbody tr.hs-flag-row.on .hs-component-name,
+.hs-components tbody tr.hs-flag-row.on .muted,
+.hs-components tbody tr.hs-flag-row.on .hs-as-of {
+  color: #fff;
+}
+
+.hs-components tbody tr.hs-flag-row.on .hs-spark polyline {
+  stroke: #fff;
+}
+
+.hs-components tbody tr.hs-flag-row.on.active {
+  box-shadow: inset 3px 0 0 #fff;
 }
 
 .hs-pillar-toggle {

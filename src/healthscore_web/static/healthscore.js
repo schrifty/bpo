@@ -321,13 +321,13 @@
     const on = isFlag && flagIsOn(component);
     const rowClass = [
       isFlag ? "hs-flag-row" : "",
+      on ? "on" : "",
       collapsed ? "hs-collapsed" : "",
       component.key === state.selected ? "active" : "",
       component.deactivated ? "deactivated" : "",
     ].filter(Boolean).join(" ");
-    const signal = isFlag
-      ? (on ? '<span class="hs-status">On</span>' : "")
-      : `<span class="hs-status">${esc(component.signal)}</span>`;
+    // A raised flag is shown by the red row, so it carries no signal pill.
+    const signal = isFlag ? "" : `<span class="hs-status">${esc(component.signal)}</span>`;
     const weight = isFlag
       ? '<span class="muted">—</span>'
       : (component.weight == null ? '<span class="hs-status">TBD</span>' : formatWeight(component.weight));
@@ -368,15 +368,41 @@
       ? 0
       : Math.round((Number.isFinite(contribution) ? contribution : 0) / covered * 100);
     const band = health <= 33 ? "red" : health <= 67 ? "yellow" : "green";
-    hero.className = `hs-score-hero hs-score-${band}`;
+    const zeroed = Boolean(score.score_zeroed);
+    // While an override condition holds the score at 0, the scored-weight stat is beside the point.
+    hero.className = `hs-score-hero hs-score-${band}${zeroed ? " hs-score-zeroed" : ""}`;
     coverageEl.textContent = `${coverageShown}%`;
     healthEl.textContent = String(health);
-    if (state.score.score_zeroed) {
-      const names = (state.score.zeroed_by || []).filter(Boolean);
-      note.textContent = names.length ? `Set to 0 by ${names.join(", ")}` : "Set to 0 by an override condition";
-    } else {
-      note.textContent = "";
+    note.textContent = zeroed ? zeroedNote(score) : "";
+  }
+
+  // What each raised flag found: people who left, competitors named on calls.
+  const FLAG_DETAILS = {
+    champion_departure_external: (meta) => (Array.isArray(meta.departures) ? meta.departures : [])
+      .map((event) => String(event && event.name || "").trim()),
+    competitive_mentions: (meta) => (Array.isArray(meta.competitors) ? meta.competitors : [])
+      .map((name) => String(name || "").trim()),
+  };
+
+  function flagDetails(flag) {
+    const reader = FLAG_DETAILS[flag.key];
+    const meta = flag.latest && flag.latest.meta;
+    if (!reader || !meta || typeof meta !== "object") return [];
+    const found = [];
+    for (const item of reader(meta)) {
+      if (item && !found.includes(item)) found.push(item);
     }
+    return found;
+  }
+
+  function zeroedNote(score) {
+    const raised = (score.overrides || []).filter(flagIsOn);
+    const parts = (score.zeroed_by || []).filter(Boolean).map((label) => {
+      const flag = raised.find((row) => row.name === label);
+      const details = flag ? flagDetails(flag) : [];
+      return details.length ? `${label}: ${details.join(", ")}` : label;
+    });
+    return parts.length ? `Set to 0 by ${parts.join(", ")}` : "Set to 0 by an override condition";
   }
 
   function renderScore() {
@@ -390,11 +416,9 @@
     const overrides = score ? score.overrides : state.framework.overrides.map((row) => ({ ...row, latest: null }));
     const flags = [...overrides].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     const anyOn = flags.some(flagIsOn);
-    if (anyOn !== flagsTriggered) {
-      if (anyOn) openPillars.add(FLAGS_PILLAR);
-      else openPillars.delete(FLAGS_PILLAR);
-      flagsTriggered = anyOn;
-    }
+    if (anyOn) openPillars.add(FLAGS_PILLAR);
+    else if (flagsTriggered) openPillars.delete(FLAGS_PILLAR);
+    flagsTriggered = anyOn;
     const rows = [];
     if (flags.length) {
       rows.push(pillarHeader(FLAGS_PILLAR, null, { toggle: true, flag: true }));

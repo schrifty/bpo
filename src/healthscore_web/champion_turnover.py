@@ -52,6 +52,7 @@ CHAMPION_BUYING_ROLES = ("Champion", "Technical Buyer", "Executive Sponsor")
 ECONOMIC_BUYER_ROLES = ("Budget Holder", "Decision Maker")
 CONTACT_FIELDS = (
     "Id",
+    "Name",
     "AccountId",
     "Buyer_Role_HubSpot_Sync__c",
     "User_Role__c",
@@ -259,6 +260,7 @@ def get_champion_turnover(
                 points = None
             else:
                 sponsor_id = str((sponsor or {}).get("Executive_Sponsor__c") or "").strip()
+                sponsor_name = str((sponsor or {}).get("Executive_Sponsor_First_Name__c") or "").strip()
                 tracked = _tracked_people(entity_id, people, sponsor_id, departed, qualifying)
                 events = _turnover_events(
                     entity,
@@ -268,6 +270,7 @@ def get_champion_turnover(
                     sponsor_id,
                     window_start,
                     window_end,
+                    sponsor_name=sponsor_name,
                 )
                 error = None
                 points = departure_points(events)
@@ -499,17 +502,19 @@ def _turnover_events(
     sponsor_id: str,
     week_start: date,
     week_end: date,
+    sponsor_name: str = "",
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     entity_id = str(entity.get("id") or "")
     for contact_id, roles in tracked.items():
         is_sponsor = bool(sponsor_id) and _same_id(contact_id, sponsor_id)
+        name = _person_name(contacts, contact_id, sponsor=is_sponsor, sponsor_name=sponsor_name)
         for row in _lookup_history(history_by_contact, contact_id):
             kind = _history_kind(row, entity, sponsor=is_sponsor)
             if kind is None:
                 continue
-            _add_event(events, seen, contact_id, kind, roles, _history_detail(row, kind))
+            _add_event(events, seen, contact_id, kind, roles, _history_detail(row, kind), name)
         contact = _lookup_id(contacts, contact_id)
         if not isinstance(contact, dict):
             continue
@@ -522,7 +527,7 @@ def _turnover_events(
         ):
             started = _optional_date(contact.get(field), field=field)
             if started is not None and week_start <= started <= week_end:
-                _add_event(events, seen, contact_id, kind, roles, started.isoformat())
+                _add_event(events, seen, contact_id, kind, roles, started.isoformat(), name)
     events.sort(key=lambda item: (item["contact_id"], item["kind"]))
     return events
 
@@ -548,6 +553,23 @@ def _history_detail(row: dict[str, Any], kind: str) -> str:
     return ""
 
 
+def _person_name(
+    contacts: dict[str, dict[str, Any]],
+    contact_id: str,
+    *,
+    sponsor: bool,
+    sponsor_name: str,
+) -> str:
+    """Contact name, or the executive sponsor's first name when that is all Salesforce has."""
+    contact = _lookup_id(contacts, contact_id)
+    name = str(contact.get("Name") or "").strip() if isinstance(contact, dict) else ""
+    if name:
+        return name
+    if sponsor:
+        return str(sponsor_name or "").strip()
+    return ""
+
+
 def _add_event(
     events: list[dict[str, Any]],
     seen: set[tuple[str, str]],
@@ -555,19 +577,22 @@ def _add_event(
     kind: str,
     roles: set[str],
     detail: str,
+    name: str = "",
 ) -> None:
     key = (contact_id, kind)
     if key in seen:
         return
     seen.add(key)
-    events.append(
-        {
-            "contact_id": contact_id,
-            "kind": kind,
-            "roles": sorted(roles),
-            "detail": detail,
-        }
-    )
+    event = {
+        "contact_id": contact_id,
+        "kind": kind,
+        "roles": sorted(roles),
+        "detail": detail,
+    }
+    cleaned = str(name or "").strip()
+    if cleaned:
+        event["name"] = cleaned
+    events.append(event)
 
 
 def _contacts_by_account(contacts: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

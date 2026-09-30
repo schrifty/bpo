@@ -153,6 +153,23 @@ def test_title_change_does_not_count_as_leaving() -> None:
     assert by_id[OTHER]["points"] == 5
 
 
+def test_departure_records_the_contact_name() -> None:
+    contact = _contact("003-buyer", OTHER, user_role="Buyer")
+    contact["Name"] = "Alex Morgan"
+    by_id = _score([contact], [_history("003-buyer", "Account", SITE, OTHER)])
+    assert by_id[SITE]["meta"]["departures"][0]["name"] == "Alex Morgan"
+
+
+def test_sponsor_first_name_fills_in_when_the_contact_has_no_name() -> None:
+    contact = _contact("003000000000010AAA", OTHER, user_role="Buyer")
+    left = _score(
+        [contact],
+        [_history("003000000000010AAA", "Account", SITE, OTHER)],
+        sponsors=[{"Id": SITE, "Executive_Sponsor__c": "003000000000010AAA", "Executive_Sponsor_First_Name__c": "Riley"}],
+    )
+    assert left[SITE]["meta"]["departures"][0]["name"] == "Riley"
+
+
 def test_buyer_who_left_the_account_scores_minus_five_once() -> None:
     by_id = _score(
         [_contact("003-buyer", OTHER, user_role="Buyer")],
