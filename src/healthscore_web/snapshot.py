@@ -25,6 +25,14 @@ from src.healthscore_web.premium_anchor_expansion import (
     METRIC_NAME as PREMIUM_ANCHOR_EXPANSION_METRIC,
     get_premium_anchor_expansion,
 )
+from src.healthscore_web.time_to_renewal import (
+    METRIC_NAME as TIME_TO_RENEWAL_METRIC,
+    get_time_to_renewal,
+)
+from src.healthscore_web.contract_value_trend import (
+    METRIC_NAME as CONTRACT_VALUE_TREND_METRIC,
+    get_contract_value_trend,
+)
 from src.healthscore_web.champion_login import (
     METRIC_NAME as CHAMPION_LOGIN_METRIC,
     ChampionLoginGeneratorError,
@@ -106,6 +114,8 @@ SUPPORTED = (
     EXECUTIVE_SPONSORSHIP_METRIC,
     MULTITHREADING_DEPTH_METRIC,
     PREMIUM_ANCHOR_EXPANSION_METRIC,
+    TIME_TO_RENEWAL_METRIC,
+    CONTRACT_VALUE_TREND_METRIC,
     MEETING_CADENCE_METRIC,
     SLA_ADHERENCE_METRIC,
     TICKET_VOLUME_METRIC,
@@ -481,6 +491,42 @@ def run_premium_anchor_expansion_snapshot(
     )
 
 
+def run_time_to_renewal_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    contracts: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_time_to_renewal(
+        entities=entities,
+        contracts=contracts,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
+def run_contract_value_trend_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    opportunities: list[dict[str, Any]] | None = None,
+    parents: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_contract_value_trend(
+        entities=entities,
+        opportunities=opportunities,
+        parents=parents,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
 def run_multithreading_depth_snapshot(
     *,
     dry_run: bool = False,
@@ -790,6 +836,14 @@ def run_healthscore_snapshot(
         results[PREMIUM_ANCHOR_EXPANSION_METRIC] = run_premium_anchor_expansion_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (TIME_TO_RENEWAL_METRIC, "all"):
+        results[TIME_TO_RENEWAL_METRIC] = run_time_to_renewal_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
+    if name in (CONTRACT_VALUE_TREND_METRIC, "all"):
+        results[CONTRACT_VALUE_TREND_METRIC] = run_contract_value_trend_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     if name in (SLA_ADHERENCE_METRIC, "all"):
         results[SLA_ADHERENCE_METRIC] = run_sla_adherence_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
@@ -827,7 +881,7 @@ def run_healthscore_snapshot_cli(
             "writes the champion_departure_external override), roi_multiple, "
             "summit_attendance, "
             "enhancement_engagement, meeting_cadence, executive_sponsorship, multithreading_depth, "
-            "premium_anchor_expansion, sla_adherence, "
+            "premium_anchor_expansion, time_to_renewal, contract_value_trend, sla_adherence, "
             "ticket_volume_trend, escalation_rate, call_sentiment, then call_talk_ratio."
         ),
     )
@@ -839,7 +893,7 @@ def run_healthscore_snapshot_cli(
             "champion_departure_external, "
             "roi_multiple, "
             "summit_attendance, enhancement_engagement, meeting_cadence, executive_sponsorship, "
-            "multithreading_depth, premium_anchor_expansion, "
+            "multithreading_depth, premium_anchor_expansion, time_to_renewal, contract_value_trend, "
             "sla_adherence, ticket_volume_trend, escalation_rate, call_sentiment, "
             "call_talk_ratio, or all"
         ),

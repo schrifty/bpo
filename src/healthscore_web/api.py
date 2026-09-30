@@ -24,6 +24,8 @@ from src.healthscore_web.meeting_cadence import MeetingCadenceGeneratorError
 from src.healthscore_web.executive_sponsorship import ExecutiveSponsorshipGeneratorError
 from src.healthscore_web.multithreading_depth import MultithreadingDepthGeneratorError
 from src.healthscore_web.premium_anchor_expansion import PremiumAnchorGeneratorError
+from src.healthscore_web.time_to_renewal import TimeToRenewalGeneratorError
+from src.healthscore_web.contract_value_trend import ContractValueTrendGeneratorError
 from src.healthscore_web.escalation_rate import EscalationRateGeneratorError
 from src.healthscore_web.sla_adherence import SlaAdherenceGeneratorError
 from src.healthscore_web.ticket_volume_trend import TicketVolumeGeneratorError
@@ -42,6 +44,8 @@ from src.healthscore_web.snapshot import (
     run_executive_sponsorship_snapshot,
     run_multithreading_depth_snapshot,
     run_premium_anchor_expansion_snapshot,
+    run_time_to_renewal_snapshot,
+    run_contract_value_trend_snapshot,
     run_champion_login_snapshot,
     run_champion_turnover_snapshot,
     run_roi_multiple_snapshot,
@@ -799,6 +803,48 @@ async def api_generate_premium_anchor_expansion(request: Request) -> Response:
         logger.exception("Health Score premium_anchor_expansion generate failed")
         return JSONResponse(
             {"ok": False, "error": f"premium_anchor_expansion generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_time_to_renewal(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "time_to_renewal")
+    if denied:
+        return denied
+    try:
+        result = run_time_to_renewal_snapshot(dry_run=False)
+    except TimeToRenewalGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score time_to_renewal generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"time_to_renewal generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_contract_value_trend(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "contract_value_trend")
+    if denied:
+        return denied
+    try:
+        result = run_contract_value_trend_snapshot(dry_run=False)
+    except ContractValueTrendGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score contract_value_trend generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"contract_value_trend generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

@@ -614,8 +614,10 @@ inputs:
   pillar: Commercial & Contract Risk
   name: Time to renewal
   description: Days until the Salesforce contract end date and whether the contract auto-renews, checked
-    weekly. Auto-renew contracts 90–180 days out and non-auto-renew contracts within 120 days score 0
-    because other risks matter most then; otherwise 3.
+    weekly. Auto-renew is a Contract renewal term that starts with "Auto-renewal"; customer confirmation
+    required does not auto-renew. Auto-renew contracts 90–180 days out and non-auto-renew contracts
+    within 120 days score 0 because other risks matter most then; otherwise 3. A missing end date,
+    or terms that do not say which kind of renewal it is, stays unscored.
   signal: leading
   metric: Days until renewal and auto-renew status
   scoring: Auto-renew at 90–180 days=0; non-auto-renew at 0–120 days=0; otherwise=3
@@ -627,7 +629,7 @@ inputs:
   automation: automated
   status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_time_to_renewal
   tags:
   - customer-success
   - healthscore
@@ -635,9 +637,12 @@ inputs:
 - key: contract_value_trend
   pillar: Commercial & Contract Risk
   name: Contract value trend
-  description: Percent change in annual contract value at each Salesforce renewal compared with the prior
-    term. Growth of 5% or more scores 5, smaller growth scores 1–4 by percent, and any contraction scores
-    0.
+  description: Percent change in annual contract value when a Closed Won Salesforce Renewal or Invoice
+    Only Renewal closes during the month, compared with the prior Closed Won New Business or renewal
+    ARR on that account. An opportunity on the Customer Entity scores that entity. An opportunity on
+    the parent scores the child only when the parent has one active Customer Entity. Growth of 5% or
+    more scores 5, 4% scores 4, 3% scores 3, 2% scores 2, 0% up to 2% scores 1, and any contraction
+    scores 0. A month with no renewal stays unscored.
   signal: lagging
   metric: Percent ACV change at renewal
   scoring: 5%+=5; 4%=4; 3%=3; 2%=2; 0–1%=1; contraction=0
@@ -647,12 +652,12 @@ inputs:
   weight: 5
   data_source:
   - Salesforce
-  grain: null
+  grain: monthly
   cadence_note: Per renewal
   automation: automated
   status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_contract_value_trend
   unit: percent
   tags:
   - customer-success

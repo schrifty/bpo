@@ -103,6 +103,16 @@ def create_app(
             methods=["POST"],
         ),
         Route(
+            "/healthscore/api/generate/time_to_renewal",
+            healthscore_api.api_generate_time_to_renewal,
+            methods=["POST"],
+        ),
+        Route(
+            "/healthscore/api/generate/contract_value_trend",
+            healthscore_api.api_generate_contract_value_trend,
+            methods=["POST"],
+        ),
+        Route(
             "/healthscore/api/generate/sla_adherence",
             healthscore_api.api_generate_sla_adherence,
             methods=["POST"],
