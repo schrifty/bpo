@@ -747,6 +747,25 @@
   font-size: 0.67rem;
 }
 
+.hs-report-sort {
+  all: unset;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+}
+
+.hs-report-table th[aria-sort="ascending"] .hs-report-sort,
+.hs-report-table th[aria-sort="descending"] .hs-report-sort {
+  color: var(--ink);
+}
+
+.hs-report-sort:hover {
+  color: var(--accent);
+}
+
 .hs-report-table tbody tr.red td { background: #fde8e8; }
 .hs-report-table tbody tr.yellow td { background: #fff4cc; }
 .hs-report-table tbody tr.green td { background: #e3f6ea; }

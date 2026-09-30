@@ -402,7 +402,6 @@
       rows.push(pillarHeader(group.name, group.total, { toggle: true, influence: pillarInfluence(group.items) }));
       for (const component of group.items) rows.push(componentRows(component, !openPillars.has(group.name), group.name));
     }
-    if (unassigned > 0) rows.push(pillarHeader("Unassigned", unassigned));
     $("hs-components-body").innerHTML = rows.join("");
     for (const header of $("hs-components-body").querySelectorAll("tr[data-pillar]")) {
       header.addEventListener("click", () => togglePillar(header));

@@ -95,11 +95,46 @@
     return `<span class="hs-band ${esc(row.band)}">${esc(row.shown_score)}</span>`;
   }
 
+  let reportPayload = null;
+  let sortKey = null;
+
+  function entityName(row) {
+    return String(row.name || "").trim();
+  }
+
+  function compareEntity(a, b) {
+    return entityName(a).localeCompare(entityName(b), undefined, { sensitivity: "base" });
+  }
+
+  function compareScoreThenEntity(a, b) {
+    const aScore = a.shown_score;
+    const bScore = b.shown_score;
+    if (aScore == null && bScore == null) return compareEntity(a, b);
+    if (aScore == null) return 1;
+    if (bScore == null) return -1;
+    if (aScore !== bScore) return bScore - aScore;
+    return compareEntity(a, b);
+  }
+
+  function sortedEntities(rows) {
+    const copy = rows.slice();
+    if (sortKey === "score") copy.sort(compareScoreThenEntity);
+    else if (sortKey === "entity") copy.sort(compareEntity);
+    return copy;
+  }
+
+  function markSortHeaders() {
+    $("hs-sort-score").setAttribute("aria-sort", sortKey === "score" ? "descending" : "none");
+    $("hs-sort-entity").setAttribute("aria-sort", sortKey === "entity" ? "ascending" : "none");
+  }
+
   function renderReport(payload) {
+    reportPayload = payload;
     const counts = payload.counts || {};
     $("hs-report-summary").textContent =
       `${payload.entity_count} active · ${counts.red || 0} red · ${counts.yellow || 0} yellow · ${counts.green || 0} green · ${counts.unscored || 0} unscored`;
-    const rows = payload.entities || [];
+    const rows = sortedEntities(payload.entities || []);
+    markSortHeaders();
     $("hs-report-body").innerHTML = rows.length
       ? rows
           .map(
@@ -137,6 +172,15 @@
       $("hs-report-error").textContent = error.message;
     }
   }
+
+  $("hs-sort-score").querySelector("button").addEventListener("click", () => {
+    sortKey = "score";
+    if (reportPayload) renderReport(reportPayload);
+  });
+  $("hs-sort-entity").querySelector("button").addEventListener("click", () => {
+    sortKey = "entity";
+    if (reportPayload) renderReport(reportPayload);
+  });
 
   $("user-badge").addEventListener("click", (event) => {
     event.stopPropagation();

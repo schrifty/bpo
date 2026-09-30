@@ -6,7 +6,7 @@
   <title>Healthscore report</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="stylesheet" href="/static/styles.css?v=available-sources-2" />
-  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=report-row-color" />
+  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=report-sort" />
 </head>
 <body>
   <header class="top">
@@ -63,7 +63,11 @@
       <div class="hs-table-scroll">
         <table class="hs-report-table">
           <thead>
-            <tr><th>Score</th><th>Entity</th><th>Weight scored</th></tr>
+            <tr>
+              <th id="hs-sort-score" aria-sort="none"><button type="button" class="hs-report-sort">Score</button></th>
+              <th id="hs-sort-entity" aria-sort="none"><button type="button" class="hs-report-sort">Entity</button></th>
+              <th>Weight scored</th>
+            </tr>
           </thead>
           <tbody id="hs-report-body">
             <tr><td colspan="3" class="muted">Scoring active entities…</td></tr>
@@ -77,6 +81,6 @@
     <span>Experimental model · Salesforce is the customer system of record</span>
   </footer>
 
-  <script src="/healthscore/static/report.js?v=report-row-color"></script>
+  <script src="/healthscore/static/report.js?v=report-sort"></script>
 </body>
 </html>
