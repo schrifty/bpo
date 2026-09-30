@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Healthscore report</title>
+  <title>Healthscore Report</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="stylesheet" href="/static/styles.css?v=available-sources-2" />
   <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=report-sort" />
@@ -36,7 +36,7 @@
           <div id="user-menu-role" class="user-menu-role"></div>
         </div>
         <a class="user-menu-item" href="/healthscore" role="menuitem">Healthscore</a>
-        <a class="user-menu-item" href="/healthscore/report" role="menuitem">Healthscore report</a>
+        <a class="user-menu-item" href="/healthscore/report" role="menuitem">Healthscore Report</a>
         <a class="user-menu-item" href="/kpis" role="menuitem">KPIs</a>
         <a id="btn-signout" class="user-menu-item" href="/auth/logout" role="menuitem">Sign out</a>
       </div>
@@ -55,7 +55,7 @@
     <section id="hs-report" class="panel hs-report hidden">
       <div class="hs-section-head">
         <div>
-          <h2>Healthscore report</h2>
+          <h2>Healthscore Report</h2>
           <p id="hs-report-summary" class="muted"></p>
         </div>
       </div>
@@ -64,19 +64,20 @@
         <table class="hs-report-table">
           <thead>
             <tr>
-              <th id="hs-sort-score" aria-sort="none"><button type="button" class="hs-report-sort">Score</button></th>
+              <th id="hs-sort-score" aria-sort="descending"><button type="button" class="hs-report-sort">Score</button></th>
               <th id="hs-sort-entity" aria-sort="none"><button type="button" class="hs-report-sort">Entity</button></th>
               <th>Weight scored</th>
+              <th class="hs-col-center">Trend</th>
             </tr>
           </thead>
           <tbody id="hs-report-body">
-            <tr><td colspan="3" class="muted">Scoring active entities…</td></tr>
+            <tr><td colspan="4" class="muted">Scoring active entities…</td></tr>
           </tbody>
         </table>
       </div>
     </section>
   </main>
 
-  <script src="/healthscore/static/report.js?v=report-sort"></script>
+  <script src="/healthscore/static/report.js?v=report-spark"></script>
 </body>
 </html>

@@ -195,6 +195,20 @@ cortex healthscore-snapshot --component usage_trend --history-weeks 26 --dry-run
 and `kpi-snapshot`. It uses the `decks` secret profile because it needs both
 Google (CS Report via Drive) and Salesforce.
 
+`config/jobs/healthscore-nightly.yaml` runs every day at 10:00 UTC
+(`cortex-healthscore-nightly`). A generator runs only when its grain opens a
+new period: daily every night, weekly on Monday, monthly on the 1st, and
+quarterly on 1 Jan, 1 Apr, 1 Jul, and 1 Oct. Inputs with no generator are
+skipped. The job then stores a daily health score for each active Customer
+Entity from the inputs that already have readings. Unscored inputs are left
+out of that score. The report sparkline plots those daily scores. The job
+uses the `decks` secret profile.
+
+```bash
+cortex healthscore-nightly --dry-run
+cortex run-job --job healthscore-nightly --dry-run
+```
+
 ```bash
 cortex run-job --job healthscore-snapshot --dry-run
 ```

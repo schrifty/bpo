@@ -101,6 +101,9 @@ Metrics & KPIs
                           [--metric NAME] [--history-months N]
   healthscore-snapshot    Run Health Score generators into the Health Score store
                           [--dry-run] [--component usage_level] [--date YYYY-MM-DD]
+  healthscore-nightly     Run generators whose grain is due, then store a daily
+                          health score for every active Customer Entity
+                          [--dry-run] [--date YYYY-MM-DD]
   metrics-upsert          Upsert generator values to LeanDNA MetricDataPoint
                           [--date YYYY-MM-DD] [--dry-run] [--metric NAME]
                           [--requested-sites ID]
@@ -1641,6 +1644,10 @@ def main():
         from src.healthscore_web.snapshot import run_healthscore_snapshot_cli
 
         raise SystemExit(run_healthscore_snapshot_cli(sys.argv[2:]))
+    if sub == "healthscore-nightly":
+        from src.healthscore_web.nightly import run_healthscore_nightly_cli
+
+        raise SystemExit(run_healthscore_nightly_cli(sys.argv[2:]))
     if sub == "metrics-upsert":
         _run_metrics_upsert_cli(sys.argv[2:])
         return

@@ -96,7 +96,7 @@
   }
 
   let reportPayload = null;
-  let sortKey = null;
+  let sortKey = "score";
 
   function entityName(row) {
     return String(row.name || "").trim();
@@ -128,6 +128,28 @@
     $("hs-sort-entity").setAttribute("aria-sort", sortKey === "entity" ? "ascending" : "none");
   }
 
+  function reportSparkline(row) {
+    const points = (row.healthscore_history || [])
+      .map((item) => ({ period: String(item.period_key || ""), value: Number(item.value) }))
+      .filter((item) => item.period && Number.isFinite(item.value));
+    if (points.length < 2) return '<span class="muted">—</span>';
+    const width = 72;
+    const height = 22;
+    const pad = 2;
+    const min = Math.min(...points.map((point) => point.value));
+    const max = Math.max(...points.map((point) => point.value));
+    const span = max - min;
+    const coords = points
+      .map((point, index) => {
+        const x = pad + (index / (points.length - 1)) * (width - pad * 2);
+        const y = span === 0 ? height / 2 : pad + (1 - (point.value - min) / span) * (height - pad * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+    const tip = points.map((point) => `${point.period}: ${point.value}`).join(", ");
+    return `<svg class="hs-spark" viewBox="0 0 ${width} ${height}" role="img" aria-label="Health score history for ${esc(row.name)}"><title>${esc(tip)}</title><polyline points="${coords}"></polyline></svg>`;
+  }
+
   function renderReport(payload) {
     reportPayload = payload;
     const counts = payload.counts || {};
@@ -142,10 +164,11 @@
               <td>${scoreCell(row)}</td>
               <td><a href="/healthscore?entity=${encodeURIComponent(row.id)}">${esc(row.name)}</a></td>
               <td>${row.coverage_pct == null ? "—" : `${row.coverage_pct}%`}</td>
+              <td class="hs-col-center hs-spark-cell">${reportSparkline(row)}</td>
             </tr>`,
           )
           .join("")
-      : `<tr><td colspan="3" class="muted">No active Salesforce Customer Entities.</td></tr>`;
+      : `<tr><td colspan="4" class="muted">No active Salesforce Customer Entities.</td></tr>`;
   }
 
   async function boot() {

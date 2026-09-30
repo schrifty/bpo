@@ -264,6 +264,13 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         if step.get("dry_run"):
             argv.append("--dry-run")
         return argv
+    if command == "healthscore-nightly":
+        argv = ["healthscore-nightly"]
+        if step.get("date"):
+            argv.extend(["--date", str(step["date"])])
+        if step.get("dry_run"):
+            argv.append("--dry-run")
+        return argv
     if command == "metrics-digest":
         argv = ["metrics-digest"]
         if step.get("days") is not None:

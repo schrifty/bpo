@@ -303,6 +303,30 @@ def observations_for_metric(
     return [_row(row) for row in rows]
 
 
+def metric_values_since(
+    conn: sqlite3.Connection,
+    metric_name: str,
+    grain: str,
+    since_period: str,
+) -> dict[str, list[dict[str, Any]]]:
+    """Daily (or other grain) values from ``since_period`` forward, oldest first."""
+    rows = conn.execute(
+        """
+        SELECT entity_id, period_key, value
+        FROM healthscore_observation
+        WHERE metric_name = ? AND grain = ? AND period_key >= ? AND value IS NOT NULL
+        ORDER BY period_key ASC
+        """,
+        (metric_name, _checked_grain(grain), since_period),
+    ).fetchall()
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["entity_id"]), []).append(
+            {"period_key": str(row["period_key"]), "value": row["value"]}
+        )
+    return grouped
+
+
 def periods_for_metric(conn: sqlite3.Connection, metric_name: str) -> list[str]:
     """Distinct period keys that already hold a reading for ``metric_name``, oldest first."""
     rows = conn.execute(

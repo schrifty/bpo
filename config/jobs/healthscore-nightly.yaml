@@ -1,0 +1,10 @@
+name: healthscore-nightly
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  # Daily, weekly, monthly, and quarterly generators run only on the day their
+  # period key changes. Every active Customer Entity then gets a daily health
+  # score from the inputs that already have readings, for the report sparkline.
+  # Writes to CORTEX_CACHE_ROOT/healthscore/observations.sqlite.
+  - name: due-generators-and-daily-scores
+    command: healthscore-nightly

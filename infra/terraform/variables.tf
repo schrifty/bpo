@@ -232,6 +232,13 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-healthscore-snapshot"
     }
+    # After the Monday healthscore-snapshot window. Grain gating is inside the job.
+    healthscore-nightly = {
+      schedule_expression = "cron(0 10 * * ? *)"
+      command             = ["healthscore-nightly"]
+      enabled             = true
+      rule_name           = "cortex-healthscore-nightly"
+    }
     pendo-ford-7d = {
       schedule_expression = "cron(0 8 * * ? *)"
       command             = ["pendo-ford-7d"]

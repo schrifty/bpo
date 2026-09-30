@@ -103,6 +103,7 @@ JOB_SECRET_PROFILE: dict[str, str] = {
     "engineering-kpis": PROFILE_DECKS,
     "kpi-snapshot": PROFILE_METRICS,
     "healthscore-snapshot": PROFILE_DECKS,
+    "healthscore-nightly": PROFILE_DECKS,
     "pendo-snapshot-refresh": PROFILE_DECKS,
     "pendo-ford-7d": PROFILE_DECKS,
     "pendo-ford-30d": PROFILE_DECKS,

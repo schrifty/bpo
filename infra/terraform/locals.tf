@@ -64,6 +64,7 @@ locals {
     "engineering-kpis"            = "decks"
     "kpi-snapshot"                = "metrics"
     "healthscore-snapshot"        = "decks"
+    "healthscore-nightly"         = "decks"
     "pendo-snapshot-refresh"      = "decks"
     "pendo-ford-7d"               = "decks"
     "pendo-ford-30d"              = "decks"

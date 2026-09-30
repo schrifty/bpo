@@ -341,11 +341,10 @@ async def report_page(request: Request) -> Response:
 
 
 async def api_report(request: Request) -> Response:
-    """Every active entity, highest healthscore times weight scored first.
+    """Every active entity, highest shown score first, then entity name.
 
-    Healthscore is the 0–100 score on covered inputs. Weight scored is the
-    covered weight. Their product is that entity's contribution, so a broader
-    scored book ranks above a thin perfect score. Unscored entities stay last.
+    The shown score is the 0–100 score on scored inputs. Ties break by entity
+    name, A to Z. Unscored entities stay last.
     """
     try:
         require_user(request)
@@ -357,6 +356,11 @@ async def api_report(request: Request) -> Response:
         conn = connect()
         try:
             points, flag_values = latest_effective_by_entity(conn)
+            from src.healthscore_web.nightly import METRIC_NAME as SITE_HEALTHSCORE
+            from src.healthscore_web.nightly import sparkline_since
+            from src.healthscore_web.store import metric_values_since
+
+            history = metric_values_since(conn, SITE_HEALTHSCORE, "daily", sparkline_since())
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001
@@ -385,12 +389,13 @@ async def api_report(request: Request) -> Response:
                 "coverage_pct": numbers["coverage_pct"],
                 "weighted_score": weighted,
                 "score_zeroed": numbers["score_zeroed"],
+                "healthscore_history": history.get(entity["id"], []),
             }
         )
     rows.sort(
         key=lambda row: (
-            row["weighted_score"] is None,
-            -(row["weighted_score"] if row["weighted_score"] is not None else 0),
+            row["shown_score"] is None,
+            -(row["shown_score"] if row["shown_score"] is not None else 0),
             row["name"].casefold(),
         )
     )

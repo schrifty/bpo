@@ -896,13 +896,15 @@ def run_healthscore_snapshot(
     component: str = "all",
     dry_run: bool = False,
     as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     name = str(component or "all").strip().lower()
     if name not in SUPPORTED:
         raise ValueError(
             f"unknown Health Score component {component!r} (supported: {', '.join(SUPPORTED)})"
         )
-    entities = _active_entities()
+    if entities is None:
+        entities = _active_entities()
     results: dict[str, Any] = {"ok": True, "component": name}
     if name in (USAGE_LEVEL_METRIC, "all"):
         results[USAGE_LEVEL_METRIC] = run_usage_level_snapshot(

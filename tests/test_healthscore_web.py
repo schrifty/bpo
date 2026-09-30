@@ -325,7 +325,7 @@ def test_healthscore_routes_and_manual_component_history(
     assert len(body["observations"]) == 2
 
 
-def test_healthscore_report_lists_entities_by_weighted_score_descending(
+def test_healthscore_report_lists_entities_by_score_then_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     entities = [
@@ -340,12 +340,12 @@ def test_healthscore_report_lists_entities_by_weighted_score_descending(
     assert client.get("/healthscore/api/report").status_code == 401
     page = client.get("/healthscore")
     assert 'href="/healthscore/report"' in page.text
-    assert "Healthscore report" in client.get("/healthscore/report").text
+    assert "Healthscore Report" in client.get("/healthscore/report").text
 
     _login(client)
     # usage_level weight 6, max 6. Wide also fills champion_turnover at 5 of 5
-    # (weight 4) and meeting_cadence (2), so its contribution is 9 against
-    # Green's 6 even though its healthscore is lower.
+    # (weight 4) and meeting_cadence (2). Order is the shown 0–100 score,
+    # highest first, then entity name. Unscored stays last.
     for entity_id, points in (("001-red", 0), ("001-yellow", 4), ("001-green", 6), ("001-wide", 3)):
         saved = client.put(
             f"/healthscore/api/entities/{entity_id}/components/usage_level",
@@ -363,15 +363,14 @@ def test_healthscore_report_lists_entities_by_weighted_score_descending(
     assert report.status_code == 200, report.text
     body = report.json()
     assert [row["name"] for row in body["entities"]] == [
-        "Wide Entity",
         "Green Entity",
+        "Wide Entity",
         "Yellow Entity",
         "Red Entity",
         "Unscored Entity",
     ]
-    weighted = [row["weighted_score"] for row in body["entities"]]
-    assert weighted == [9, 6, 4, 0, None]
-    assert body["entities"][0]["shown_score"] < body["entities"][1]["shown_score"]
+    assert [row["shown_score"] for row in body["entities"]] == [100, 75, 67, 0, None]
+    assert [row["weighted_score"] for row in body["entities"]] == [6, 9, 4, 0, None]
     assert [row["band"] for row in body["entities"]] == ["green", "green", "yellow", "red", None]
     assert body["counts"] == {"red": 1, "yellow": 1, "green": 2, "unscored": 1}
     assert body["entity_count"] == 5

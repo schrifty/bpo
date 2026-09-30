@@ -66,6 +66,17 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
             "missing unless a CS Report workbook for that week is backfilled"
         ),
     },
+    "healthscore-nightly": {
+        "schedule_expression": "cron(0 10 * * ? *)",
+        "command": ["healthscore-nightly"],
+        "enabled": True,
+        "rule_name": "cortex-healthscore-nightly",
+        "summary": (
+            "Run Healthscore generators whose grain is due (daily every night, "
+            "weekly on Monday, monthly on the 1st, quarterly on quarter start), "
+            "then store a daily health score for every active Customer Entity"
+        ),
+    },
     "pendo-ford-7d": {
         "schedule_expression": "cron(0 8 * * ? *)",
         "command": ["pendo-ford-7d"],
