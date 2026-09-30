@@ -87,7 +87,20 @@ from src.healthscore_web.ticket_volume_trend import (
 from src.healthscore_web.summit_attendance import (
     METRIC_NAME as SUMMIT_ATTENDANCE_METRIC,
     SummitAttendanceGeneratorError,
+    backfill_summit_attendance,
     get_summit_attendance,
+)
+from src.healthscore_web.product_ideas import (
+    METRIC_NAME as PRODUCT_IDEAS_METRIC,
+    ProductIdeasGeneratorError,
+    backfill_product_ideas,
+    get_product_ideas,
+)
+from src.healthscore_web.reference_willingness import (
+    METRIC_NAME as REFERENCE_WILLINGNESS_METRIC,
+    ReferenceWillingnessGeneratorError,
+    backfill_reference_willingness,
+    get_reference_willingness,
 )
 from src.healthscore_web.usage_level import (
     METRIC_NAME as USAGE_LEVEL_METRIC,
@@ -110,6 +123,8 @@ SUPPORTED = (
     CHAMPION_DEPARTURE_FLAG_METRIC,
     ROI_MULTIPLE_METRIC,
     SUMMIT_ATTENDANCE_METRIC,
+    PRODUCT_IDEAS_METRIC,
+    REFERENCE_WILLINGNESS_METRIC,
     ENHANCEMENT_ENGAGEMENT_METRIC,
     EXECUTIVE_SPONSORSHIP_METRIC,
     MULTITHREADING_DEPTH_METRIC,
@@ -427,6 +442,104 @@ def run_summit_attendance_snapshot(
         members=members,
         as_of=as_of,
         persist=not dry_run,
+    )
+
+
+def backfill_summit_attendance_history(
+    *,
+    months: int,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    only_missing: bool = True,
+) -> dict[str, Any]:
+    """Persist summit_attendance for each of the newest ``months`` snapshot dates."""
+    if entities is None:
+        entities = _active_entities()
+    return backfill_summit_attendance(
+        months=months,
+        entities=entities,
+        as_of=as_of,
+        persist=not dry_run,
+        only_missing=only_missing,
+    )
+
+
+def run_product_ideas_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    events: list[dict[str, Any]] | None = None,
+    guide_ids: list[str] | None = None,
+    account_names: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_product_ideas(
+        entities=entities,
+        events=events,
+        guide_ids=guide_ids,
+        account_names=account_names,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
+def backfill_product_ideas_history(
+    *,
+    months: int,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    only_missing: bool = True,
+) -> dict[str, Any]:
+    """Persist product_ideas for each of the newest ``months`` snapshot dates."""
+    if entities is None:
+        entities = _active_entities()
+    return backfill_product_ideas(
+        months=months,
+        entities=entities,
+        as_of=as_of,
+        persist=not dry_run,
+        only_missing=only_missing,
+    )
+
+
+def run_reference_willingness_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    accounts: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_reference_willingness(
+        entities=entities,
+        accounts=accounts,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
+def backfill_reference_willingness_history(
+    *,
+    months: int,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    only_missing: bool = True,
+) -> dict[str, Any]:
+    """Persist reference_willingness for each of the newest ``months`` snapshot dates."""
+    if entities is None:
+        entities = _active_entities()
+    return backfill_reference_willingness(
+        months=months,
+        entities=entities,
+        as_of=as_of,
+        persist=not dry_run,
+        only_missing=only_missing,
     )
 
 
@@ -816,6 +929,14 @@ def run_healthscore_snapshot(
         results[SUMMIT_ATTENDANCE_METRIC] = run_summit_attendance_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (PRODUCT_IDEAS_METRIC, "all"):
+        results[PRODUCT_IDEAS_METRIC] = run_product_ideas_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
+    if name in (REFERENCE_WILLINGNESS_METRIC, "all"):
+        results[REFERENCE_WILLINGNESS_METRIC] = run_reference_willingness_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     if name in (ENHANCEMENT_ENGAGEMENT_METRIC, "all"):
         results[ENHANCEMENT_ENGAGEMENT_METRIC] = run_enhancement_engagement_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
@@ -892,7 +1013,8 @@ def run_healthscore_snapshot_cli(
             "usage_level, usage_trend, champion_login_continuity, champion_turnover, "
             "champion_departure_external, "
             "roi_multiple, "
-            "summit_attendance, enhancement_engagement, meeting_cadence, executive_sponsorship, "
+            "summit_attendance, product_ideas, reference_willingness, "
+            "enhancement_engagement, meeting_cadence, executive_sponsorship, "
             "multithreading_depth, premium_anchor_expansion, time_to_renewal, contract_value_trend, "
             "sla_adherence, ticket_volume_trend, escalation_rate, call_sentiment, "
             "call_talk_ratio, or all"
@@ -916,7 +1038,8 @@ def run_healthscore_snapshot_cli(
         default=None,
         help=(
             "Backfill the newest N months for call_sentiment, call_talk_ratio, "
-            "sla_adherence, ticket_volume_trend, or escalation_rate"
+            "sla_adherence, ticket_volume_trend, escalation_rate, summit_attendance, "
+            "product_ideas, or reference_willingness"
         ),
     )
     parser.add_argument(
@@ -946,10 +1069,20 @@ def run_healthscore_snapshot_cli(
                 SLA_ADHERENCE_METRIC: backfill_sla_adherence_history,
                 TICKET_VOLUME_METRIC: backfill_ticket_volume_history,
                 ESCALATION_RATE_METRIC: backfill_escalation_rate_history,
+                SUMMIT_ATTENDANCE_METRIC: backfill_summit_attendance_history,
+                PRODUCT_IDEAS_METRIC: backfill_product_ideas_history,
+                REFERENCE_WILLINGNESS_METRIC: backfill_reference_willingness_history,
             }
+            history_all = (
+                CALL_SENTIMENT_METRIC,
+                CALL_TALK_RATIO_METRIC,
+                SLA_ADHERENCE_METRIC,
+                TICKET_VOLUME_METRIC,
+                ESCALATION_RATE_METRIC,
+            )
             if name == "all":
                 result = {
-                    key: runner(**history_kwargs) for key, runner in history_runners.items()
+                    key: history_runners[key](**history_kwargs) for key in history_all
                 }
                 result["ok"] = True
                 result["component"] = "all"
@@ -958,7 +1091,8 @@ def run_healthscore_snapshot_cli(
             else:
                 raise ValueError(
                     "--history-months applies to call_sentiment, call_talk_ratio, "
-                    "sla_adherence, ticket_volume_trend, or escalation_rate"
+                    "sla_adherence, ticket_volume_trend, escalation_rate, "
+                    "summit_attendance, product_ideas, or reference_willingness"
                 )
         elif args.history_weeks:
             only_missing = not args.refresh_history
@@ -989,6 +1123,8 @@ def run_healthscore_snapshot_cli(
         ChampionTurnoverGeneratorError,
         RoiMultipleGeneratorError,
         SummitAttendanceGeneratorError,
+        ProductIdeasGeneratorError,
+        ReferenceWillingnessGeneratorError,
         EnhancementEngagementGeneratorError,
         MeetingCadenceGeneratorError,
         SlaAdherenceGeneratorError,

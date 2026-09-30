@@ -22,6 +22,12 @@ steps:
   - name: snapshot-summit-attendance
     command: healthscore-snapshot
     component: summit_attendance
+  - name: snapshot-product-ideas
+    command: healthscore-snapshot
+    component: product_ideas
+  - name: snapshot-reference-willingness
+    command: healthscore-snapshot
+    component: reference_willingness
   - name: snapshot-enhancement-engagement
     command: healthscore-snapshot
     component: enhancement_engagement

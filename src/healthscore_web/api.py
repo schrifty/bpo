@@ -34,6 +34,8 @@ from src.healthscore_web.champion_login import ChampionLoginGeneratorError
 from src.healthscore_web.champion_turnover import ChampionTurnoverGeneratorError
 from src.healthscore_web.roi_multiple import RoiMultipleGeneratorError
 from src.healthscore_web.summit_attendance import SummitAttendanceGeneratorError
+from src.healthscore_web.product_ideas import ProductIdeasGeneratorError
+from src.healthscore_web.reference_willingness import ReferenceWillingnessGeneratorError
 from src.healthscore_web.snapshot import (
     run_call_sentiment_snapshot,
     run_meeting_cadence_snapshot,
@@ -50,6 +52,8 @@ from src.healthscore_web.snapshot import (
     run_champion_turnover_snapshot,
     run_roi_multiple_snapshot,
     run_summit_attendance_snapshot,
+    run_product_ideas_snapshot,
+    run_reference_willingness_snapshot,
     run_usage_level_snapshot,
     run_usage_trend_snapshot,
 )
@@ -992,6 +996,48 @@ async def api_generate_summit_attendance(request: Request) -> Response:
         logger.exception("Health Score summit_attendance generate failed")
         return JSONResponse(
             {"ok": False, "error": f"summit_attendance generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_product_ideas(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "product_ideas")
+    if denied:
+        return denied
+    try:
+        result = run_product_ideas_snapshot(dry_run=False)
+    except ProductIdeasGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score product_ideas generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"product_ideas generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_reference_willingness(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "reference_willingness")
+    if denied:
+        return denied
+    try:
+        result = run_reference_willingness_snapshot(dry_run=False)
+    except ReferenceWillingnessGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score reference_willingness generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"reference_willingness generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

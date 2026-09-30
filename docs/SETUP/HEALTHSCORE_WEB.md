@@ -106,6 +106,26 @@ Customer Entity counts for that entity. A contact on the parent Customer
 account counts for that parent's entities. Yes scores 1, no scores 0. The
 campaign end date is ignored. If a past summit still has registrations and
 no Attended members, the run warns and scores those entities 0.
+`--history-months N` scores each of the newest N snapshot dates. Campaign
+member status is today's status, so earlier months change only when the
+snapshot date crosses a campaign start.
+
+**Product idea submissions** (`get_product_ideas`) counts Pendo poll responses
+on guides with `autoCreateFeedback` in the trailing 12 months. Those guides
+are how this subscription sends responses into the feedback portal. Tone is
+the PositiveNegative answer: 1 is positive and 0 is negative, stored on the
+reading. One or more submissions scores 2, none scores 0. The Pendo account
+name matches a Customer Entity, or every active entity under one matching
+parent. An account that matches more than one parent is skipped and warned.
+`--history-months N` scores a trailing 12-month window on each of the newest
+N snapshot dates.
+
+**Reference / case study willingness** (`get_reference_willingness`) reads
+Salesforce Logo Use Approved and Press Approved. There is no willingness,
+reference, case-study, or testimonial field. Yes is either flag on the
+Customer Entity or its parent, and scores 2. Neither scores 0. Last Marketing
+Response is stored and does not change the score. The flags have no field
+history, so `--history-months N` repeats the current value on each month.
 
 **Enhancement engagement & delivery** (`get_enhancement_engagement`) counts
 Aha Product Ideas created in the trailing 12 months. R is ideas submitted by
@@ -207,6 +227,8 @@ weights, sources, and governance rules are validated.
 | POST | `/healthscore/api/generate/champion_login_continuity` | Run the executive-sponsor login generator |
 | POST | `/healthscore/api/generate/roi_multiple` | Run the savings / ARR generator |
 | POST | `/healthscore/api/generate/summit_attendance` | Run the Summit registration / attendance generator |
+| POST | `/healthscore/api/generate/product_ideas` | Run the Pendo product-idea generator |
+| POST | `/healthscore/api/generate/reference_willingness` | Run the Salesforce logo / press willingness generator |
 | POST | `/healthscore/api/generate/enhancement_engagement` | Run the Aha enhancement engagement generator |
 | POST | `/healthscore/api/generate/meeting_cadence` | Run the Chorus meeting cadence generator |
 | POST | `/healthscore/api/generate/sla_adherence` | Run the JSM HELP SLA adherence generator |

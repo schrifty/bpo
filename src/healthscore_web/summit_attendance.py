@@ -12,7 +12,8 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
-from src.healthscore_web.store import connect, period_key_for, upsert_reading
+from src.healthscore_web.jsm_match import JsmMatchError, monthly_as_ofs
+from src.healthscore_web.store import connect, period_key_for, periods_for_metric, upsert_reading
 
 logger = logging.getLogger(__name__)
 
@@ -355,4 +356,75 @@ def get_summit_attendance(
         "overridden": len(overridden),
         "warnings": warnings,
         "readings": readings,
+    }
+
+
+def backfill_summit_attendance(
+    *,
+    months: int,
+    entities: list[dict[str, Any]],
+    as_of: date | None = None,
+    campaigns: list[dict[str, Any]] | None = None,
+    members: list[dict[str, Any]] | None = None,
+    persist: bool = False,
+    only_missing: bool = True,
+    generator: str = GENERATOR_NAME,
+) -> dict[str, Any]:
+    """Score summit attendance as of each of the newest ``months`` dates."""
+    if not entities:
+        raise SummitAttendanceGeneratorError(
+            "Salesforce Customer Entity inventory is empty; cannot generate summit_attendance"
+        )
+    today = as_of or date.today()
+    try:
+        days = monthly_as_ofs(today, months)
+    except JsmMatchError as exc:
+        raise SummitAttendanceGeneratorError(str(exc)) from exc
+    existing: set[str] = set()
+    if only_missing and persist:
+        conn = connect()
+        try:
+            existing = set(periods_for_metric(conn, METRIC_NAME))
+        finally:
+            conn.close()
+    pending = [day for day in days if period_key_for(GRAIN, day) not in existing]
+    skipped_periods = [
+        period_key_for(GRAIN, day) for day in days if period_key_for(GRAIN, day) in existing
+    ]
+    if pending and campaigns is None:
+        campaigns = load_summit_campaigns()
+    if pending and members is None:
+        campaign_ids = [str(row.get("Id") or row.get("id") or "") for row in campaigns or []]
+        members = load_campaign_members([item for item in campaign_ids if item])
+    scored: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for day in pending:
+        result = get_summit_attendance(
+            entities=entities,
+            campaigns=campaigns,
+            members=members,
+            as_of=day,
+            persist=persist,
+            generator=generator,
+        )
+        for warning in result.get("warnings") or []:
+            if warning not in warnings:
+                warnings.append(warning)
+        scored.append(
+            {
+                "period_key": period_key_for(GRAIN, day),
+                "as_of": day.isoformat(),
+                "attended": result.get("attended"),
+                "scored": result.get("scored"),
+                "ok": result.get("ok"),
+            }
+        )
+    return {
+        "ok": True,
+        "generator": GENERATOR_NAME,
+        "metric_name": METRIC_NAME,
+        "months": months,
+        "scored_periods": scored,
+        "skipped_periods": skipped_periods,
+        "warnings": warnings,
     }

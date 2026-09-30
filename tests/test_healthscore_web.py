@@ -144,6 +144,14 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert roi["weight"] is None
     summit = next(row for row in framework["inputs"] if row["key"] == "summit_attendance")
     assert summit["metric-generator"] == "get_summit_attendance"
+    ideas = next(row for row in framework["inputs"] if row["key"] == "product_ideas")
+    assert ideas["metric-generator"] == "get_product_ideas"
+    assert ideas["data_source"] == ["Pendo"]
+    assert "Pendo feedback" in ideas["description"]
+    reference = next(row for row in framework["inputs"] if row["key"] == "reference_willingness")
+    assert reference["metric-generator"] == "get_reference_willingness"
+    assert reference["data_source"] == ["Salesforce"]
+    assert reference["grain"] == "monthly"
     engagement = next(row for row in framework["inputs"] if row["key"] == "enhancement_engagement")
     assert engagement["metric-generator"] == "get_enhancement_engagement"
     assert engagement["name"] == "Enhancement engagement & delivery"

@@ -704,8 +704,9 @@ inputs:
   grain: monthly
   automation: automated
   status: defined
+  owner: lindsay.brown@leandna.com
   metric-id: null
-  metric-generator: null
+  metric-generator: get_product_ideas
   tags:
   - customer-success
   - healthscore
@@ -713,9 +714,10 @@ inputs:
 - key: reference_willingness
   pillar: Advocacy
   name: Reference / case study willingness
-  description: Whether the customer has agreed to act as a reference, case study, or testimonial, from
-    the Salesforce willingness flag and the date of the last reference activity, checked quarterly. Yes
-    scores 2, no scores 0.
+  description: Whether the Customer Entity, or its parent Customer account, has Salesforce Logo Use
+    Approved or Press Approved. There is no reference or case-study willingness field. Yes scores 2,
+    no scores 0. Last Marketing Response is stored with the reading. The flags have no field history,
+    so each month repeats the current value.
   signal: leading
   metric: Willingness flag and date of last activity
   scoring: Yes=2; no=0
@@ -723,11 +725,12 @@ inputs:
   weight: 2
   data_source:
   - Salesforce
-  grain: quarterly
-  automation: manual
+  grain: monthly
+  automation: automated
   status: defined
+  owner: lindsay.brown@leandna.com
   metric-id: null
-  metric-generator: null
+  metric-generator: get_reference_willingness
   tags:
   - customer-success
   - healthscore
