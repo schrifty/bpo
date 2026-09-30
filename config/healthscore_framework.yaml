@@ -276,8 +276,11 @@ inputs:
 - key: premium_anchor_expansion
   pillar: Value Realization / ROI
   name: Use case / anchor expansion vs. contract
-  description: Whether the entity used a premium module such as AIOP or DSM during the month, from Pendo
-    feature usage. Any use scores 3, none scores 0.
+  description: Whether the entity used a premium module during the calendar month, from Pendo
+    feature and page usage. Inventory Optimization (IOP) is the premium module in the catalog;
+    AIOP and DSM count when those names appear. A Pendo account credits every Customer Entity
+    whose name or parent matches that account. Any use scores 3, none scores 0. An entity
+    with no Pendo account stays unscored.
   signal: leading
   metric: Monthly premium-product usage
   scoring: Usage=3; no usage=0
@@ -289,7 +292,7 @@ inputs:
   automation: automated
   status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_premium_anchor_expansion
   tags:
   - customer-success
   - healthscore

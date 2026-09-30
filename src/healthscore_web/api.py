@@ -23,6 +23,7 @@ from src.healthscore_web.call_sentiment import CallSentimentGeneratorError
 from src.healthscore_web.meeting_cadence import MeetingCadenceGeneratorError
 from src.healthscore_web.executive_sponsorship import ExecutiveSponsorshipGeneratorError
 from src.healthscore_web.multithreading_depth import MultithreadingDepthGeneratorError
+from src.healthscore_web.premium_anchor_expansion import PremiumAnchorGeneratorError
 from src.healthscore_web.escalation_rate import EscalationRateGeneratorError
 from src.healthscore_web.sla_adherence import SlaAdherenceGeneratorError
 from src.healthscore_web.ticket_volume_trend import TicketVolumeGeneratorError
@@ -40,6 +41,7 @@ from src.healthscore_web.snapshot import (
     run_enhancement_engagement_snapshot,
     run_executive_sponsorship_snapshot,
     run_multithreading_depth_snapshot,
+    run_premium_anchor_expansion_snapshot,
     run_champion_login_snapshot,
     run_champion_turnover_snapshot,
     run_roi_multiple_snapshot,
@@ -776,6 +778,27 @@ async def api_generate_multithreading_depth(request: Request) -> Response:
         logger.exception("Health Score multithreading_depth generate failed")
         return JSONResponse(
             {"ok": False, "error": f"multithreading_depth generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_premium_anchor_expansion(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "premium_anchor_expansion")
+    if denied:
+        return denied
+    try:
+        result = run_premium_anchor_expansion_snapshot(dry_run=False)
+    except PremiumAnchorGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score premium_anchor_expansion generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"premium_anchor_expansion generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

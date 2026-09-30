@@ -21,6 +21,10 @@ from src.healthscore_web.multithreading_depth import (
     METRIC_NAME as MULTITHREADING_DEPTH_METRIC,
     get_multithreading_depth,
 )
+from src.healthscore_web.premium_anchor_expansion import (
+    METRIC_NAME as PREMIUM_ANCHOR_EXPANSION_METRIC,
+    get_premium_anchor_expansion,
+)
 from src.healthscore_web.champion_login import (
     METRIC_NAME as CHAMPION_LOGIN_METRIC,
     ChampionLoginGeneratorError,
@@ -101,6 +105,7 @@ SUPPORTED = (
     ENHANCEMENT_ENGAGEMENT_METRIC,
     EXECUTIVE_SPONSORSHIP_METRIC,
     MULTITHREADING_DEPTH_METRIC,
+    PREMIUM_ANCHOR_EXPANSION_METRIC,
     MEETING_CADENCE_METRIC,
     SLA_ADHERENCE_METRIC,
     TICKET_VOLUME_METRIC,
@@ -457,6 +462,25 @@ def run_meeting_cadence_snapshot(
     )
 
 
+def run_premium_anchor_expansion_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    accounts: list[dict[str, str]] | None = None,
+    events: dict[str, dict[tuple[int, int], float]] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_premium_anchor_expansion(
+        entities=entities,
+        accounts=accounts,
+        events=events,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
 def run_multithreading_depth_snapshot(
     *,
     dry_run: bool = False,
@@ -762,6 +786,10 @@ def run_healthscore_snapshot(
         results[MULTITHREADING_DEPTH_METRIC] = run_multithreading_depth_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (PREMIUM_ANCHOR_EXPANSION_METRIC, "all"):
+        results[PREMIUM_ANCHOR_EXPANSION_METRIC] = run_premium_anchor_expansion_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     if name in (SLA_ADHERENCE_METRIC, "all"):
         results[SLA_ADHERENCE_METRIC] = run_sla_adherence_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
@@ -798,7 +826,8 @@ def run_healthscore_snapshot_cli(
             "usage_trend, champion_login_continuity, champion_turnover (which also "
             "writes the champion_departure_external override), roi_multiple, "
             "summit_attendance, "
-            "enhancement_engagement, meeting_cadence, executive_sponsorship, multithreading_depth, sla_adherence, "
+            "enhancement_engagement, meeting_cadence, executive_sponsorship, multithreading_depth, "
+            "premium_anchor_expansion, sla_adherence, "
             "ticket_volume_trend, escalation_rate, call_sentiment, then call_talk_ratio."
         ),
     )
@@ -809,7 +838,8 @@ def run_healthscore_snapshot_cli(
             "usage_level, usage_trend, champion_login_continuity, champion_turnover, "
             "champion_departure_external, "
             "roi_multiple, "
-            "summit_attendance, enhancement_engagement, meeting_cadence, executive_sponsorship, multithreading_depth, "
+            "summit_attendance, enhancement_engagement, meeting_cadence, executive_sponsorship, "
+            "multithreading_depth, premium_anchor_expansion, "
             "sla_adherence, ticket_volume_trend, escalation_rate, call_sentiment, "
             "call_talk_ratio, or all"
         ),
