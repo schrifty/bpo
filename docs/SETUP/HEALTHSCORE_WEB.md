@@ -11,7 +11,7 @@ static bundle, and SQLite observations are separate.
 - Churned, cancelled, terminated, expired, and closed entities are excluded.
 - The draft framework is `config/healthscore_framework.yaml`: 28
   inputs, four override flags, and 83% currently configured weight.
-- ROI multiple and Enhancement Engagement & Delivery have no source weight
+- ROI multiple and Enhancement engagement & delivery have no source weight
   and stay out of the weighted score rather than receiving an invented value.
 - The displayed score is provisional and normalized only across inputs that
   have observations. Weight coverage is always shown against the configured
@@ -107,7 +107,7 @@ account counts for that parent's entities. Yes scores 1, no scores 0. The
 campaign end date is ignored. If a past summit still has registrations and
 no Attended members, the run warns and scores those entities 0.
 
-**Enhancement Engagement & Delivery** (`get_enhancement_engagement`) counts
+**Enhancement engagement & delivery** (`get_enhancement_engagement`) counts
 Aha Product Ideas created in the trailing 12 months. R is ideas submitted by
 a customer portal user. D is the subset whose workflow status is Shipped.
 The score is `min(10, 3 * min(R, 5) / 5 + 7 * D / R)`, rounded to one decimal.

@@ -88,6 +88,11 @@ def create_app(
             methods=["POST"],
         ),
         Route(
+            "/healthscore/api/generate/executive_sponsorship",
+            healthscore_api.api_generate_executive_sponsorship,
+            methods=["POST"],
+        ),
+        Route(
             "/healthscore/api/generate/sla_adherence",
             healthscore_api.api_generate_sla_adherence,
             methods=["POST"],

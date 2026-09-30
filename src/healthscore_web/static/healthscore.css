@@ -228,8 +228,10 @@
 .hs-components tbody tr.hs-pillar-row td {
   position: static;
   z-index: auto;
-  padding-top: 0.7rem;
-  padding-bottom: 0.3rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  line-height: 1;
+  vertical-align: middle;
   background: var(--accent-soft);
   color: var(--accent);
   font-size: 0.72rem;
@@ -265,43 +267,26 @@
   cursor: pointer;
 }
 
-.hs-pillar-chevron {
+.hs-pillar-chevron,
+.hs-pillar-bullet {
   display: inline-block;
   width: 0;
   height: 0;
+  flex: 0 0 auto;
   border-top: 0.28rem solid transparent;
   border-bottom: 0.28rem solid transparent;
   border-left: 0.4rem solid currentColor;
+  transform-origin: 40% 50%;
 }
 
 .hs-pillar-row.open .hs-pillar-chevron {
-  border-top: 0.4rem solid currentColor;
-  border-right: 0.28rem solid transparent;
-  border-bottom: 0;
-  border-left: 0.28rem solid transparent;
+  transform: rotate(90deg);
 }
 
 .hs-pillar-static {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-}
-
-.hs-pillar-bullet {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 0.4rem;
-  height: 0.4rem;
-  flex: 0 0 auto;
-}
-
-.hs-pillar-bullet::before {
-  content: "";
-  width: 0.28rem;
-  height: 0.28rem;
-  border-radius: 50%;
-  background: currentColor;
 }
 
 .hs-components tbody tr.hs-collapsed {

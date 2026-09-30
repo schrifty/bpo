@@ -21,6 +21,7 @@ from src.healthscore_web.framework import (
 )
 from src.healthscore_web.call_sentiment import CallSentimentGeneratorError
 from src.healthscore_web.meeting_cadence import MeetingCadenceGeneratorError
+from src.healthscore_web.executive_sponsorship import ExecutiveSponsorshipGeneratorError
 from src.healthscore_web.escalation_rate import EscalationRateGeneratorError
 from src.healthscore_web.sla_adherence import SlaAdherenceGeneratorError
 from src.healthscore_web.ticket_volume_trend import TicketVolumeGeneratorError
@@ -36,6 +37,7 @@ from src.healthscore_web.snapshot import (
     run_sla_adherence_snapshot,
     run_ticket_volume_snapshot,
     run_enhancement_engagement_snapshot,
+    run_executive_sponsorship_snapshot,
     run_champion_login_snapshot,
     run_champion_turnover_snapshot,
     run_roi_multiple_snapshot,
@@ -751,6 +753,27 @@ async def api_generate_meeting_cadence(request: Request) -> Response:
         logger.exception("Health Score meeting_cadence generate failed")
         return JSONResponse(
             {"ok": False, "error": f"meeting_cadence generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_executive_sponsorship(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "executive_sponsorship")
+    if denied:
+        return denied
+    try:
+        result = run_executive_sponsorship_snapshot(dry_run=False)
+    except ExecutiveSponsorshipGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score executive_sponsorship generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"executive_sponsorship generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

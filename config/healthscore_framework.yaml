@@ -298,23 +298,23 @@ inputs:
   pillar: Relationship & Engagement
   name: Executive sponsorship strength
   description: 'How engaged the customer''s senior executives (Senior Director and above) are with LeanDNA:
-    number of touches in the trailing two quarters and days since the last one, from Salesforce activity,
-    Chorus calls, and Gmail/Calendar, weighted toward recent contact. Point thresholds are not yet defined.'
+    number of touches in the trailing two quarters and days since the last one, from Salesforce activity
+    and Chorus calls, weighted toward recent contact. The same person on the same day counts once.'
   signal: leading
   metric: Senior Director+ touches in trailing two quarters and days since last touch
-  scoring: Baseline and point thresholds need definition
-  max_points: null
+  scoring: No senior contact and no senior Chorus participant=unscored. No touches=0. Last touch
+    older than 90 days=1. Last touch within 90 days and one touch=2. Last touch within 90 days and
+    two or more touches=4
+  max_points: 4
   weight: 4
   data_source:
   - Salesforce
   - Chorus
-  - Gmail
-  - Calendar
   grain: monthly
-  automation: manual
-  status: needs_definition
+  automation: automated
+  status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_executive_sponsorship
   tags:
   - customer-success
   - healthscore
@@ -400,7 +400,7 @@ inputs:
   - relationship
 - key: enhancement_engagement
   pillar: Relationship & Engagement
-  name: Enhancement Engagement & Delivery
+  name: Enhancement engagement & delivery
   description: Aha Product Ideas submitted in the trailing 12 months by a customer portal user, and how
     many of those ideas were Shipped. Up to 3 points come from submitting requests, capped at 5 requests,
     and up to 7 points come from the share that shipped. The submitter's email domain matches an Aha idea

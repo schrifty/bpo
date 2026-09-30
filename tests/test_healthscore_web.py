@@ -146,7 +146,7 @@ def test_framework_preserves_draft_weight_and_unknown_roi_weight() -> None:
     assert summit["metric-generator"] == "get_summit_attendance"
     engagement = next(row for row in framework["inputs"] if row["key"] == "enhancement_engagement")
     assert engagement["metric-generator"] == "get_enhancement_engagement"
-    assert engagement["name"] == "Enhancement Engagement & Delivery"
+    assert engagement["name"] == "Enhancement engagement & delivery"
     assert engagement["weight"] == 5
     assert engagement["status"] == "needs_weight"
     assert engagement["max_points"] == 10
