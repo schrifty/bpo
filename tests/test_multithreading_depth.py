@@ -7,9 +7,11 @@ import pytest
 from src.healthscore_web.framework import load_framework
 from src.healthscore_web.multithreading_depth import (
     MultithreadingDepthGeneratorError,
+    event_touch,
     get_multithreading_depth,
     is_director_title,
     multithreading_points,
+    task_touch,
 )
 
 AS_OF = date(2026, 9, 30)
@@ -192,6 +194,25 @@ def test_blank_activity_date_fails_loud():
             events=[],
             engagements=[],
         )
+
+
+def test_relation_rows_use_the_completed_day_and_fall_back_to_created():
+    completed = task_touch(
+        {
+            "TaskId": "00T1",
+            "RelationId": "003000000000001AAA",
+            "Task": {"CompletedDateTime": "2026-09-01T12:00:00.000Z", "CreatedDate": "2026-09-02T12:00:00.000Z"},
+        }
+    )
+    assert completed == {"Id": "00T1", "WhoId": "003000000000001AAA", "ActivityDate": "2026-09-01T12:00:00.000Z"}
+    open_task = task_touch(
+        {"TaskId": "00T2", "RelationId": "003000000000001AAA", "Task": {"CompletedDateTime": None, "CreatedDate": "2026-09-03"}}
+    )
+    assert open_task["ActivityDate"] == "2026-09-03"
+    started = event_touch(
+        {"EventId": "00U1", "RelationId": "003000000000001AAA", "Event": {"StartDateTime": "2026-09-04T15:00:00.000Z"}}
+    )
+    assert started["StartDateTime"] == "2026-09-04T15:00:00.000Z"
 
 
 def test_empty_inventory_fails_loud():

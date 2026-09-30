@@ -242,25 +242,67 @@ def load_titled_contacts() -> list[dict[str, Any]]:
 
 
 def load_tasks(contact_ids: list[str], start: date, end: date) -> list[dict[str, Any]]:
-    """Tasks whose WhoId is a senior contact and whose ActivityDate is in the window."""
-    return _load_activity(
-        "Task",
-        "Id, ActivityDate, WhoId",
-        f"ActivityDate >= {start.isoformat()} AND ActivityDate <= {end.isoformat()}",
+    """Tasks linked to a senior contact in the window.
+
+    This org does not expose ``Task.WhoId`` or ``Task.ActivityDate``. The contact
+    is ``TaskWhoRelation.RelationId``. The day is ``CompletedDateTime``, or
+    ``CreatedDate`` when the task is not completed.
+    """
+    start_ts = f"{start.isoformat()}T00:00:00Z"
+    end_ts = f"{end.isoformat()}T23:59:59Z"
+    window = (
+        f"((Task.CompletedDateTime >= {start_ts} AND Task.CompletedDateTime <= {end_ts}) "
+        f"OR (Task.CompletedDateTime = null AND Task.CreatedDate >= {start_ts} "
+        f"AND Task.CreatedDate <= {end_ts}))"
+    )
+    rows = _load_relations(
+        "TaskWhoRelation",
+        "TaskId, RelationId, Task.CompletedDateTime, Task.CreatedDate",
+        window,
         contact_ids,
     )
+    return [_task_touch(row) for row in rows]
 
 
 def load_events(contact_ids: list[str], start: date, end: date) -> list[dict[str, Any]]:
-    """Events whose WhoId is a senior contact and whose start falls in the window."""
+    """Events linked to a senior contact whose start falls in the window."""
     start_ts = f"{start.isoformat()}T00:00:00Z"
     end_ts = f"{end.isoformat()}T23:59:59Z"
-    return _load_activity(
-        "Event",
-        "Id, StartDateTime, WhoId",
-        f"StartDateTime >= {start_ts} AND StartDateTime <= {end_ts}",
+    window = (
+        f"((Event.StartDateTime >= {start_ts} AND Event.StartDateTime <= {end_ts}) "
+        f"OR (Event.StartDateTime = null AND Event.ActivityDate >= {start.isoformat()} "
+        f"AND Event.ActivityDate <= {end.isoformat()}))"
+    )
+    rows = _load_relations(
+        "EventWhoRelation",
+        "EventId, RelationId, Event.StartDateTime, Event.ActivityDate",
+        window,
         contact_ids,
     )
+    return [_event_touch(row) for row in rows]
+
+
+def _parent(row: dict[str, Any], key: str) -> dict[str, Any]:
+    value = row.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _task_touch(row: dict[str, Any]) -> dict[str, Any]:
+    parent = _parent(row, "Task")
+    return {
+        "Id": row.get("TaskId"),
+        "WhoId": row.get("RelationId"),
+        "ActivityDate": parent.get("CompletedDateTime") or parent.get("CreatedDate"),
+    }
+
+
+def _event_touch(row: dict[str, Any]) -> dict[str, Any]:
+    parent = _parent(row, "Event")
+    return {
+        "Id": row.get("EventId"),
+        "WhoId": row.get("RelationId"),
+        "StartDateTime": parent.get("StartDateTime") or parent.get("ActivityDate"),
+    }
 
 
 def load_chorus_calls(start: date, end: date) -> list[dict[str, Any]]:
@@ -295,7 +337,7 @@ def load_chorus_calls(start: date, end: date) -> list[dict[str, Any]]:
     return recorded
 
 
-def _load_activity(
+def _load_relations(
     sobject: str, fields: str, window: str, contact_ids: list[str]
 ) -> list[dict[str, Any]]:
     from src.salesforce_client import SalesforceClient
@@ -306,7 +348,10 @@ def _load_activity(
     found: list[dict[str, Any]] = []
     for chunk in _chunks(contact_ids, _ID_CHUNK):
         quoted = ", ".join(f"'{_soql_id(item)}'" for item in chunk)
-        soql = f"SELECT {fields} FROM {sobject} WHERE {window} AND WhoId IN ({quoted})"
+        soql = (
+            f"SELECT {fields} FROM {sobject} "
+            f"WHERE {window} AND Type = 'Contact' AND RelationId IN ({quoted})"
+        )
         try:
             rows = client.query_soql(soql)
         except Exception as exc:  # noqa: BLE001
