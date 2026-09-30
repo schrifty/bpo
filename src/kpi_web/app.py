@@ -93,6 +93,11 @@ def create_app(
             methods=["POST"],
         ),
         Route(
+            "/healthscore/api/generate/multithreading_depth",
+            healthscore_api.api_generate_multithreading_depth,
+            methods=["POST"],
+        ),
+        Route(
             "/healthscore/api/generate/sla_adherence",
             healthscore_api.api_generate_sla_adherence,
             methods=["POST"],

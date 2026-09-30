@@ -322,23 +322,26 @@ inputs:
 - key: multithreading_depth
   pillar: Relationship & Engagement
   name: Multi-threading depth
-  description: How many different Director-and-above contacts at the customer engaged with LeanDNA in
-    the trailing 90 days, and whether that number is growing, from Salesforce, Gmail, and Chorus. Depends
-    on reliable contact titles in Salesforce; point thresholds are not yet defined.
+  description: 'How many different Director-and-above contacts at the customer engaged with LeanDNA in
+    the trailing 90 days, and whether that count is higher than the prior 90 days, from Salesforce activity
+    and Chorus calls. A person counts once. Director includes Senior Director, Vice President, and above.
+    An Account with no Director-or-above contact and no Director-or-above Chorus participant in those
+    180 days stays unscored.'
   signal: leading
-  metric: Distinct Director+ contacts engaged in trailing 90 days and trend
-  scoring: Point thresholds need definition
-  max_points: null
+  metric: Distinct Director+ contacts engaged in trailing 90 days, compared with the prior 90 days
+  scoring: No Director+ contact and no Director+ Chorus participant in the trailing 180 days=unscored.
+    Zero engaged in the trailing 90 days=0. One=1, or 2 when higher than the prior 90 days. Two=2, or 3
+    when higher. Three or more=3, or 4 when higher.
+  max_points: 4
   weight: 4
   data_source:
   - Salesforce
-  - Gmail
   - Chorus
   grain: monthly
-  automation: blocked
-  status: needs_definition
+  automation: automated
+  status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_multithreading_depth
   tags:
   - customer-success
   - healthscore

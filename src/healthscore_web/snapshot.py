@@ -17,6 +17,10 @@ from src.healthscore_web.executive_sponsorship import (
     METRIC_NAME as EXECUTIVE_SPONSORSHIP_METRIC,
     get_executive_sponsorship,
 )
+from src.healthscore_web.multithreading_depth import (
+    METRIC_NAME as MULTITHREADING_DEPTH_METRIC,
+    get_multithreading_depth,
+)
 from src.healthscore_web.champion_login import (
     METRIC_NAME as CHAMPION_LOGIN_METRIC,
     ChampionLoginGeneratorError,
@@ -96,6 +100,7 @@ SUPPORTED = (
     SUMMIT_ATTENDANCE_METRIC,
     ENHANCEMENT_ENGAGEMENT_METRIC,
     EXECUTIVE_SPONSORSHIP_METRIC,
+    MULTITHREADING_DEPTH_METRIC,
     MEETING_CADENCE_METRIC,
     SLA_ADHERENCE_METRIC,
     TICKET_VOLUME_METRIC,
@@ -452,6 +457,29 @@ def run_meeting_cadence_snapshot(
     )
 
 
+def run_multithreading_depth_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    contacts: list[dict[str, Any]] | None = None,
+    tasks: list[dict[str, Any]] | None = None,
+    events: list[dict[str, Any]] | None = None,
+    engagements: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_multithreading_depth(
+        entities=entities,
+        contacts=contacts,
+        tasks=tasks,
+        events=events,
+        engagements=engagements,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
 def run_executive_sponsorship_snapshot(
     *,
     dry_run: bool = False,
@@ -730,6 +758,10 @@ def run_healthscore_snapshot(
         results[EXECUTIVE_SPONSORSHIP_METRIC] = run_executive_sponsorship_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (MULTITHREADING_DEPTH_METRIC, "all"):
+        results[MULTITHREADING_DEPTH_METRIC] = run_multithreading_depth_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     if name in (SLA_ADHERENCE_METRIC, "all"):
         results[SLA_ADHERENCE_METRIC] = run_sla_adherence_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
@@ -766,7 +798,7 @@ def run_healthscore_snapshot_cli(
             "usage_trend, champion_login_continuity, champion_turnover (which also "
             "writes the champion_departure_external override), roi_multiple, "
             "summit_attendance, "
-            "enhancement_engagement, meeting_cadence, executive_sponsorship, sla_adherence, "
+            "enhancement_engagement, meeting_cadence, executive_sponsorship, multithreading_depth, sla_adherence, "
             "ticket_volume_trend, escalation_rate, call_sentiment, then call_talk_ratio."
         ),
     )
@@ -777,7 +809,7 @@ def run_healthscore_snapshot_cli(
             "usage_level, usage_trend, champion_login_continuity, champion_turnover, "
             "champion_departure_external, "
             "roi_multiple, "
-            "summit_attendance, enhancement_engagement, meeting_cadence, executive_sponsorship, "
+            "summit_attendance, enhancement_engagement, meeting_cadence, executive_sponsorship, multithreading_depth, "
             "sla_adherence, ticket_volume_trend, escalation_rate, call_sentiment, "
             "call_talk_ratio, or all"
         ),
