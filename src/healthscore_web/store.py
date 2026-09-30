@@ -372,6 +372,43 @@ def latest_effective_by_entity(
     return points, values
 
 
+def latest_metric_rows(
+    conn: sqlite3.Connection, metric_names: list[str]
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Newest full row per entity for each named metric.
+
+    Period keys sort newest first, matching :func:`latest_by_metric`.
+    """
+    names = [str(name) for name in metric_names if str(name).strip()]
+    if not names:
+        return {}
+    placeholders = ", ".join("?" for _ in names)
+    rows = conn.execute(
+        f"""
+        SELECT entity_id, entity_name, metric_name, grain, period_key, as_of,
+               value, points, override_value, override_points, meta_json
+        FROM (
+            SELECT entity_id, entity_name, metric_name, grain, period_key, as_of,
+                   value, points, override_value, override_points, meta_json,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY entity_id, metric_name
+                       ORDER BY period_key DESC
+                   ) AS rn
+            FROM healthscore_observation
+            WHERE metric_name IN ({placeholders})
+        )
+        WHERE rn = 1
+        """,
+        names,
+    ).fetchall()
+    grouped: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in rows:
+        payload = dict(row)
+        payload["meta"] = _json_or(payload.pop("meta_json", None), {})
+        grouped.setdefault(str(payload["entity_id"]), {})[str(payload["metric_name"])] = payload
+    return grouped
+
+
 def latest_effective_points_by_entity(
     conn: sqlite3.Connection,
 ) -> dict[str, dict[str, float | None]]:

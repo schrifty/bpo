@@ -65,6 +65,7 @@ from src.healthscore_web.store import (
     connect,
     latest_by_metric,
     latest_effective_by_entity,
+    latest_metric_rows,
     observations_for_entity,
     period_key_for,
     set_override,
@@ -173,6 +174,74 @@ def _flag_is_on(value: Any) -> bool:
         return float(value) != 0
     except (TypeError, ValueError):
         return bool(value)
+
+
+def _source_url(raw: Any) -> str | None:
+    """An http(s) link a reader can follow; anything else is dropped."""
+    text = str(raw or "").strip()
+    if text.lower().startswith(("http://", "https://")):
+        return text
+    return None
+
+
+def _flag_detail_items(key: str, meta: Any) -> list[dict[str, Any]]:
+    """What a raised flag can show: who left (with a source link when Web Research
+    supplied one), or which competitor was mentioned."""
+    if not isinstance(meta, dict):
+        return []
+    found: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    if key == "champion_departure_external":
+        events = meta.get("departures")
+        if isinstance(events, list):
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                name = str(event.get("name") or "").strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                found.append({"text": name, "url": _source_url(event.get("url"))})
+    elif key == "competitive_mentions":
+        names = meta.get("competitors")
+        if isinstance(names, list):
+            for name in names:
+                text = str(name or "").strip()
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                found.append({"text": text, "url": None})
+    return found
+
+
+def _raised_override_entries(
+    framework: dict[str, Any],
+    values_by_key: dict[str, Any],
+    rows_by_key: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Raised override flags, with the person or competitor when the reading has one."""
+    entries: list[dict[str, Any]] = []
+    for definition in framework.get("overrides") or []:
+        if definition.get("deactivated"):
+            continue
+        key = str(definition["key"])
+        if not _flag_is_on(values_by_key.get(key)):
+            continue
+        row = (rows_by_key or {}).get(key) or {}
+        label = str(definition.get("name") or key)
+        items = _flag_detail_items(key, row.get("meta"))
+        texts = [item["text"] for item in items]
+        entries.append(
+            {
+                "key": key,
+                "name": label,
+                "detail": f"{label}: {', '.join(texts)}" if texts else label,
+                "items": items,
+                "period_key": row.get("period_key"),
+                "grain": row.get("grain") or definition.get("grain"),
+            }
+        )
+    return entries
 
 
 def _raised_override_names(
@@ -344,10 +413,11 @@ async def report_page(request: Request) -> Response:
 
 
 async def api_report(request: Request) -> Response:
-    """Every active entity, highest shown score first, then entity name.
+    """Every active entity. Raised overrides come first, then score, then name.
 
-    The shown score is the 0–100 score on scored inputs. Ties break by entity
-    name, A to Z. Unscored entities stay last.
+    The shown score is the 0–100 score on scored inputs. A raised override still
+    scores 0 and is listed with the person or competitor that raised it. Ties
+    break by entity name, A to Z. Unscored entities stay last.
     """
     try:
         require_user(request)
@@ -356,9 +426,15 @@ async def api_report(request: Request) -> Response:
     try:
         entities = _active_salesforce_entities()
         framework = load_framework()
+        flag_keys = [
+            str(row["key"])
+            for row in framework.get("overrides") or []
+            if not row.get("deactivated")
+        ]
         conn = connect()
         try:
             points, flag_values = latest_effective_by_entity(conn)
+            flag_rows = latest_metric_rows(conn, flag_keys)
             from src.healthscore_web.nightly import METRIC_NAME as SITE_HEALTHSCORE
             from src.healthscore_web.nightly import sparkline_since
             from src.healthscore_web.store import metric_values_since
@@ -374,9 +450,11 @@ async def api_report(request: Request) -> Response:
         )
     rows = []
     for entity in entities:
+        values = flag_values.get(entity["id"], {})
+        raised = _raised_override_entries(framework, values, flag_rows.get(entity["id"]))
         numbers = _apply_override_flags(
             _score_numbers(framework, points.get(entity["id"], {})),
-            _raised_override_names(framework, flag_values.get(entity["id"], {})),
+            [entry["name"] for entry in raised],
         )
         score = numbers["score"]
         weighted = None if score is None else round(float(numbers["contribution"]), 4)
@@ -392,11 +470,13 @@ async def api_report(request: Request) -> Response:
                 "coverage_pct": numbers["coverage_pct"],
                 "weighted_score": weighted,
                 "score_zeroed": numbers["score_zeroed"],
+                "overrides": raised,
                 "healthscore_history": history.get(entity["id"], []),
             }
         )
     rows.sort(
         key=lambda row: (
+            not row["score_zeroed"],
             row["shown_score"] is None,
             -(row["shown_score"] if row["shown_score"] is not None else 0),
             row["name"].casefold(),
@@ -571,6 +651,75 @@ async def api_entity_analysis(request: Request) -> Response:
             "analysis": analysis,
         }
     )
+
+
+def _override_change_denied(user: Any, component_key: str) -> JSONResponse | None:
+    """Catalog admins may dismiss any flag. Everyone else must own it."""
+    if getattr(user, "is_catalog_admin", False):
+        return None
+    return _score_change_denied(user, component_key)
+
+
+async def api_dismiss_overrides(request: Request) -> Response:
+    """Shadow each raised flag with 0 so the entity scores again.
+
+    The generated reading stays in place. A later period can raise the flag again.
+    """
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    entity_id = str(request.path_params.get("entity_id") or "").strip()
+    try:
+        framework = load_framework()
+        entities = _active_salesforce_entities()
+        entity = next((row for row in entities if row["id"] == entity_id), None)
+        if not entity:
+            raise ValueError("entity is not an active Salesforce Customer Entity")
+        flag_keys = [
+            str(row["key"])
+            for row in framework.get("overrides") or []
+            if not row.get("deactivated")
+        ]
+        conn = connect()
+        try:
+            _points, flag_values = latest_effective_by_entity(conn)
+            rows_by_key = latest_metric_rows(conn, flag_keys).get(entity_id, {})
+            raised = _raised_override_entries(
+                framework, flag_values.get(entity_id, {}), rows_by_key
+            )
+            if not raised:
+                raise ValueError("no override condition is raised for this entity")
+            for entry in raised:
+                denied = _override_change_denied(user, entry["key"])
+                if denied:
+                    return denied
+            dismissed: list[str] = []
+            for entry in raised:
+                grain = str(entry.get("grain") or "").strip()
+                if not grain:
+                    raise ValueError(f"{entry['key']} has no grain, so it cannot be dismissed")
+                set_override(
+                    conn,
+                    entity_id=entity_id,
+                    entity_name=str(entity.get("name") or ""),
+                    metric_name=entry["key"],
+                    grain=grain,
+                    period_key=str(entry.get("period_key") or "").strip() or None,
+                    value=0,
+                    points=None,
+                    by=user.email,
+                    note="dismissed",
+                )
+                dismissed.append(entry["key"])
+        finally:
+            conn.close()
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score override dismiss failed")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    return JSONResponse({"ok": True, "dismissed": dismissed})
 
 
 async def api_set_component(request: Request) -> Response:

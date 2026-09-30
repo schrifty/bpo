@@ -442,17 +442,106 @@ def test_override_flag_sets_healthscore_to_zero(
     assert by_name["Open Entity"]["weighted_score"] == 6
     assert by_name["Flagged Entity"]["weighted_score"] == 0
     assert by_name["Flagged Entity"]["shown_score"] == 0
+    flagged = by_name["Flagged Entity"]
+    assert flagged["overrides"][0]["name"] == "M&A activity / parent company change"
+    assert flagged["overrides"][0]["detail"] == "M&A activity / parent company change"
     names = [row["name"] for row in report.json()["entities"]]
-    assert names.index("Open Entity") < names.index("Flagged Entity")
+    assert names[0] == "Flagged Entity"
 
-    cleared = client.put(
-        "/healthscore/api/entities/001-flagged/components/merger_acquisition",
-        json={"as_of": "2026-09-30", "value": 0},
-    )
-    assert cleared.status_code == 200, cleared.text
+    outsider = _client(tmp_path, monkeypatch, dev_user="lead.eng@leandna.com")
+    _login(outsider)
+    denied = outsider.post("/healthscore/api/entities/001-flagged/overrides/dismiss")
+    assert denied.status_code == 403
+
+    dismissed = client.post("/healthscore/api/entities/001-flagged/overrides/dismiss")
+    assert dismissed.status_code == 200, dismissed.text
+    assert dismissed.json()["dismissed"] == ["merger_acquisition"]
     restored = client.get("/healthscore/api/entities/001-flagged/score")
     assert restored.json()["score"] == 100
     assert restored.json()["score_zeroed"] is False
+    again = client.get("/healthscore/api/report").json()
+    by_name = {row["name"]: row for row in again["entities"]}
+    assert by_name["Flagged Entity"]["score_zeroed"] is False
+    assert by_name["Flagged Entity"]["shown_score"] == 100
+    assert by_name["Flagged Entity"]["overrides"] == []
+
+
+def test_report_names_who_left_and_which_competitor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entities = [
+        {**_entities()[0], "id": "001-left", "name": "Left Entity"},
+        {**_entities()[0], "id": "001-rival", "name": "Rival Entity"},
+        {**_entities()[0], "id": "001-calm", "name": "Calm Entity"},
+    ]
+    monkeypatch.setattr("src.healthscore_web.api._active_salesforce_entities", lambda: entities)
+    client = _score_owner_client(tmp_path, monkeypatch)
+    _login(client)
+    for entity_id in ("001-left", "001-rival", "001-calm"):
+        saved = client.put(
+            f"/healthscore/api/entities/{entity_id}/components/usage_level",
+            json={"as_of": "2026-09-30", "points": 6},
+        )
+        assert saved.status_code == 200, saved.text
+    conn = connect()
+    try:
+        upsert_reading(
+            conn,
+            entity_id="001-left",
+            entity_name="Left Entity",
+            metric_name="champion_departure_external",
+            grain="weekly",
+            as_of=date(2026, 9, 30),
+            value=1,
+            points=None,
+            generator="get_champion_turnover",
+            meta={
+                "departures": [
+                    {
+                        "name": "Alex Morgan",
+                        "kind": "left_account",
+                        "url": "https://news.example.com/alex-morgan-moves-on",
+                    },
+                    {"name": "Sam Lee", "kind": "job_started", "url": "javascript:alert(1)"},
+                ]
+            },
+        )
+        upsert_reading(
+            conn,
+            entity_id="001-rival",
+            entity_name="Rival Entity",
+            metric_name="competitive_mentions",
+            grain="monthly",
+            as_of=date(2026, 9, 30),
+            value=1,
+            points=None,
+            generator="get_competitive_mentions",
+            meta={"competitors": ["Kinaxis", "o9 Solutions"]},
+        )
+    finally:
+        conn.close()
+
+    report = client.get("/healthscore/api/report")
+    assert report.status_code == 200, report.text
+    rows = report.json()["entities"]
+    assert [row["name"] for row in rows] == ["Left Entity", "Rival Entity", "Calm Entity"]
+    assert rows[0]["shown_score"] == 0
+    assert rows[0]["overrides"][0]["detail"] == "Champion / executive departure: Alex Morgan, Sam Lee"
+    # Web Research supplies the link; anything that is not http(s) is dropped.
+    assert rows[0]["overrides"][0]["items"] == [
+        {"text": "Alex Morgan", "url": "https://news.example.com/alex-morgan-moves-on"},
+        {"text": "Sam Lee", "url": None},
+    ]
+    assert rows[1]["overrides"][0]["detail"] == "Competitive mentions: Kinaxis, o9 Solutions"
+    assert rows[1]["overrides"][0]["items"][0] == {"text": "Kinaxis", "url": None}
+    assert rows[2]["score_zeroed"] is False
+
+    dismissed = client.post("/healthscore/api/entities/001-left/overrides/dismiss")
+    assert dismissed.status_code == 200, dismissed.text
+    again = client.get("/healthscore/api/report").json()["entities"]
+    assert [row["name"] for row in again] == ["Rival Entity", "Calm Entity", "Left Entity"]
+    assert again[1]["shown_score"] == 100
+    assert again[2]["shown_score"] == 100
 
 
 def test_healthscore_rejects_non_salesforce_entity_and_excess_points(

@@ -78,6 +78,11 @@
   display: none;
 }
 
+.hs-score-zeroed .hs-score-value {
+  font-size: 1.35rem;
+  letter-spacing: 0.08em;
+}
+
 .hs-score-red {
   background: #fde8e8;
   border-color: #c0392b;
@@ -801,6 +806,10 @@
 }
 
 .hs-report-table tbody tr.red td { background: #f1a3a3; }
+.hs-report-table tbody tr.override td {
+  background: #d50000;
+  color: #fff;
+}
 .hs-report-table tbody tr.yellow td { background: #fff4cc; }
 .hs-report-table tbody tr.green td { background: #e3f6ea; }
 .hs-report-table tbody tr.unscored td { background: #f3f3f3; }
@@ -814,6 +823,63 @@
 .hs-report-table a:hover {
   color: var(--accent);
   text-decoration: underline;
+}
+
+.hs-report-table tbody tr.override a,
+.hs-report-table tbody tr.override a:hover {
+  color: #fff;
+}
+
+.hs-report-table tbody tr.override .muted,
+.hs-report-table tbody tr.override .hs-override-score {
+  color: #fff;
+}
+
+.hs-report-table tbody tr.override .hs-spark polyline {
+  stroke: #fff;
+}
+
+.hs-override-score {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-size: 0.72rem;
+}
+
+.hs-override-detail {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* A departing executive's name links to the Web Research source that reported it. */
+.hs-source-link,
+.hs-score-note .hs-source-link,
+.hs-report-table tbody tr.override .hs-source-link {
+  color: inherit;
+  font-weight: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.hs-source-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+.hs-dismiss-btn {
+  display: inline-flex;
+  margin-top: 0.4rem;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.72rem;
+  color: #9b0c0c;
+  border-color: #fff;
+}
+
+.hs-band.override {
+  background: #d50000;
+  color: #fff;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
 }
 
 .hs-band {

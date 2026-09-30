@@ -53,6 +53,11 @@ def create_app(
             methods=["PUT"],
         ),
         Route(
+            "/healthscore/api/entities/{entity_id}/overrides/dismiss",
+            healthscore_api.api_dismiss_overrides,
+            methods=["POST"],
+        ),
+        Route(
             "/healthscore/api/generate/usage_level",
             healthscore_api.api_generate_usage_level,
             methods=["POST"],

@@ -353,35 +353,47 @@
     const score = state.score;
     const covered = score ? Number(score.covered_weight) : NaN;
     const contribution = score ? Number(score.contribution) : NaN;
-    if (!state.entity || !score || !Number.isFinite(covered) || covered <= 0) {
+    if (!state.entity || !score) {
       hero.className = "hs-score-hero hs-score-empty";
       coverageEl.textContent = "—";
       healthEl.textContent = "—";
-      note.textContent = state.entity ? "No scored inputs yet" : "Choose an entity";
+      note.textContent = "Choose an entity";
+      return;
+    }
+    // An override holds the score at 0. The hero says so instead of showing the zero.
+    if (score.score_zeroed) {
+      hero.className = "hs-score-hero hs-score-red hs-score-zeroed";
+      coverageEl.textContent = "—";
+      healthEl.textContent = "OVERRIDE";
+      note.innerHTML = zeroedNoteHtml(score);
+      return;
+    }
+    if (!Number.isFinite(covered) || covered <= 0) {
+      hero.className = "hs-score-hero hs-score-empty";
+      coverageEl.textContent = "—";
+      healthEl.textContent = "—";
+      note.textContent = "No scored inputs yet";
       return;
     }
     const coverage = Number(score.coverage_pct);
     const coverageShown = Number.isFinite(coverage) ? coverage : 0;
     // Input score is points / max points. Sum(score × weight) × (100 / scored weights).
     // Unscored inputs are left out of both the sum and the divisor.
-    const health = score.score_zeroed
-      ? 0
-      : Math.round((Number.isFinite(contribution) ? contribution : 0) / covered * 100);
+    const health = Math.round((Number.isFinite(contribution) ? contribution : 0) / covered * 100);
     const band = health <= 33 ? "red" : health <= 67 ? "yellow" : "green";
-    const zeroed = Boolean(score.score_zeroed);
-    // While an override condition holds the score at 0, the scored-weight stat is beside the point.
-    hero.className = `hs-score-hero hs-score-${band}${zeroed ? " hs-score-zeroed" : ""}`;
+    hero.className = `hs-score-hero hs-score-${band}`;
     coverageEl.textContent = `${coverageShown}%`;
     healthEl.textContent = String(health);
-    note.textContent = zeroed ? zeroedNote(score) : "";
+    note.textContent = "";
   }
 
-  // What each raised flag found: people who left, competitors named on calls.
+  // What each raised flag found: people who left (with a Web Research link when
+  // one was supplied), competitors named on calls.
   const FLAG_DETAILS = {
     champion_departure_external: (meta) => (Array.isArray(meta.departures) ? meta.departures : [])
-      .map((event) => String(event && event.name || "").trim()),
+      .map((event) => ({ text: String(event && event.name || "").trim(), url: event && event.url })),
     competitive_mentions: (meta) => (Array.isArray(meta.competitors) ? meta.competitors : [])
-      .map((name) => String(name || "").trim()),
+      .map((name) => ({ text: String(name || "").trim(), url: null })),
   };
 
   function flagDetails(flag) {
@@ -390,17 +402,27 @@
     if (!reader || !meta || typeof meta !== "object") return [];
     const found = [];
     for (const item of reader(meta)) {
-      if (item && !found.includes(item)) found.push(item);
+      if (item.text && !found.some((row) => row.text === item.text)) found.push(item);
     }
     return found;
   }
 
-  function zeroedNote(score) {
+  function isHttpUrl(value) {
+    return /^https?:\/\//i.test(String(value || "").trim());
+  }
+
+  function detailItemHtml(item) {
+    const text = esc(item.text);
+    if (!isHttpUrl(item.url)) return text;
+    return `<a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" class="hs-source-link">${text}</a>`;
+  }
+
+  function zeroedNoteHtml(score) {
     const raised = (score.overrides || []).filter(flagIsOn);
     const parts = (score.zeroed_by || []).filter(Boolean).map((label) => {
       const flag = raised.find((row) => row.name === label);
       const details = flag ? flagDetails(flag) : [];
-      return details.length ? `${label}: ${details.join(", ")}` : label;
+      return details.length ? `${esc(label)}: ${details.map(detailItemHtml).join(", ")}` : esc(label);
     });
     return parts.length ? `Set to 0 by ${parts.join(", ")}` : "Set to 0 by an override condition";
   }
