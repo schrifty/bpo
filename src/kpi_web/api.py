@@ -41,6 +41,7 @@ from src.kpi_web.auth import (
     user_from_dev_login,
     user_from_google_info,
 )
+from src.kpi_web.google_tokens import save_refresh_token
 from src.kpi_web.situation import (
     SITUATION_SYSTEM_PROMPT,
     KpiSituationError,
@@ -852,8 +853,19 @@ async def auth_callback(request: Request) -> Response:
             status_code=400,
         )
     try:
-        info = exchange_google_code(code, settings=settings)
-        user = user_from_google_info(info, settings=settings)
+        login = exchange_google_code(code, settings=settings)
+        if not login.refresh_token:
+            raise KPIWebAuthError(
+                "Google did not return a refresh token, so Gmail cannot be read. "
+                "Sign in again and allow Gmail access.",
+                status_code=502,
+            )
+        user = user_from_google_info(login.info, settings=settings)
+        save_refresh_token(
+            user.email,
+            login.refresh_token,
+            session_secret=settings.session_secret,
+        )
         token = encode_session(user, settings=settings)
     except KPIWebAuthError as exc:
         return auth_error_response(exc)

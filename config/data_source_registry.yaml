@@ -119,6 +119,18 @@ sources:
       - name: idea_portals
         method: GET
         path: /idea_portals
+  gmail:
+    display_name: Gmail
+    authority: enrichment
+    env_required: []
+    env_optional: [CORTEX_KPI_WEB_GOOGLE_CLIENT_ID, CORTEX_KPI_WEB_GOOGLE_CLIENT_SECRET]
+    endpoints:
+      - name: messages_list
+        method: GET
+        path: /gmail/v1/users/me/messages
+      - name: messages_get
+        method: GET
+        path: /gmail/v1/users/me/messages/{id}
   chorus:
     display_name: Chorus
     authority: enrichment
@@ -218,4 +230,5 @@ source_display_order:
   - slack
   - aha
   - chorus
+  - gmail
   - leandna

@@ -27,7 +27,15 @@ logger = logging.getLogger(__name__)
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
-OAUTH_SCOPES = "openid email profile"
+OAUTH_SCOPES = " ".join(
+    (
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/gmail.readonly",
+    )
+)
+GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 
 
 @dataclass(frozen=True)
@@ -37,6 +45,14 @@ class KPIWebUser:
     picture: str | None
     is_catalog_admin: bool
     auth_method: str  # google | dev
+
+
+@dataclass(frozen=True)
+class GoogleLoginResult:
+    """Userinfo plus the refresh token that keeps Gmail readable after sign-in."""
+
+    info: dict[str, Any]
+    refresh_token: str | None
 
 
 class KPIWebAuthError(Exception):
@@ -163,10 +179,10 @@ def build_google_authorize_url(*, settings: KPIWebSettings, state: str) -> str:
         "redirect_uri": settings.redirect_uri,
         "response_type": "code",
         "scope": OAUTH_SCOPES,
-        "access_type": "online",
+        "access_type": "offline",
         "include_granted_scopes": "true",
         "state": state,
-        "prompt": "select_account",
+        "prompt": "consent select_account",
     }
     # Prefer Workspace account chooser for known domains when a single domain is set.
     if len(settings.allowed_domains) == 1:
@@ -174,8 +190,8 @@ def build_google_authorize_url(*, settings: KPIWebSettings, state: str) -> str:
     return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
 
 
-def exchange_google_code(code: str, *, settings: KPIWebSettings) -> dict[str, Any]:
-    """Exchange an auth code for tokens; return userinfo dict with email/name/picture."""
+def exchange_google_code(code: str, *, settings: KPIWebSettings) -> GoogleLoginResult:
+    """Exchange an auth code for userinfo and a Gmail refresh token."""
     if not settings.google_oauth_configured:
         raise KPIWebAuthError("Google OAuth is not configured", status_code=500)
     with httpx.Client(timeout=30.0) as client:
@@ -207,7 +223,11 @@ def exchange_google_code(code: str, *, settings: KPIWebSettings) -> dict[str, An
                 f"Google userinfo failed ({info_resp.status_code}): {info_resp.text}",
                 status_code=502,
             )
-        return info_resp.json()
+        refresh = tokens.get("refresh_token")
+        return GoogleLoginResult(
+            info=info_resp.json(),
+            refresh_token=str(refresh).strip() if refresh else None,
+        )
 
 
 def user_from_google_info(

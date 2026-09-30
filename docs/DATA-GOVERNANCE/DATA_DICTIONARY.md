@@ -738,3 +738,12 @@ Per-customer values under `by_customer` reuse the same element paths as `salesfo
 - `salesforce.categories.pricebooks_org_sample[].IsStandard`
 - `salesforce.categories.pricebooks_org_sample[].Description`
 
+## Gmail
+Mailbox metadata for the Workspace user who granted Gmail at sign-in. Headers are From, To, Cc, Date, and Subject.
+
+- `gmail.messages[].id`
+- `gmail.messages[].threadId`
+- `gmail.messages[].internalDate`
+- `gmail.messages[].payload.headers[].name`
+- `gmail.messages[].payload.headers[].value`
+

@@ -3540,6 +3540,41 @@
         "_drive_svc",
         "[internal] Drive service"
       ]
+    },
+    {
+      "path": "gmail.messages[].id",
+      "terms": [
+        "gmail.messages[].id",
+        "[Gmail] message id"
+      ]
+    },
+    {
+      "path": "gmail.messages[].threadId",
+      "terms": [
+        "gmail.messages[].threadId",
+        "[Gmail] thread id"
+      ]
+    },
+    {
+      "path": "gmail.messages[].internalDate",
+      "terms": [
+        "gmail.messages[].internalDate",
+        "[Gmail] message time in epoch milliseconds"
+      ]
+    },
+    {
+      "path": "gmail.messages[].payload.headers[].name",
+      "terms": [
+        "gmail.messages[].payload.headers[].name",
+        "[Gmail] metadata header name"
+      ]
+    },
+    {
+      "path": "gmail.messages[].payload.headers[].value",
+      "terms": [
+        "gmail.messages[].payload.headers[].value",
+        "[Gmail] metadata header value"
+      ]
     }
   ]
 }
