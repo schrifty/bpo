@@ -50,7 +50,9 @@ def test_digest_lists_scored_inputs_with_history_and_names_gaps() -> None:
     assert digest["band"] == "green"
     assert digest["scored_inputs"] == 2
     assert digest["overrides_raised"] == []
+    assert digest["lead_with"] == []
     usage = next(item for item in digest["inputs"] if item["key"] == "usage_level")
+    assert usage["devastating"] is False
     assert usage["latest"]["points"] == 6
     assert usage["latest"]["score_pct"] == 100
     assert [row["period_key"] for row in usage["history"]] == ["2026-W38", "2026-W39"]
@@ -60,6 +62,36 @@ def test_digest_lists_scored_inputs_with_history_and_names_gaps() -> None:
     assert digest["daily_scores"][-1] == {"period_key": "2026-09-30", "value": 100.0}
     _, user = _prompt(digest)
     assert user.startswith("Analyze this site. Its band is green.")
+
+
+def test_very_low_usage_and_roi_are_marked_to_lead_the_analysis() -> None:
+    digest = build_analysis_digest(
+        entity=_entities()[0],
+        framework=load_framework(),
+        observations=[
+            _observation("usage_level", "2026-W39", 1, 20),
+            _observation("roi_multiple", "2026-Q2", 0, 1.4),
+            _observation("meeting_cadence", "2026-08", 2, 2),
+        ],
+        daily_scores=[],
+    )
+    usage = next(item for item in digest["inputs"] if item["key"] == "usage_level")
+    roi = next(item for item in digest["inputs"] if item["key"] == "roi_multiple")
+    cadence = next(item for item in digest["inputs"] if item["key"] == "meeting_cadence")
+    assert usage["devastating"] is True
+    assert roi["devastating"] is True
+    assert cadence["devastating"] is False
+    assert digest["lead_with"] == [usage["name"], roi["name"]]
+    healthy = build_analysis_digest(
+        entity=_entities()[0],
+        framework=load_framework(),
+        observations=[
+            _observation("usage_level", "2026-W39", 2, 40),
+            _observation("roi_multiple", "2026-Q2", 2, 3.5),
+        ],
+        daily_scores=[],
+    )
+    assert healthy["lead_with"] == []
 
 
 def test_unscored_site_has_no_score_and_empty_analysis_fails_loud() -> None:
@@ -112,6 +144,8 @@ def test_analysis_endpoint_returns_claude_text_for_active_entity(
     assert body["analysis"].startswith("Acme is red.")
     assert "Its band is red." in seen["user"]
     assert "Red: spend most of the analysis on what is wrong" in seen["system"]
+    assert "ROI multiple under 3x" in seen["system"]
+    assert '"lead_with":["Usage level (breadth & depth)"]' in seen["user"]
 
     page = client.get("/healthscore/report").text
     assert "Weight scored" not in page

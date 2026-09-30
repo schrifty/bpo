@@ -143,16 +143,16 @@ inputs:
 - key: champion_login_continuity
   pillar: Product Adoption & Usage
   name: Champion login continuity
-  description: Days since the most recent LeanDNA login among the entity's champions. A champion is
-    the executive sponsor on the Salesforce Customer Entity Account, or a Contact on that Account
-    whose buying role is Champion, Technical Buyer, or Executive Sponsor, or whose user role includes
-    Buyer. Sponsor login is the Account's executive-sponsor last-login timestamp. Contact login is
-    Pendo last visit. A login in the trailing 7 days scores 2. Named champions with no login in that
-    window score 0. An Account with none of these people stays unscored.
+  description: Days since the most recent LeanDNA login among the entity's champions. A champion is the
+    executive sponsor on the Salesforce Customer Entity Account, or a Contact on that Account whose buying
+    role is Champion, Technical Buyer, or Executive Sponsor, or whose user role includes Buyer. Sponsor
+    login is the Account's executive-sponsor last-login timestamp. Contact login is Pendo last visit.
+    A login in the trailing 7 days scores 2. Named champions with no login in that window score 0. An
+    Account with none of these people stays unscored.
   signal: leading
   metric: Days since a champion's last login
-  scoring: Last login within 7 days=2; named champion with no login in that window=0; no executive
-    sponsor, champion, technical buyer, or buyer stays unscored
+  scoring: Last login within 7 days=2; named champion with no login in that window=0; no executive sponsor,
+    champion, technical buyer, or buyer stays unscored
   max_points: 2
   target: 7
   target_direction: lower
@@ -276,11 +276,10 @@ inputs:
 - key: premium_anchor_expansion
   pillar: Value Realization / ROI
   name: Use case / anchor expansion vs. contract
-  description: Whether the entity used a premium module during the calendar month, from Pendo
-    feature and page usage. Inventory Optimization (IOP) is the premium module in the catalog;
-    AIOP and DSM count when those names appear. A Pendo account credits every Customer Entity
-    whose name or parent matches that account. Any use scores 3, none scores 0. An entity
-    with no Pendo account stays unscored.
+  description: Whether the entity used a premium module during the calendar month, from Pendo feature
+    and page usage. Inventory Optimization (IOP) is the premium module in the catalog; AIOP and DSM count
+    when those names appear. A Pendo account credits every Customer Entity whose name or parent matches
+    that account. Any use scores 3, none scores 0. An entity with no Pendo account stays unscored.
   signal: leading
   metric: Monthly premium-product usage
   scoring: Usage=3; no usage=0
@@ -305,9 +304,9 @@ inputs:
     and Chorus calls, weighted toward recent contact. The same person on the same day counts once.'
   signal: leading
   metric: Senior Director+ touches in trailing two quarters and days since last touch
-  scoring: No senior contact and no senior Chorus participant=unscored. No touches=0. Last touch
-    older than 90 days=1. Last touch within 90 days and one touch=2. Last touch within 90 days and
-    two or more touches=4
+  scoring: No senior contact and no senior Chorus participant=unscored. No touches=0. Last touch older
+    than 90 days=1. Last touch within 90 days and one touch=2. Last touch within 90 days and two or more
+    touches=4
   max_points: 4
   weight: 4
   data_source:
@@ -325,16 +324,16 @@ inputs:
 - key: multithreading_depth
   pillar: Relationship & Engagement
   name: Multi-threading depth
-  description: 'How many different Director-and-above contacts at the customer engaged with LeanDNA in
+  description: How many different Director-and-above contacts at the customer engaged with LeanDNA in
     the trailing 90 days, and whether that count is higher than the prior 90 days, from Salesforce activity
     and Chorus calls. A person counts once. Director includes Senior Director, Vice President, and above.
     An Account with no Director-or-above contact and no Director-or-above Chorus participant in those
-    180 days stays unscored.'
+    180 days stays unscored.
   signal: leading
   metric: Distinct Director+ contacts engaged in trailing 90 days, compared with the prior 90 days
   scoring: No Director+ contact and no Director+ Chorus participant in the trailing 180 days=unscored.
-    Zero engaged in the trailing 90 days=0. One=1, or 2 when higher than the prior 90 days. Two=2, or 3
-    when higher. Three or more=3, or 4 when higher.
+    Zero engaged in the trailing 90 days=0. One=1, or 2 when higher than the prior 90 days. Two=2, or
+    3 when higher. Three or more=3, or 4 when higher.
   max_points: 4
   weight: 4
   data_source:
@@ -379,14 +378,13 @@ inputs:
 - key: champion_turnover
   pillar: Relationship & Engagement
   name: Champion / stakeholder turnover
-  description: Whether the entity's primary champion or economic buyer left during the trailing 3
-    months. A primary champion is the Account executive sponsor, or a Contact whose buying role is
-    Champion, Technical Buyer, or Executive Sponsor, or whose user role includes Buyer. An economic
-    buyer is a Contact whose buying role is Budget Holder or Decision Maker. Leaving means Salesforce
-    Contact history shows a move to a different Account, or a UserGems job-start date falls in that
-    window. A title or role change does not count. Someone leaving scores -5. Otherwise the score is 5,
-    including when the Account has none of these people. An Account missing from the executive-sponsor
-    query stays unscored.
+  description: Whether the entity's primary champion or economic buyer left during the trailing 3 months.
+    A primary champion is the Account executive sponsor, or a Contact whose buying role is Champion, Technical
+    Buyer, or Executive Sponsor, or whose user role includes Buyer. An economic buyer is a Contact whose
+    buying role is Budget Holder or Decision Maker. Leaving means Salesforce Contact history shows a move
+    to a different Account, or a UserGems job-start date falls in that window. A title or role change
+    does not count. Someone leaving scores -5. Otherwise the score is 5, including when the Account has
+    none of these people. An Account missing from the executive-sponsor query stays unscored.
   signal: leading
   metric: Tracked-contact departure in the trailing 3 months
   scoring: Left within the trailing 3 months=-5; otherwise=5
@@ -445,7 +443,7 @@ inputs:
   data_source:
   - Apex
   grain: weekly
-  automation: manual
+  automation: blocked
   status: defined
   metric-id: null
   metric-generator: null
@@ -456,7 +454,7 @@ inputs:
 - key: email_sentiment
   pillar: Voice of Customer / Sentiment
   name: Email tone / sentiment
-  description: Tone of the customer's email threads over the trailing 30 days, scored by Claude from Gmail
+  description: Tone of the customer's email threads over the trailing 30 days, scored by Claude from Chorus
     on a -1 to +1 scale and tracked as a trend. Positive scores 2, negative 0; the neutral cut-off and
     the data-governance approval to read email are still open.
   signal: leading
@@ -465,9 +463,9 @@ inputs:
   max_points: 2
   weight: 2
   data_source:
-  - Gmail
+  - Chorus
   grain: monthly
-  automation: automated
+  automation: blocked
   status: needs_governance
   metric-id: null
   metric-generator: null
@@ -478,13 +476,13 @@ inputs:
 - key: call_sentiment
   pillar: Voice of Customer / Sentiment
   name: Call sentiment / tone
-  description: Tone of recorded Chorus meetings and dials in the trailing 30 days, separate from who
-    did the talking. Chorus does not return a numeric sentiment field; each finished recording's
-    summary contains the sentence "overall sentiment was …". Positive language in that clause is
-    +1, negative language is -1, and a clause with both or neither is 0. The reading is the mean
-    of those calls. A positive mean scores 2, a negative mean scores 0, and a mean of 0 scores 1.
-    A recording with no such sentence is left out. An entity with no recorded call in the window
-    scores 0. The Chorus account matches the Customer Entity, or the parent of one or more entities.
+  description: Tone of recorded Chorus meetings and dials in the trailing 30 days, separate from who did
+    the talking. Chorus does not return a numeric sentiment field; each finished recording's summary contains
+    the sentence "overall sentiment was …". Positive language in that clause is +1, negative language
+    is -1, and a clause with both or neither is 0. The reading is the mean of those calls. A positive
+    mean scores 2, a negative mean scores 0, and a mean of 0 scores 1. A recording with no such sentence
+    is left out. An entity with no recorded call in the window scores 0. The Chorus account matches the
+    Customer Entity, or the parent of one or more entities.
   signal: leading
   metric: Mean call sentiment from -1 to +1 over the trailing 30 days
   scoring: No calls=0; mean > 0 = 2; mean < 0 = 0; mean = 0 = 1
@@ -505,11 +503,11 @@ inputs:
   pillar: Voice of Customer / Sentiment
   name: Call talk-time ratio
   description: Share of recorded call time spoken by LeanDNA staff, from Chorus, over the trailing 30
-    days. Each finished meeting or dial contributes the talk time Chorus assigns to reps, divided
-    into the talk time of every speaker, including speakers Chorus could not identify. The reading
-    is that share across the window, as a percent. At or under 50% scores 2; over 50% scores 0.
-    An entity with no recorded call in the window stays unscored. A recording with no talk-time
-    split is left out, and an entity whose calls all lack that split stays unscored.
+    days. Each finished meeting or dial contributes the talk time Chorus assigns to reps, divided into
+    the talk time of every speaker, including speakers Chorus could not identify. The reading is that
+    share across the window, as a percent. At or under 50% scores 2; over 50% scores 0. An entity with
+    no recorded call in the window stays unscored. A recording with no talk-time split is left out, and
+    an entity whose calls all lack that split stays unscored.
   signal: leading
   metric: Representative talk-time percent over the trailing 30 days
   scoring: No calls=unscored; <=50%=2; >50%=0
@@ -532,11 +530,10 @@ inputs:
 - key: ticket_volume_trend
   pillar: Support Experience
   name: Ticket volume & trend
-  description: Percent change in Jira HELP tickets the entity opened in the trailing 90 days versus
-    the 90 days before. Tickets are attributed by JSM organization, and Outage and Healthcheck
-    labels are excluded. Three times the prior window, or any tickets when the prior window had
-    none, scores 0. Any smaller change, including no tickets in either window, scores 3. No JSM
-    organization match stays unscored.
+  description: Percent change in Jira HELP tickets the entity opened in the trailing 90 days versus the
+    90 days before. Tickets are attributed by JSM organization, and Outage and Healthcheck labels are
+    excluded. Three times the prior window, or any tickets when the prior window had none, scores 0. Any
+    smaller change, including no tickets in either window, scores 3. No JSM organization match stays unscored.
   signal: leading
   metric: Percent change in HELP tickets opened, trailing 90 days vs the 90 days before
   scoring: 3x prior or no baseline with new tickets=0; otherwise=3; no JSM organization stays unscored
@@ -557,14 +554,14 @@ inputs:
 - key: sla_adherence
   pillar: Support Experience
   name: SLA adherence
-  description: Percent of the entity's Jira Service Management HELP tickets resolved in the trailing
-    30 days that had a completed time-to-first-response or time-to-resolution cycle and did not
-    breach any measured cycle. Tickets are attributed by JSM organization, so entities that share
-    an organization share this score. 90% or more scores 3, below that scores 0. No JSM organization
-    match, or no measured cycle, stays unscored.
+  description: Percent of the entity's Jira Service Management HELP tickets resolved in the trailing 30
+    days that had a completed time-to-first-response or time-to-resolution cycle and did not breach any
+    measured cycle. Tickets are attributed by JSM organization, so entities that share an organization
+    share this score. 90% or more scores 3, below that scores 0. No JSM organization match, or no measured
+    cycle, stays unscored.
   signal: lagging
   metric: HELP TTFR/TTR SLA adherence percent, trailing 30 days
-  scoring: ">=90%=3; <90%=0; no measured cycles stays unscored"
+  scoring: '>=90%=3; <90%=0; no measured cycles stays unscored'
   max_points: 3
   target: 90
   target_direction: higher
@@ -584,11 +581,11 @@ inputs:
 - key: escalation_rate
   pillar: Support Experience
   name: Escalation rate & severity mix
-  description: Higher of two shares of the entity's Jira HELP tickets created in the calendar month
-    named by the reading. One share is Bug Severity S1 or S2. The other is the jira_escalated label.
-    Outage and Healthcheck are excluded. Tickets are attributed by JSM organization. Both shares
-    at 0, including a month with no tickets, scores 2. Any S1, S2, or jira_escalated ticket scores
-    0. No JSM organization match stays unscored.
+  description: Higher of two shares of the entity's Jira HELP tickets created in the calendar month named
+    by the reading. One share is Bug Severity S1 or S2. The other is the jira_escalated label. Outage
+    and Healthcheck are excluded. Tickets are attributed by JSM organization. Both shares at 0, including
+    a month with no tickets, scores 2. Any S1, S2, or jira_escalated ticket scores 0. No JSM organization
+    match stays unscored.
   signal: leading
   metric: Higher of Sev-1/2 percent and jira_escalated percent
   scoring: Both shares 0=2; any S1/S2 or jira_escalated=0; no JSM organization stays unscored
@@ -614,9 +611,9 @@ inputs:
   name: Time to renewal
   description: Days until the Salesforce contract end date and whether the contract auto-renews, checked
     weekly. Auto-renew is a Contract renewal term that starts with "Auto-renewal"; customer confirmation
-    required does not auto-renew. Auto-renew contracts 90–180 days out and non-auto-renew contracts
-    within 120 days score 0 because other risks matter most then; otherwise 3. A missing end date,
-    or terms that do not say which kind of renewal it is, stays unscored.
+    required does not auto-renew. Auto-renew contracts 90–180 days out and non-auto-renew contracts within
+    120 days score 0 because other risks matter most then; otherwise 3. A missing end date, or terms that
+    do not say which kind of renewal it is, stays unscored.
   signal: leading
   metric: Days until renewal and auto-renew status
   scoring: Auto-renew at 90–180 days=0; non-auto-renew at 0–120 days=0; otherwise=3
@@ -637,11 +634,11 @@ inputs:
   pillar: Commercial & Contract Risk
   name: Contract value trend
   description: Percent change in annual contract value when a Closed Won Salesforce Renewal or Invoice
-    Only Renewal closes during the month, compared with the prior Closed Won New Business or renewal
-    ARR on that account. An opportunity on the Customer Entity scores that entity. An opportunity on
-    the parent scores the child only when the parent has one active Customer Entity. Growth of 5% or
-    more scores 5, 4% scores 4, 3% scores 3, 2% scores 2, 0% up to 2% scores 1, and any contraction
-    scores 0. A month with no renewal stays unscored.
+    Only Renewal closes during the month, compared with the prior Closed Won New Business or renewal ARR
+    on that account. An opportunity on the Customer Entity scores that entity. An opportunity on the parent
+    scores the child only when the parent has one active Customer Entity. Growth of 5% or more scores
+    5, 4% scores 4, 3% scores 3, 2% scores 2, 0% up to 2% scores 1, and any contraction scores 0. A month
+    with no renewal stays unscored.
   signal: lagging
   metric: Percent ACV change at renewal
   scoring: 5%+=5; 4%=4; 3%=3; 2%=2; 0–1%=1; contraction=0
@@ -713,10 +710,10 @@ inputs:
 - key: reference_willingness
   pillar: Advocacy
   name: Reference / case study willingness
-  description: Whether the Customer Entity, or its parent Customer account, has Salesforce Logo Use
-    Approved or Press Approved. There is no reference or case-study willingness field. Yes scores 2,
-    no scores 0. Last Marketing Response is stored with the reading. The flags have no field history,
-    so each month repeats the current value.
+  description: Whether the Customer Entity, or its parent Customer account, has Salesforce Logo Use Approved
+    or Press Approved. There is no reference or case-study willingness field. Yes scores 2, no scores
+    0. Last Marketing Response is stored with the reading. The flags have no field history, so each month
+    repeats the current value.
   signal: leading
   metric: Willingness flag and date of last activity
   scoring: Yes=2; no=0
@@ -778,12 +775,12 @@ overrides:
   name: Champion / executive departure
   description: Flag raised when the entity's primary champion or economic buyer left during the trailing
     3 months, from the same Salesforce signal as Champion / stakeholder turnover. A primary champion is
-    the Account executive sponsor, or a Contact whose buying role is Champion, Technical Buyer, or
-    Executive Sponsor, or whose user role includes Buyer. An economic buyer is a Contact whose buying
-    role is Budget Holder or Decision Maker. Leaving means Salesforce Contact history shows a move to a
-    different Account, or a UserGems job-start date falls in that window. A title or role change does
-    not count. The flag is on when someone left and off otherwise, including when the Account has none
-    of these people. While it is on the health score is 0.
+    the Account executive sponsor, or a Contact whose buying role is Champion, Technical Buyer, or Executive
+    Sponsor, or whose user role includes Buyer. An economic buyer is a Contact whose buying role is Budget
+    Holder or Decision Maker. Leaving means Salesforce Contact history shows a move to a different Account,
+    or a UserGems job-start date falls in that window. A title or role change does not count. The flag
+    is on when someone left and off otherwise, including when the Account has none of these people. While
+    it is on the health score is 0.
   data_source:
   - Salesforce
   grain: weekly

@@ -50,6 +50,15 @@ score by day, oldest to newest. Call out a change only when the history shows it
 with it.
 - Copy input names exactly from `name`.
 
+Devastating readings
+- `lead_with` lists inputs that are devastating: Usage level (breadth & depth) at \
+30% or below (0 or 1 of 6 points, including no usage data), and ROI multiple under \
+3x (0 of 6 points). An unscored ROI multiple is a gap, not a low multiple.
+- When `lead_with` is not empty, the opening and the first bullets are those inputs, \
+ahead of the band emphasis below, including on a green site. Say plainly that the \
+site is in trouble because of them. A weight of zero does not make one less serious.
+- A raised override still comes before these.
+
 Emphasis follows the band
 - Green: spend most of the analysis on why the site is doing well and which inputs \
 carry the score, then briefly, one or two sentences, on what could still improve.
@@ -63,6 +72,18 @@ sentences on where the site stands. Then short bullets, each starting with "- ",
 naming the input and its reading. Finish with one line on what the team should do \
 next. 120–220 words. Never exceed 260.
 """
+
+
+def _is_devastating(key: str, latest: dict[str, Any] | None) -> bool:
+    """Bottom band of usage level (≤30%) or ROI multiple (<3x)."""
+    if not latest or latest.get("points") is None:
+        return False
+    points = float(latest["points"])
+    if key == "usage_level":
+        return points <= 1
+    if key == "roi_multiple":
+        return points <= 0
+    return False
 
 
 def _input_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -125,6 +146,7 @@ def build_analysis_digest(
                 "weight": weight,
                 "max_points": max_points,
                 "latest": latest_block,
+                "devastating": _is_devastating(key, latest_block),
                 "history": _input_history(by_metric.get(key, [])),
             }
         )
@@ -165,6 +187,7 @@ def build_analysis_digest(
         "band": score_band(score) or "unscored",
         "weight_scored_pct": numbers.get("coverage_pct"),
         "overrides_raised": numbers.get("zeroed_by") or [],
+        "lead_with": [item["name"] for item in inputs if item["devastating"]],
         "scored_inputs": sum(1 for item in inputs if item["latest"]),
         "unscored_inputs": [item["name"] for item in inputs if not item["latest"]],
         "inputs": inputs,

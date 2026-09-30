@@ -257,7 +257,9 @@
 .hs-pillar-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.4rem;
+  width: 100%;
   margin: 0;
   padding: 0;
   border: 0;
@@ -266,6 +268,7 @@
   font: inherit;
   font-weight: inherit;
   letter-spacing: inherit;
+  text-align: left;
   text-transform: inherit;
   cursor: pointer;
 }
@@ -297,7 +300,10 @@
 .hs-pillar-static {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.4rem;
+  width: 100%;
+  text-align: left;
 }
 
 .hs-components tbody tr.hs-collapsed {
