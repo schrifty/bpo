@@ -781,6 +781,60 @@ def test_update_component_edits_description_owner_and_grain(
         update_component("usage_level", grain="fortnightly", path=target)
 
 
+def test_update_component_status_follows_generator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.healthscore_web.framework import HealthScoreFrameworkError, update_component
+
+    target = _framework_copy(tmp_path, monkeypatch)
+    blocked = update_component("usage_level", automation="blocked", path=target)
+    usage = next(row for row in blocked["inputs"] if row["key"] == "usage_level")
+    assert usage["automation"] == "blocked"
+    assert usage["metric-generator"]
+    with pytest.raises(HealthScoreFrameworkError, match="cannot be Manual"):
+        update_component("usage_level", automation="manual", path=target)
+    restored = update_component("usage_level", automation="Automated", path=target)
+    assert next(row for row in restored["inputs"] if row["key"] == "usage_level")["automation"] == "automated"
+
+    manual = update_component("product_anchor_adoption", automation="manual", path=target)
+    anchor = next(row for row in manual["inputs"] if row["key"] == "product_anchor_adoption")
+    assert anchor["automation"] == "manual"
+    assert anchor["status"] == "needs_definition"
+    assert not anchor.get("metric-generator")
+    with pytest.raises(HealthScoreFrameworkError, match="cannot be Automated"):
+        update_component("product_anchor_adoption", automation="automated", path=target)
+    with pytest.raises(HealthScoreFrameworkError, match="status must be"):
+        update_component("product_anchor_adoption", automation="paused", path=target)
+
+
+def test_framework_status_edit_api(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _framework_copy(tmp_path, monkeypatch)
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    saved = client.put(
+        "/healthscore/api/framework/components/usage_level",
+        json={"automation": "blocked"},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["component"]["automation"] == "blocked"
+    denied_rule = client.put(
+        "/healthscore/api/framework/components/usage_level",
+        json={"automation": "manual"},
+    )
+    assert denied_rule.status_code == 400
+    assert "cannot be Manual" in denied_rule.json()["error"]
+
+    lead = _client(tmp_path, monkeypatch, dev_user="lead.eng@leandna.com")
+    _login(lead)
+    denied = lead.put(
+        "/healthscore/api/framework/components/usage_level",
+        json={"automation": "blocked"},
+    )
+    assert denied.status_code == 403
+
+
 def test_framework_targets_come_from_full_points_thresholds() -> None:
     from src.healthscore_web.framework import load_framework
 

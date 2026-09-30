@@ -8,7 +8,7 @@
     selected: null,
     me: null,
   };
-  const FLAGS_PILLAR = "Override flags";
+  const FLAGS_PILLAR = "Override conditions";
   const openPillars = new Set();
   let flagsTriggered = false;
 
@@ -143,27 +143,11 @@
     return `<span class="hs-sources">${chips.join("")}</span>`;
   }
 
-  function scoredInput(component) {
-    if (!component || typeof component !== "object" || !component.key || !state.score) return component;
-    return state.score.components.find((row) => row.key === component.key) || component;
-  }
-
-  function isActiveUnscored(component) {
-    if (!component || typeof component !== "object" || component.deactivated) return false;
-    if (!Object.prototype.hasOwnProperty.call(component, "pillar")) return false;
-    return component.contribution == null || component.weight == null;
-  }
-
   function statusBadge(component) {
     if (component && component.deactivated) {
       return `<span class="hs-source-badge deactivated" title="Deactivated. Reactivate to show the underlying status again."><i class="dot deactivated"></i>Deactivated</span>`;
     }
-    const view = scoredInput(component);
-    if (isActiveUnscored(view)) {
-      return `<span class="hs-source-badge blocked" title="Unscored inputs stay Blocked until a reading is stored."><i class="dot blocked"></i>Blocked</span>`;
-    }
-    const automation = view && typeof view === "object" ? view.automation : view;
-    const key = String(automation || "").toLowerCase();
+    const key = String((component && component.automation) || "").toLowerCase();
     const label = STATUS_LABEL[key] || "Unknown";
     return `<span class="hs-source-badge ${esc(key)}"><i class="dot ${esc(key)}"></i>${esc(label)}</span>`;
   }
@@ -184,6 +168,15 @@
     delete menu.dataset.component;
   }
 
+  function hasGenerator(component) {
+    const generator = component && component["metric-generator"];
+    return Boolean(generator && String(generator).trim());
+  }
+
+  function statusChoices(component) {
+    return hasGenerator(component) ? ["automated", "blocked"] : ["manual", "blocked"];
+  }
+
   function openRowMenu(event, key) {
     if (!isAdmin()) return;
     const definition = componentDefinition(key);
@@ -191,8 +184,13 @@
     event.preventDefault();
     selectComponent(key);
     const menu = $("hs-row-menu");
+    const current = String(definition.automation || "").toLowerCase();
+    const statuses = statusChoices(definition).map((value) => {
+      const selected = value === current;
+      return `<button type="button" role="menuitem" data-action="status" data-status="${value}"${selected ? ' class="is-current" aria-checked="true"' : ""}>${esc(STATUS_LABEL[value])}</button>`;
+    }).join("");
     const deactivated = Boolean(definition.deactivated);
-    menu.innerHTML = `<button type="button" role="menuitem">${deactivated ? "Reactivate" : "Deactivate"}</button>`;
+    menu.innerHTML = `<div class="hs-row-menu-label">Status</div>${statuses}<div class="hs-row-menu-sep" role="separator"></div><button type="button" role="menuitem" data-action="deactivate">${deactivated ? "Reactivate" : "Deactivate"}</button>`;
     menu.dataset.component = key;
     menu.classList.remove("hidden");
     const pad = 8;
@@ -201,6 +199,23 @@
     const top = Math.min(event.clientY, window.innerHeight - rect.height - pad);
     menu.style.left = `${Math.max(pad, left)}px`;
     menu.style.top = `${Math.max(pad, top)}px`;
+  }
+
+  async function setStatus(key, automation) {
+    closeRowMenu();
+    const definition = componentDefinition(key);
+    if (definition && String(definition.automation || "").toLowerCase() === automation) return;
+    showError("");
+    try {
+      const result = await api(`/healthscore/api/framework/components/${encodeURIComponent(key)}`, {
+        method: "PUT",
+        body: JSON.stringify({ automation }),
+      });
+      state.framework = result.framework;
+      await loadScore();
+    } catch (saveError) {
+      showError(saveError.message);
+    }
   }
 
   async function setDeactivated(key, deactivated) {
@@ -349,7 +364,7 @@
     healthEl.textContent = String(health);
     if (state.score.score_zeroed) {
       const names = (state.score.zeroed_by || []).filter(Boolean);
-      note.textContent = names.length ? `Set to 0 by ${names.join(", ")}` : "Set to 0 by an override flag";
+      note.textContent = names.length ? `Set to 0 by ${names.join(", ")}` : "Set to 0 by an override condition";
     } else {
       note.textContent = "";
     }
@@ -560,7 +575,7 @@
         <dt>Owner</dt><dd id="hs-owner-cell">${textCell(definition, TEXT_FIELDS.owner)}</dd>
         <dt>Grain</dt><dd id="hs-grain-cell">${grainCell(definition)}</dd>
         ${definition.grain && !isOverride ? `<dt>Current value${periodBadge(latest)}</dt><dd>${valueCell(definition, latest)}</dd>` : ""}
-        ${definition.grain ? `<dt>${isOverride ? "Flag raised" : "Points"}${periodBadge(latest)}</dt><dd id="hs-points-cell">${pointsCell(definition, latest)}</dd>` : ""}
+        ${definition.grain ? `<dt>${isOverride ? "Condition on" : "Points"}${periodBadge(latest)}</dt><dd id="hs-points-cell">${pointsCell(definition, latest)}</dd>` : ""}
       </dl>
       ${sparkline(history, definition)}
       ${history.length ? `<table class="hs-history"><thead><tr><th>Period</th><th>Value</th><th>Points</th><th>Mode</th></tr></thead><tbody>${history.map((row) => `<tr><td>${esc(row.period_key)}</td><td>${esc(fmtNum(row.effective_value, scoreDigits(definition)))}</td><td>${esc(fmtNum(row.effective_points, scoreDigits(definition)))}</td><td>${esc(row.source_mode)}</td></tr>`).join("")}</tbody></table>` : ""}
@@ -1063,11 +1078,13 @@
   }
 
   $("hs-row-menu").addEventListener("click", (event) => {
+    const button = event.target.closest("button");
     const key = $("hs-row-menu").dataset.component;
     const definition = key && componentDefinition(key);
-    if (!definition) return;
+    if (!button || !definition) return;
     event.stopPropagation();
-    setDeactivated(key, !definition.deactivated);
+    if (button.dataset.action === "status") setStatus(key, button.dataset.status);
+    else if (button.dataset.action === "deactivate") setDeactivated(key, !definition.deactivated);
   });
   $("btn-available-sources").addEventListener("click", openAvailableSources);
   $("user-badge").addEventListener("click", (event) => {

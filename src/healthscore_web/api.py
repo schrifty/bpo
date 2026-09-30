@@ -584,7 +584,7 @@ def _as_date(raw: str | None):
 
 
 async def api_update_framework_component(request: Request) -> Response:
-    """Catalog admins may edit a component's name, pillar, weight, description, owner, grain, or deactivated flag."""
+    """Catalog admins may edit a component's name, pillar, weight, description, owner, grain, automation, or deactivated flag."""
     try:
         user = require_user(request)
     except KPIWebAuthError as exc:
@@ -616,6 +616,7 @@ async def api_update_framework_component(request: Request) -> Response:
             description=raw["description"] if "description" in raw else _UNSET,
             owner=raw["owner"] if "owner" in raw else _UNSET,
             grain=raw["grain"] if "grain" in raw else _UNSET,
+            automation=raw["automation"] if "automation" in raw else _UNSET,
             deactivated=raw["deactivated"] if "deactivated" in raw else _UNSET,
         )
     except HealthScoreFrameworkError as exc:

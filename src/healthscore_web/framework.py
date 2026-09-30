@@ -231,6 +231,22 @@ def _clean_weight(raw: Any) -> float | int | None:
     return int(value) if value.is_integer() else value
 
 
+def _has_generator(row: dict[str, Any]) -> bool:
+    return bool(str(row.get("metric-generator") or "").strip())
+
+
+def _clean_status(raw: Any, *, has_generator: bool) -> str:
+    """Stored status is the ``automation`` field: automated, manual, or blocked."""
+    value = str(raw or "").strip().lower()
+    if value not in AUTOMATION_VALUES:
+        raise HealthScoreFrameworkError("status must be automated, manual, or blocked")
+    if has_generator and value == "manual":
+        raise HealthScoreFrameworkError("a component with a generator cannot be Manual")
+    if not has_generator and value == "automated":
+        raise HealthScoreFrameworkError("a component without a generator cannot be Automated")
+    return value
+
+
 def _clean_grain(raw: Any) -> str | None:
     clean = str(raw or "").strip().lower()
     if not clean:
@@ -251,6 +267,7 @@ def update_component(
     description: Any = _UNSET,
     owner: Any = _UNSET,
     grain: Any = _UNSET,
+    automation: Any = _UNSET,
     deactivated: Any = _UNSET,
     path: Path | None = None,
 ) -> dict[str, Any]:
@@ -258,8 +275,11 @@ def update_component(
 
     Inputs accept ``name``, ``pillar``, ``weight``, ``description``, ``owner``
     and ``grain``; override flags accept everything except ``pillar`` and
-    ``weight``. ``deactivated`` pauses either kind of component without
-    changing ``automation`` or ``status``. Deactivating an input parks its
+    ``weight``. ``automation`` is the status shown in the app (automated,
+    manual, or blocked). A component with a generator cannot be manual, and a
+    component without one cannot be automated. ``deactivated`` pauses either
+    kind of component without changing that status or the definition
+    ``status``. Deactivating an input parks its
     weight in ``deactivated_weight`` and sets ``weight`` to 0 so the component
     drops out of the configured total; reactivating puts the parked weight
     back. The weight cannot be edited while the input is deactivated.
@@ -329,6 +349,10 @@ def update_component(
         changed["owner"] = clean
     if grain is not _UNSET:
         changed["grain"] = _clean_grain(grain)
+    if automation is not _UNSET:
+        changed["automation"] = _clean_status(
+            automation, has_generator=_has_generator(target)
+        )
     deactivated_touched = deactivated is not _UNSET
     if deactivated_touched:
         if deactivated:
@@ -344,7 +368,7 @@ def update_component(
                 changed["weight"] = target.pop("deactivated_weight")
     if not changed and not deactivated_touched:
         raise HealthScoreFrameworkError(
-            "no editable field supplied (name, pillar, weight, description, owner, grain)"
+            "no editable field supplied (name, pillar, weight, description, owner, grain, automation)"
         )
     target.update(changed)
 

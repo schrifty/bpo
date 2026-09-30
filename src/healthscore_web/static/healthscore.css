@@ -436,6 +436,24 @@
   background: var(--accent-soft);
 }
 
+.hs-row-menu button.is-current {
+  font-weight: 600;
+}
+
+.hs-row-menu-label {
+  padding: 0.25rem 0.6rem 0.1rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #6b746e);
+}
+
+.hs-row-menu-sep {
+  height: 1px;
+  margin: 0.25rem 0.35rem;
+  background: var(--line);
+}
+
 .hs-influence {
   min-width: 92px;
 }
