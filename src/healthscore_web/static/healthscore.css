@@ -459,6 +459,21 @@
   white-space: nowrap;
 }
 
+.hs-spark {
+  display: block;
+  width: 4.5rem;
+  height: 1.15rem;
+  margin: 0 auto;
+}
+
+.hs-spark polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .hs-influence {
   min-width: 92px;
 }

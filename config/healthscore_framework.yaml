@@ -251,8 +251,8 @@ inputs:
   pillar: Value Realization / ROI
   name: Time to first value
   description: Days from the entity's go-live to its first verified outcome, measured once per onboarding.
-    Within the proposed 115 days scores 3, longer scores 0. The source and the threshold are not yet confirmed,
-    so the date is entered by hand.
+    Within 115 days scores 3, longer scores 0. Blocked because Implementation Wizard is not an available
+    datasource. The 115-day threshold still needs confirmation.
   signal: leading
   metric: Days from go-live to first verified outcome
   scoring: ≤115 days=3; >115 days=0; threshold needs confirmation
@@ -261,11 +261,11 @@ inputs:
   target_direction: lower
   weight: 3
   data_source:
-  - Not yet defined
+  - Implementation Wizard
   grain: null
   cadence_note: Once per onboarding
-  automation: manual
-  status: needs_definition
+  automation: blocked
+  status: needs_source
   metric-id: null
   metric-generator: null
   tags:

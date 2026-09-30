@@ -306,6 +306,7 @@
       <td>${influence}</td>
       <td></td>
       <td></td>
+      <td></td>
       <td colspan="2"></td>
     </tr>`;
   }
@@ -337,6 +338,7 @@
       <td>${influence}</td>
       <td class="hs-col-center">${currentValueCell(component)}</td>
       <td class="hs-col-center hs-as-of">${asOfCell(component)}</td>
+      <td class="hs-col-center hs-spark-cell">${listSparkline(component)}</td>
       <td>${sourceChips(component)}</td>
       <td><span class="hs-status-pills">${statusBadge(component)}${generatorPill(component)}</span></td>
     </tr>`;
@@ -465,6 +467,36 @@
     if (definition.target == null) return null;
     const sign = definition.target_direction === "lower" ? "≤" : "≥";
     return `${sign} ${fmtNum(definition.target)}${unitSuffix(definition)}`;
+  }
+
+  function listSparkline(component) {
+    const dated = componentHistory(component.key)
+      .filter((row) => row.period_key)
+      .slice()
+      .sort((a, b) => String(a.period_key).localeCompare(String(b.period_key)));
+    const points = [];
+    for (const row of dated) {
+      const value = Number(row.effective_value);
+      if (Number.isFinite(value)) points.push({ period: String(row.period_key), value });
+    }
+    if (points.length < 2) return '<span class="muted">—</span>';
+    const width = 72;
+    const height = 22;
+    const pad = 2;
+    const min = Math.min(...points.map((point) => point.value));
+    const max = Math.max(...points.map((point) => point.value));
+    const span = max - min;
+    const coords = points.map((point, index) => {
+      const x = pad + (index / (points.length - 1)) * (width - pad * 2);
+      const y = span === 0
+        ? height / 2
+        : pad + (1 - (point.value - min) / span) * (height - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+    const tip = points
+      .map((point) => `${point.period}: ${fmtNum(point.value, scoreDigits(component))}`)
+      .join(", ");
+    return `<svg class="hs-spark" viewBox="0 0 ${width} ${height}" role="img" aria-label="Value history for ${esc(component.name)}"><title>${esc(tip)}</title><polyline points="${coords}"></polyline></svg>`;
   }
 
   function sparkline(rows, definition) {
