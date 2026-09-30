@@ -21,6 +21,7 @@ from src.healthscore_web.framework import (
     update_component,
 )
 from src.healthscore_web.call_sentiment import CallSentimentGeneratorError
+from src.healthscore_web.competitive_mentions import CompetitiveMentionsGeneratorError
 from src.healthscore_web.meeting_cadence import MeetingCadenceGeneratorError
 from src.healthscore_web.executive_sponsorship import ExecutiveSponsorshipGeneratorError
 from src.healthscore_web.multithreading_depth import MultithreadingDepthGeneratorError
@@ -39,6 +40,7 @@ from src.healthscore_web.product_ideas import ProductIdeasGeneratorError
 from src.healthscore_web.reference_willingness import ReferenceWillingnessGeneratorError
 from src.healthscore_web.snapshot import (
     run_call_sentiment_snapshot,
+    run_competitive_mentions_snapshot,
     run_meeting_cadence_snapshot,
     run_escalation_rate_snapshot,
     run_sla_adherence_snapshot,
@@ -947,6 +949,27 @@ async def api_generate_executive_sponsorship(request: Request) -> Response:
         logger.exception("Health Score executive_sponsorship generate failed")
         return JSONResponse(
             {"ok": False, "error": f"executive_sponsorship generate failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(result)
+
+
+async def api_generate_competitive_mentions(request: Request) -> Response:
+    try:
+        user = require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    denied = _score_change_denied(user, "competitive_mentions")
+    if denied:
+        return denied
+    try:
+        result = run_competitive_mentions_snapshot(dry_run=False)
+    except CompetitiveMentionsGeneratorError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score competitive_mentions generate failed")
+        return JSONResponse(
+            {"ok": False, "error": f"competitive_mentions generate failed: {exc}"},
             status_code=502,
         )
     return JSONResponse(result)

@@ -57,15 +57,16 @@ def grain_is_due(grain: str | None, as_of: date) -> bool:
 
 
 def components_due(as_of: date, framework: dict[str, Any] | None = None) -> list[str]:
-    """Input keys whose generator should run on ``as_of``.
+    """Component keys whose generator should run on ``as_of``.
 
-    One generator is listed once. ``champion_turnover`` also writes the
-    departure flag, so that second key is not run again.
+    Inputs come first, then override flags. One generator is listed once.
+    ``champion_turnover`` also writes the departure flag, so that second key
+    is not run again.
     """
     payload = framework if framework is not None else load_framework()
     due: list[str] = []
     seen_generators: set[str] = set()
-    for row in payload.get("inputs") or []:
+    for row in [*(payload.get("inputs") or []), *(payload.get("overrides") or [])]:
         if row.get("deactivated"):
             continue
         generator = str(row.get("metric-generator") or "").strip()

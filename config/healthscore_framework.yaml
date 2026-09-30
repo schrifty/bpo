@@ -763,7 +763,7 @@ overrides:
   data_source:
   - Web research
   grain: monthly
-  automation: automated
+  automation: blocked
   status: needs_source
   metric-id: null
   metric-generator: null
@@ -800,7 +800,7 @@ overrides:
   data_source:
   - Web research
   grain: monthly
-  automation: manual
+  automation: blocked
   status: needs_source
   metric-id: null
   metric-generator: null
@@ -810,17 +810,15 @@ overrides:
   - override
 - key: competitive_mentions
   name: Competitive mentions
-  description: Flag raised when a competitor is named in Chorus calls, Gmail threads, public posts, or
-    press about the customer during the month. Which mentions count has not yet been defined.
+  description: Flag raised when a Chorus transcript in the calendar month names a LeanDNA competitor.
+    The scan uses utterance text only. A month with no such mention leaves the flag off.
   data_source:
   - Chorus
-  - Gmail
-  - Web research
   grain: monthly
   automation: automated
-  status: needs_definition
+  status: defined
   metric-id: null
-  metric-generator: null
+  metric-generator: get_competitive_mentions
   tags:
   - customer-success
   - healthscore

@@ -258,6 +258,7 @@ weights, sources, and governance rules are validated.
 | POST | `/healthscore/api/generate/ticket_volume_trend` | Run the HELP ticket-volume generator |
 | POST | `/healthscore/api/generate/escalation_rate` | Run the HELP escalation-rate generator |
 | POST | `/healthscore/api/generate/call_sentiment` | Run the Chorus call-sentiment generator |
+| POST | `/healthscore/api/generate/competitive_mentions` | Run the Chorus competitive-mentions generator |
 
 **Call sentiment / tone** (`get_call_sentiment`) scores finished Chorus meetings
 and dials in the trailing 30 days. Chorus has no numeric sentiment field. The
@@ -271,6 +272,16 @@ periods already stored.
 
 ```bash
 cortex healthscore-snapshot --component call_sentiment --history-months 6
+```
+
+**Competitive mentions** (`get_competitive_mentions`) raises the override flag when a
+finished Chorus meeting or dial in the calendar month has a transcript utterance
+that names a LeanDNA competitor. The source is Chorus only. A month with no such
+mention leaves the flag off. `--history-months N` scans each of the newest N
+calendar months and skips periods already stored.
+
+```bash
+cortex healthscore-snapshot --component competitive_mentions --history-months 6
 ```
 
 All API routes require the same Google Workspace session as `/kpis`.

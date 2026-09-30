@@ -61,6 +61,12 @@ from src.healthscore_web.call_talk_ratio import (
     backfill_call_talk_ratio,
     get_call_talk_ratio,
 )
+from src.healthscore_web.competitive_mentions import (
+    METRIC_NAME as COMPETITIVE_MENTIONS_METRIC,
+    CompetitiveMentionsGeneratorError,
+    backfill_competitive_mentions,
+    get_competitive_mentions,
+)
 from src.healthscore_web.meeting_cadence import (
     METRIC_NAME as MEETING_CADENCE_METRIC,
     MeetingCadenceGeneratorError,
@@ -137,6 +143,7 @@ SUPPORTED = (
     ESCALATION_RATE_METRIC,
     CALL_SENTIMENT_METRIC,
     CALL_TALK_RATIO_METRIC,
+    COMPETITIVE_MENTIONS_METRIC,
     "all",
 )
 
@@ -728,6 +735,47 @@ def run_call_talk_ratio_snapshot(
     )
 
 
+def run_competitive_mentions_snapshot(
+    *,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    engagements: list[dict[str, Any]] | None = None,
+    transcripts: dict[str, str] | None = None,
+    parent_ids: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if entities is None:
+        entities = _active_entities()
+    return get_competitive_mentions(
+        entities=entities,
+        engagements=engagements,
+        transcripts=transcripts,
+        parent_ids=parent_ids,
+        as_of=as_of,
+        persist=not dry_run,
+    )
+
+
+def backfill_competitive_mentions_history(
+    *,
+    months: int,
+    dry_run: bool = False,
+    as_of: date | None = None,
+    entities: list[dict[str, Any]] | None = None,
+    only_missing: bool = True,
+) -> dict[str, Any]:
+    """Persist competitive_mentions for each of the newest ``months`` calendar months."""
+    if entities is None:
+        entities = _active_entities()
+    return backfill_competitive_mentions(
+        months=months,
+        entities=entities,
+        as_of=as_of,
+        persist=not dry_run,
+        only_missing=only_missing,
+    )
+
+
 def backfill_call_talk_ratio_history(
     *,
     months: int,
@@ -987,6 +1035,10 @@ def run_healthscore_snapshot(
         results[CALL_TALK_RATIO_METRIC] = run_call_talk_ratio_snapshot(
             dry_run=dry_run, as_of=as_of, entities=entities
         )
+    if name in (COMPETITIVE_MENTIONS_METRIC, "all"):
+        results[COMPETITIVE_MENTIONS_METRIC] = run_competitive_mentions_snapshot(
+            dry_run=dry_run, as_of=as_of, entities=entities
+        )
     return results
 
 
@@ -1005,7 +1057,8 @@ def run_healthscore_snapshot_cli(
             "summit_attendance, "
             "enhancement_engagement, meeting_cadence, executive_sponsorship, multithreading_depth, "
             "premium_anchor_expansion, time_to_renewal, contract_value_trend, sla_adherence, "
-            "ticket_volume_trend, escalation_rate, call_sentiment, then call_talk_ratio."
+            "ticket_volume_trend, escalation_rate, call_sentiment, call_talk_ratio, "
+            "then competitive_mentions."
         ),
     )
     parser.add_argument(
@@ -1019,7 +1072,7 @@ def run_healthscore_snapshot_cli(
             "enhancement_engagement, meeting_cadence, executive_sponsorship, "
             "multithreading_depth, premium_anchor_expansion, time_to_renewal, contract_value_trend, "
             "sla_adherence, ticket_volume_trend, escalation_rate, call_sentiment, "
-            "call_talk_ratio, or all"
+            "call_talk_ratio, competitive_mentions, or all"
         ),
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -1041,7 +1094,7 @@ def run_healthscore_snapshot_cli(
         help=(
             "Backfill the newest N months for call_sentiment, call_talk_ratio, "
             "sla_adherence, ticket_volume_trend, escalation_rate, summit_attendance, "
-            "product_ideas, or reference_willingness"
+            "product_ideas, reference_willingness, or competitive_mentions"
         ),
     )
     parser.add_argument(
@@ -1074,6 +1127,7 @@ def run_healthscore_snapshot_cli(
                 SUMMIT_ATTENDANCE_METRIC: backfill_summit_attendance_history,
                 PRODUCT_IDEAS_METRIC: backfill_product_ideas_history,
                 REFERENCE_WILLINGNESS_METRIC: backfill_reference_willingness_history,
+                COMPETITIVE_MENTIONS_METRIC: backfill_competitive_mentions_history,
             }
             history_all = (
                 CALL_SENTIMENT_METRIC,
@@ -1094,7 +1148,8 @@ def run_healthscore_snapshot_cli(
                 raise ValueError(
                     "--history-months applies to call_sentiment, call_talk_ratio, "
                     "sla_adherence, ticket_volume_trend, escalation_rate, "
-                    "summit_attendance, product_ideas, or reference_willingness"
+                    "summit_attendance, product_ideas, reference_willingness, "
+                    "or competitive_mentions"
                 )
         elif args.history_weeks:
             only_missing = not args.refresh_history
@@ -1134,6 +1189,7 @@ def run_healthscore_snapshot_cli(
         EscalationRateGeneratorError,
         CallSentimentGeneratorError,
         CallTalkRatioGeneratorError,
+        CompetitiveMentionsGeneratorError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

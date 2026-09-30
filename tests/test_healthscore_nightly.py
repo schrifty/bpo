@@ -34,10 +34,12 @@ def test_components_due_follow_grain_and_skip_inputs_without_a_generator() -> No
     assert "champion_turnover" in monday
     assert "champion_departure_external" not in monday
     assert "product_ideas" not in monday
+    assert "competitive_mentions" not in monday
     assert "customer_data_delivery" not in monday
     first = components_due(date(2026, 11, 1))
     assert "product_ideas" in first
     assert "call_sentiment" in first
+    assert "competitive_mentions" in first
     assert "usage_level" not in first
     assert "roi_multiple" not in first
     assert "roi_multiple" in components_due(date(2026, 10, 1))
