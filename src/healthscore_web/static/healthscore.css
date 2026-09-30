@@ -450,6 +450,15 @@
   background: var(--line);
 }
 
+.hs-components th.hs-col-center,
+.hs-components td.hs-col-center {
+  text-align: center;
+}
+
+.hs-as-of {
+  white-space: nowrap;
+}
+
 .hs-influence {
   min-width: 92px;
 }
