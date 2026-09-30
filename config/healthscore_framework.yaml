@@ -466,7 +466,6 @@ inputs:
   weight: 2
   data_source:
   - Gmail
-  - Claude
   grain: monthly
   automation: automated
   status: needs_governance
