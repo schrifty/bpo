@@ -138,7 +138,8 @@
       const available = known.has(item.toLowerCase());
       const label = item;
       const tone = available ? "available" : "unavailable";
-      return `<span class="hs-source-chip ${tone}">${esc(label)}</span>`;
+      const hover = available ? "" : ` title="Nonexistent"`;
+      return `<span class="hs-source-chip ${tone}"${hover}>${esc(label)}</span>`;
     });
     return `<span class="hs-sources">${chips.join("")}</span>`;
   }
