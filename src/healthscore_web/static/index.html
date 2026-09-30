@@ -6,7 +6,7 @@
   <title>Cortex Healthscore</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="stylesheet" href="/static/styles.css?v=available-sources-2" />
-  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=sparkline" />
+  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=hero-health" />
 </head>
 <body>
   <header class="top">
@@ -62,17 +62,13 @@
           <select id="hs-entity"><option value="">Choose an active entity…</option></select>
         </div>
         <div id="hs-score-hero" class="hs-score-hero hs-score-empty" aria-live="polite">
-          <div class="hs-score-stat">
-            <div class="hs-score-label">Value</div>
-            <div class="hs-score-stat-value" id="hs-score-input-value">—</div>
+          <div class="hs-score-stat hs-score-result">
+            <div class="hs-score-label">Health score</div>
+            <div class="hs-score-value" id="hs-score-health" title="Each scored input's points divided by its maximum, times its weight, summed, then times 100 over the sum of the scored weights">—</div>
           </div>
           <div class="hs-score-stat">
             <div class="hs-score-label">% of weight scored</div>
             <div class="hs-score-stat-value" id="hs-score-coverage">—</div>
-          </div>
-          <div class="hs-score-stat hs-score-result">
-            <div class="hs-score-label">Health score</div>
-            <div class="hs-score-value" id="hs-score-health" title="Value × % of weight scored">—</div>
           </div>
           <div class="hs-score-note"></div>
         </div>
@@ -83,7 +79,7 @@
       <div class="hs-layout hs-no-detail">
         <section class="panel hs-components-panel">
           <div class="hs-section-head">
-            <h2>Score components</h2>
+            <h2>Healthscore Components</h2>
             <h2 id="hs-unassigned-weight" class="hs-unassigned-weight" title="Weight not yet assigned to any input"></h2>
           </div>
           <div class="hs-table-scroll">
@@ -99,10 +95,6 @@
     </section>
   </main>
 
-  <footer class="foot">
-    <span>Experimental model · Salesforce is the customer system of record</span>
-  </footer>
-
   <dialog id="hs-sources-dialog" aria-labelledby="hs-sources-title">
     <form method="dialog" class="hs-sources-dialog">
       <h2 id="hs-sources-title">Available Sources</h2>
@@ -115,6 +107,6 @@
 
   <div id="hs-row-menu" class="hs-row-menu hidden" role="menu"></div>
 
-  <script src="/healthscore/static/healthscore.js?v=no-unassigned-pillar"></script>
+  <script src="/healthscore/static/healthscore.js?v=hero-scored-weight"></script>
 </body>
 </html>

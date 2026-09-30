@@ -347,26 +347,28 @@
   function renderHero() {
     const hero = $("hs-score-hero");
     if (!hero) return;
-    const valueEl = $("hs-score-input-value");
     const coverageEl = $("hs-score-coverage");
     const healthEl = $("hs-score-health");
     const note = hero.querySelector(".hs-score-note");
-    const raw = state.score ? Number(state.score.score) : NaN;
-    if (!Number.isFinite(raw)) {
+    const score = state.score;
+    const covered = score ? Number(score.covered_weight) : NaN;
+    const contribution = score ? Number(score.contribution) : NaN;
+    if (!state.entity || !score || !Number.isFinite(covered) || covered <= 0) {
       hero.className = "hs-score-hero hs-score-empty";
-      valueEl.textContent = "—";
       coverageEl.textContent = "—";
       healthEl.textContent = "—";
       note.textContent = state.entity ? "No scored inputs yet" : "Choose an entity";
       return;
     }
-    const valueShown = Math.round(raw);
-    const coverage = Number(state.score.coverage_pct);
+    const coverage = Number(score.coverage_pct);
     const coverageShown = Number.isFinite(coverage) ? coverage : 0;
-    const health = Math.round(valueShown * coverageShown / 100);
+    // Input score is points / max points. Sum(score × weight) × (100 / scored weights).
+    // Unscored inputs are left out of both the sum and the divisor.
+    const health = score.score_zeroed
+      ? 0
+      : Math.round((Number.isFinite(contribution) ? contribution : 0) / covered * 100);
     const band = health <= 33 ? "red" : health <= 67 ? "yellow" : "green";
     hero.className = `hs-score-hero hs-score-${band}`;
-    valueEl.textContent = String(valueShown);
     coverageEl.textContent = `${coverageShown}%`;
     healthEl.textContent = String(health);
     if (state.score.score_zeroed) {

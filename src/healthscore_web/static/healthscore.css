@@ -14,13 +14,13 @@
 }
 
 .hs-score-hero {
-  min-width: 22rem;
+  min-width: 16rem;
   padding: 0.45rem 1.15rem 0.5rem;
   border-radius: 12px;
   border: 2px solid var(--line);
   background: #fff;
   display: grid;
-  grid-template-columns: repeat(3, auto);
+  grid-template-columns: repeat(2, auto);
   gap: 0.1rem 1.35rem;
   align-content: center;
   justify-items: center;
