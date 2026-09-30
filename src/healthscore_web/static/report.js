@@ -163,13 +163,68 @@
             (row) => `<tr class="${esc(row.band || "unscored")}">
               <td>${scoreCell(row)}</td>
               <td><a href="/healthscore?entity=${encodeURIComponent(row.id)}">${esc(row.name)}</a></td>
-              <td>${row.coverage_pct == null ? "—" : `${row.coverage_pct}%`}</td>
               <td class="hs-col-center hs-spark-cell">${reportSparkline(row)}</td>
+              <td class="hs-col-center"><button type="button" class="secondary hs-analysis-btn" data-entity-id="${esc(row.id)}" data-entity-name="${esc(row.name)}">Analysis</button></td>
             </tr>`,
           )
           .join("")
       : `<tr><td colspan="4" class="muted">No active Salesforce Customer Entities.</td></tr>`;
   }
+
+  function analysisHtml(text) {
+    const blocks = [];
+    let bullets = [];
+    const flush = () => {
+      if (bullets.length) blocks.push(`<ul>${bullets.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>`);
+      bullets = [];
+    };
+    for (const raw of String(text || "").split("\n")) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (/^[-•*]\s+/.test(line)) {
+        bullets.push(line.replace(/^[-•*]\s+/, ""));
+      } else {
+        flush();
+        blocks.push(`<p>${esc(line)}</p>`);
+      }
+    }
+    flush();
+    return blocks.join("");
+  }
+
+  async function openAnalysis(entityId, entityName) {
+    const dialog = $("hs-analysis-dialog");
+    const row = ((reportPayload && reportPayload.entities) || []).find((item) => item.id === entityId);
+    $("hs-analysis-title").textContent = entityName;
+    const score = $("hs-analysis-score");
+    score.className = `hs-band ${row && row.band ? row.band : "unscored"}`;
+    score.textContent = row && row.shown_score != null ? row.shown_score : "—";
+    $("hs-analysis-meta").textContent = "Asking Claude about this site's inputs and history…";
+    $("hs-analysis-body").innerHTML = "";
+    $("hs-analysis-error").hidden = true;
+    $("hs-analysis-error").textContent = "";
+    if (!dialog.open) dialog.showModal();
+    try {
+      const payload = await api(`/healthscore/api/entities/${encodeURIComponent(entityId)}/analysis`);
+      if (!dialog.open || $("hs-analysis-title").textContent !== entityName) return;
+      const gaps = payload.unscored_inputs || [];
+      $("hs-analysis-meta").textContent =
+        `${payload.scored_inputs} scored input${payload.scored_inputs === 1 ? "" : "s"} · ` +
+        `${gaps.length} unscored · as of ${payload.as_of}`;
+      $("hs-analysis-body").innerHTML = analysisHtml(payload.analysis);
+    } catch (error) {
+      if (!dialog.open) return;
+      $("hs-analysis-meta").textContent = "";
+      $("hs-analysis-error").hidden = false;
+      $("hs-analysis-error").textContent = error.message;
+    }
+  }
+
+  $("hs-report-body").addEventListener("click", (event) => {
+    const button = event.target.closest(".hs-analysis-btn");
+    if (!button) return;
+    openAnalysis(button.dataset.entityId, button.dataset.entityName);
+  });
 
   async function boot() {
     let auth;

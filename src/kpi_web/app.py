@@ -43,6 +43,11 @@ def create_app(
             methods=["GET"],
         ),
         Route(
+            "/healthscore/api/entities/{entity_id}/analysis",
+            healthscore_api.api_entity_analysis,
+            methods=["GET"],
+        ),
+        Route(
             "/healthscore/api/entities/{entity_id}/components/{component_key}",
             healthscore_api.api_set_component,
             methods=["PUT"],

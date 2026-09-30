@@ -204,6 +204,14 @@ Entity from the inputs that already have readings. Unscored inputs are left
 out of that score. The report sparkline plots those daily scores. The job
 uses the `decks` secret profile.
 
+Each row of `/healthscore/report` has an **Analysis** button. It calls
+`GET /healthscore/api/entities/{entity_id}/analysis`, which hands Claude the
+entity's inputs (definition, latest reading, recent history) and its daily
+health scores, and asks what is going on with the site right now. Green sites
+get mostly strengths with a short note on what could improve; red sites get
+the reverse. Unscored inputs are listed as gaps, never guessed. A failed or
+empty Claude response is a 502; no placeholder text is shown.
+
 ```bash
 cortex healthscore-nightly --dry-run
 cortex run-job --job healthscore-nightly --dry-run

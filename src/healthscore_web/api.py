@@ -8,6 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
@@ -497,6 +498,77 @@ async def api_entity_score(request: Request) -> Response:
             },
             status_code=502,
         )
+
+
+async def api_entity_analysis(request: Request) -> Response:
+    """Claude's read on one entity from its inputs, their history, and daily scores."""
+    try:
+        require_user(request)
+    except KPIWebAuthError as exc:
+        return auth_error_response(exc)
+    from src.healthscore_web.analysis import (
+        HealthscoreAnalysisError,
+        build_analysis_digest,
+        generate_site_analysis,
+    )
+    from src.healthscore_web.nightly import METRIC_NAME as SITE_HEALTHSCORE
+    from src.healthscore_web.nightly import sparkline_since
+    from src.healthscore_web.store import metric_values_since
+
+    entity_id = str(request.path_params.get("entity_id") or "").strip()
+    try:
+        entities = _active_salesforce_entities()
+        entity = next((row for row in entities if row["id"] == entity_id), None)
+        if entity is None:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "entity is not an active Salesforce Customer Entity",
+                },
+                status_code=404,
+            )
+        framework = load_framework()
+        conn = connect()
+        try:
+            observations = observations_for_entity(conn, entity_id)
+            daily = metric_values_since(conn, SITE_HEALTHSCORE, "daily", sparkline_since())
+        finally:
+            conn.close()
+        digest = build_analysis_digest(
+            entity=entity,
+            framework=framework,
+            observations=observations,
+            daily_scores=daily.get(entity_id, []),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score analysis digest failed")
+        return JSONResponse(
+            {"ok": False, "error": f"Health Score analysis digest failed: {exc}"},
+            status_code=502,
+        )
+    try:
+        analysis = await run_in_threadpool(generate_site_analysis, digest)
+    except HealthscoreAnalysisError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Health Score analysis failed")
+        return JSONResponse(
+            {"ok": False, "error": f"Health Score analysis failed: {exc}"},
+            status_code=502,
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "entity_id": entity_id,
+            "entity_name": entity.get("name"),
+            "health_score": digest["health_score"],
+            "band": digest["band"],
+            "scored_inputs": digest["scored_inputs"],
+            "unscored_inputs": digest["unscored_inputs"],
+            "as_of": digest["as_of"],
+            "analysis": analysis,
+        }
+    )
 
 
 async def api_set_component(request: Request) -> Response:

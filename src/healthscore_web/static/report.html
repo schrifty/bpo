@@ -6,7 +6,7 @@
   <title>Healthscore Report</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="stylesheet" href="/static/styles.css?v=available-sources-2" />
-  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=report-sort" />
+  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=report-analysis" />
 </head>
 <body>
   <header class="top">
@@ -66,8 +66,8 @@
             <tr>
               <th id="hs-sort-score" aria-sort="descending"><button type="button" class="hs-report-sort">Score</button></th>
               <th id="hs-sort-entity" aria-sort="none"><button type="button" class="hs-report-sort">Entity</button></th>
-              <th>Weight scored</th>
               <th class="hs-col-center">Trend</th>
+              <th class="hs-col-center">Analysis</th>
             </tr>
           </thead>
           <tbody id="hs-report-body">
@@ -78,6 +78,21 @@
     </section>
   </main>
 
-  <script src="/healthscore/static/report.js?v=report-spark"></script>
+  <dialog id="hs-analysis-dialog" aria-labelledby="hs-analysis-title">
+    <form method="dialog" class="hs-analysis-dialog">
+      <div class="hs-analysis-head">
+        <h2 id="hs-analysis-title">Analysis</h2>
+        <span id="hs-analysis-score" class="hs-band unscored">—</span>
+      </div>
+      <p id="hs-analysis-meta" class="muted"></p>
+      <div id="hs-analysis-body" class="hs-analysis-body"></div>
+      <p id="hs-analysis-error" class="error" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="secondary">Close</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/healthscore/static/report.js?v=report-analysis"></script>
 </body>
 </html>
