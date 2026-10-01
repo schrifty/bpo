@@ -83,6 +83,12 @@
   letter-spacing: 0.08em;
 }
 
+.hs-score-hero.hs-score-zeroed {
+  background: #d50000;
+  border-color: #8f0000;
+  color: #fff;
+}
+
 .hs-score-red {
   background: #fde8e8;
   border-color: #c0392b;
@@ -268,23 +274,10 @@
   color: var(--danger);
 }
 
-.hs-components tbody tr.hs-flag-row.on td {
+.hs-components tbody tr.hs-flag-pillar.raised th,
+.hs-components tbody tr.hs-flag-pillar.raised td {
   background: #d50000;
   color: #fff;
-}
-
-.hs-components tbody tr.hs-flag-row.on .hs-component-name,
-.hs-components tbody tr.hs-flag-row.on .muted,
-.hs-components tbody tr.hs-flag-row.on .hs-as-of {
-  color: #fff;
-}
-
-.hs-components tbody tr.hs-flag-row.on .hs-spark polyline {
-  stroke: #fff;
-}
-
-.hs-components tbody tr.hs-flag-row.on.active {
-  box-shadow: inset 3px 0 0 #fff;
 }
 
 .hs-pillar-toggle {
@@ -866,12 +859,35 @@
   text-decoration-thickness: 2px;
 }
 
+.hs-report-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: center;
+  align-items: center;
+}
+
 .hs-dismiss-btn {
   display: inline-flex;
-  margin-top: 0.4rem;
-  padding: 0.15rem 0.55rem;
+  padding: 0.2rem 0.55rem;
   font-size: 0.72rem;
   color: #9b0c0c;
+  background: #fff;
+  border-color: #9b0c0c;
+  white-space: nowrap;
+}
+
+.hs-dismiss-btn[aria-pressed="true"] {
+  background: #fde8e8;
+}
+
+.hs-hero-dismiss {
+  grid-column: 1 / -1;
+  justify-self: center;
+  margin-top: 0.35rem;
+}
+
+.hs-score-hero.hs-score-zeroed .hs-dismiss-btn {
   border-color: #fff;
 }
 

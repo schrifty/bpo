@@ -203,6 +203,16 @@ def _flag_detail_items(key: str, meta: Any) -> list[dict[str, Any]]:
                 seen.add(name)
                 found.append({"text": name, "url": _source_url(event.get("url"))})
     elif key == "competitive_mentions":
+        urls: dict[str, str] = {}
+        mentions = meta.get("mentions")
+        if isinstance(mentions, list):
+            for hit in mentions:
+                if not isinstance(hit, dict):
+                    continue
+                name = str(hit.get("competitor") or "").strip()
+                url = _source_url(hit.get("url"))
+                if name and url and name not in urls:
+                    urls[name] = url
         names = meta.get("competitors")
         if isinstance(names, list):
             for name in names:
@@ -210,7 +220,7 @@ def _flag_detail_items(key: str, meta: Any) -> list[dict[str, Any]]:
                 if not text or text in seen:
                     continue
                 seen.add(text)
-                found.append({"text": text, "url": None})
+                found.append({"text": text, "url": urls.get(text)})
     return found
 
 
@@ -452,10 +462,8 @@ async def api_report(request: Request) -> Response:
     for entity in entities:
         values = flag_values.get(entity["id"], {})
         raised = _raised_override_entries(framework, values, flag_rows.get(entity["id"]))
-        numbers = _apply_override_flags(
-            _score_numbers(framework, points.get(entity["id"], {})),
-            [entry["name"] for entry in raised],
-        )
+        base = _score_numbers(framework, points.get(entity["id"], {}))
+        numbers = _apply_override_flags(base, [entry["name"] for entry in raised])
         score = numbers["score"]
         weighted = None if score is None else round(float(numbers["contribution"]), 4)
         if numbers["score_zeroed"]:
@@ -470,6 +478,8 @@ async def api_report(request: Request) -> Response:
                 "coverage_pct": numbers["coverage_pct"],
                 "weighted_score": weighted,
                 "score_zeroed": numbers["score_zeroed"],
+                "underlying_shown_score": shown_score(base["score"]),
+                "underlying_band": score_band(base["score"]),
                 "overrides": raised,
                 "healthscore_history": history.get(entity["id"], []),
             }
@@ -482,9 +492,11 @@ async def api_report(request: Request) -> Response:
             row["name"].casefold(),
         )
     )
-    counts = {"red": 0, "yellow": 0, "green": 0, "unscored": 0}
+    counts = {"red": 0, "yellow": 0, "green": 0, "unscored": 0, "override": 0}
     for row in rows:
         counts[row["band"] or "unscored"] += 1
+        if row["score_zeroed"]:
+            counts["override"] += 1
     return JSONResponse(
         {
             "ok": True,
@@ -660,10 +672,41 @@ def _override_change_denied(user: Any, component_key: str) -> JSONResponse | Non
     return _score_change_denied(user, component_key)
 
 
-async def api_dismiss_overrides(request: Request) -> Response:
-    """Shadow each raised flag with 0 so the entity scores again.
+def _restorable_overrides(
+    framework: dict[str, Any], rows_by_key: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Flags a dismiss turned off, so a second toggle can raise them again."""
+    entries: list[dict[str, Any]] = []
+    for definition in framework.get("overrides") or []:
+        if definition.get("deactivated"):
+            continue
+        key = str(definition["key"])
+        row = rows_by_key.get(key) or {}
+        if row.get("override_value") is None:
+            continue
+        if _flag_is_on(
+            row["override_value"] if row.get("override_value") is not None else row.get("value")
+        ):
+            continue
+        generated_on = _flag_is_on(row.get("value"))
+        if not generated_on and str(row.get("override_note") or "") != "dismissed":
+            continue
+        entries.append(
+            {
+                "key": key,
+                "period_key": row.get("period_key"),
+                "grain": row.get("grain") or definition.get("grain"),
+                "generated_on": generated_on,
+            }
+        )
+    return entries
 
-    The generated reading stays in place. A later period can raise the flag again.
+
+async def api_dismiss_overrides(request: Request) -> Response:
+    """Toggle a raised override off, or back on if it was just dismissed.
+
+    Dismissing shadows the generated reading with 0. Toggling again clears that
+    shadow, or puts the flag back on when the reading itself was manual.
     """
     try:
         user = require_user(request)
@@ -688,30 +731,42 @@ async def api_dismiss_overrides(request: Request) -> Response:
             raised = _raised_override_entries(
                 framework, flag_values.get(entity_id, {}), rows_by_key
             )
-            if not raised:
+            restoring = not raised
+            targets = raised or _restorable_overrides(framework, rows_by_key)
+            if not targets:
                 raise ValueError("no override condition is raised for this entity")
-            for entry in raised:
+            for entry in targets:
                 denied = _override_change_denied(user, entry["key"])
                 if denied:
                     return denied
-            dismissed: list[str] = []
-            for entry in raised:
+            changed: list[str] = []
+            for entry in targets:
                 grain = str(entry.get("grain") or "").strip()
-                if not grain:
-                    raise ValueError(f"{entry['key']} has no grain, so it cannot be dismissed")
-                set_override(
-                    conn,
-                    entity_id=entity_id,
-                    entity_name=str(entity.get("name") or ""),
-                    metric_name=entry["key"],
-                    grain=grain,
-                    period_key=str(entry.get("period_key") or "").strip() or None,
-                    value=0,
-                    points=None,
-                    by=user.email,
-                    note="dismissed",
-                )
-                dismissed.append(entry["key"])
+                period_key = str(entry.get("period_key") or "").strip()
+                if not grain or not period_key:
+                    raise ValueError(f"{entry['key']} has no reading to toggle")
+                if restoring and entry.get("generated_on"):
+                    clear_override(
+                        conn,
+                        entity_id=entity_id,
+                        metric_name=entry["key"],
+                        grain=grain,
+                        period_key=period_key,
+                    )
+                else:
+                    set_override(
+                        conn,
+                        entity_id=entity_id,
+                        entity_name=str(entity.get("name") or ""),
+                        metric_name=entry["key"],
+                        grain=grain,
+                        period_key=period_key,
+                        value=1 if restoring else 0,
+                        points=None,
+                        by=user.email,
+                        note=None if restoring else "dismissed",
+                    )
+                changed.append(entry["key"])
         finally:
             conn.close()
     except ValueError as exc:
@@ -719,7 +774,7 @@ async def api_dismiss_overrides(request: Request) -> Response:
     except Exception as exc:  # noqa: BLE001
         logger.exception("Health Score override dismiss failed")
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    return JSONResponse({"ok": True, "dismissed": dismissed})
+    return JSONResponse({"ok": True, "on": restoring, "dismissed": [] if restoring else changed, "restored": changed if restoring else []})
 
 
 async def api_set_component(request: Request) -> Response:

@@ -10,7 +10,7 @@
   };
   const FLAGS_PILLAR = "Override conditions";
   const openPillars = new Set();
-  let flagsTriggered = false;
+  let heroDismissed = false;
 
   function esc(value) {
     return String(value ?? "")
@@ -290,11 +290,16 @@
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
   }
 
-  function pillarHeader(name, weight, { toggle = false, flag = false, influence = "" } = {}) {
+  function pillarHeader(name, weight, { toggle = false, flag = false, raised = false, influence = "" } = {}) {
     const weightCell = weight == null ? "—" : formatWeight(weight);
     const open = openPillars.has(name);
-    const cls = ["hs-pillar-row", toggle ? "hs-pillar-toggle-row" : "", flag ? "hs-flag-pillar" : "", open ? "open" : ""]
-      .filter(Boolean).join(" ");
+    const cls = [
+      "hs-pillar-row",
+      toggle ? "hs-pillar-toggle-row" : "",
+      flag ? "hs-flag-pillar" : "",
+      flag && raised ? "raised" : "",
+      open ? "open" : "",
+    ].filter(Boolean).join(" ");
     const label = toggle
       ? `<button type="button" class="hs-pillar-toggle" aria-expanded="${open ? "true" : "false"}">
           <span class="hs-pillar-chevron" aria-hidden="true"></span>${esc(name)}
@@ -318,15 +323,12 @@
 
   function componentRows(component, collapsed, group) {
     const isFlag = !Object.prototype.hasOwnProperty.call(component, "pillar");
-    const on = isFlag && flagIsOn(component);
     const rowClass = [
       isFlag ? "hs-flag-row" : "",
-      on ? "on" : "",
       collapsed ? "hs-collapsed" : "",
       component.key === state.selected ? "active" : "",
       component.deactivated ? "deactivated" : "",
     ].filter(Boolean).join(" ");
-    // A raised flag is shown by the red row, so it carries no signal pill.
     const signal = isFlag ? "" : `<span class="hs-status">${esc(component.signal)}</span>`;
     const weight = isFlag
       ? '<span class="muted">—</span>'
@@ -353,6 +355,8 @@
     const score = state.score;
     const covered = score ? Number(score.covered_weight) : NaN;
     const contribution = score ? Number(score.contribution) : NaN;
+    const held = Boolean(score && score.score_zeroed);
+    paintDismiss(held, heroDismissed);
     if (!state.entity || !score) {
       hero.className = "hs-score-hero hs-score-empty";
       coverageEl.textContent = "—";
@@ -360,9 +364,10 @@
       note.textContent = "Choose an entity";
       return;
     }
-    // An override holds the score at 0. The hero says so instead of showing the zero.
-    if (score.score_zeroed) {
-      hero.className = "hs-score-hero hs-score-red hs-score-zeroed";
+    // An override holds the score at 0. Dismissing it, until reload, shows the
+    // underlying score in place so an accidental click can be toggled back.
+    if (held && !heroDismissed) {
+      hero.className = "hs-score-hero hs-score-zeroed";
       coverageEl.textContent = "—";
       healthEl.textContent = "OVERRIDE";
       note.innerHTML = zeroedNoteHtml(score);
@@ -392,8 +397,18 @@
   const FLAG_DETAILS = {
     champion_departure_external: (meta) => (Array.isArray(meta.departures) ? meta.departures : [])
       .map((event) => ({ text: String(event && event.name || "").trim(), url: event && event.url })),
-    competitive_mentions: (meta) => (Array.isArray(meta.competitors) ? meta.competitors : [])
-      .map((name) => ({ text: String(name || "").trim(), url: null })),
+    competitive_mentions: (meta) => {
+      const urls = new Map();
+      for (const hit of Array.isArray(meta.mentions) ? meta.mentions : []) {
+        const name = String(hit && hit.competitor || "").trim();
+        if (name && hit.url && !urls.has(name)) urls.set(name, hit.url);
+      }
+      const names = Array.isArray(meta.competitors) ? meta.competitors : [...urls.keys()];
+      return names.map((name) => {
+        const text = String(name || "").trim();
+        return { text, url: urls.get(text) || null };
+      });
+    },
   };
 
   function flagDetails(flag) {
@@ -417,6 +432,13 @@
     return `<a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" class="hs-source-link">${text}</a>`;
   }
 
+  function paintDismiss(visible, pressed) {
+    const button = $("hs-dismiss-override");
+    if (!button) return;
+    button.hidden = !visible;
+    button.setAttribute("aria-pressed", pressed ? "true" : "false");
+  }
+
   function zeroedNoteHtml(score) {
     const raised = (score.overrides || []).filter(flagIsOn);
     const parts = (score.zeroed_by || []).filter(Boolean).map((label) => {
@@ -437,13 +459,10 @@
     $("hs-unassigned-weight").textContent = `Unassigned weight: ${formatWeight(unassigned)}`;
     const overrides = score ? score.overrides : state.framework.overrides.map((row) => ({ ...row, latest: null }));
     const flags = [...overrides].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-    const anyOn = flags.some(flagIsOn);
-    if (anyOn) openPillars.add(FLAGS_PILLAR);
-    else if (flagsTriggered) openPillars.delete(FLAGS_PILLAR);
-    flagsTriggered = anyOn;
     const rows = [];
     if (flags.length) {
-      rows.push(pillarHeader(FLAGS_PILLAR, null, { toggle: true, flag: true }));
+      const raised = flags.some(flagIsOn) && !heroDismissed;
+      rows.push(pillarHeader(FLAGS_PILLAR, null, { toggle: true, flag: true, raised }));
       for (const flag of flags) rows.push(componentRows(flag, !openPillars.has(FLAGS_PILLAR), FLAGS_PILLAR));
     }
     for (const group of groups) {
@@ -1094,6 +1113,7 @@
   }
 
   async function loadScore() {
+    heroDismissed = false;
     if (!state.entity) {
       state.score = null;
       renderScore();
@@ -1177,6 +1197,24 @@
     $("hs-entity").value = entity ? entity.id : "";
     rememberEntity(entity ? entity.id : null);
   }
+
+  $("hs-dismiss-override").addEventListener("click", async () => {
+    const button = $("hs-dismiss-override");
+    if (!state.entity) return;
+    button.disabled = true;
+    try {
+      const result = await api(
+        `/healthscore/api/entities/${encodeURIComponent(state.entity.id)}/overrides/dismiss`,
+        { method: "POST" },
+      );
+      heroDismissed = !result.on;
+      renderScore();
+    } catch (error) {
+      showError(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   $("hs-entity").addEventListener("change", async (event) => {
     state.entity = state.entities.find((row) => row.id === event.target.value) || null;

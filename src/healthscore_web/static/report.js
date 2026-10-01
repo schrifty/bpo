@@ -90,10 +90,25 @@
     }
   }
 
+  // Dismissed this visit. The row stays put until a reload reads the stored score.
+  const dismissedIds = new Set();
+
+  function showingOverride(row) {
+    return Boolean(row.score_zeroed) && !dismissedIds.has(row.id);
+  }
+
+  function displayScore(row) {
+    if (showingOverride(row)) return { text: "OVERRIDE", band: "override", override: true };
+    const score = row.score_zeroed ? row.underlying_shown_score : row.shown_score;
+    const band = row.score_zeroed ? row.underlying_band : row.band;
+    if (score == null) return { text: "—", band: "unscored", override: false };
+    return { text: score, band: band || "unscored", override: false };
+  }
+
   function scoreCell(row) {
-    if (row.score_zeroed) return '<span class="hs-override-score">OVERRIDE</span>';
-    if (row.shown_score == null) return '<span class="hs-band unscored">—</span>';
-    return `<span class="hs-band ${esc(row.band)}">${esc(row.shown_score)}</span>`;
+    const shown = displayScore(row);
+    if (shown.override) return '<span class="hs-override-score">OVERRIDE</span>';
+    return `<span class="hs-band ${esc(shown.band)}">${esc(shown.text)}</span>`;
   }
 
   function isHttpUrl(value) {
@@ -114,12 +129,16 @@
   }
 
   function overrideCell(row) {
-    if (!row.score_zeroed) return "";
+    if (!row.score_zeroed && !dismissedIds.has(row.id)) return "";
     const lines = (row.overrides || []).map(overrideLine).filter(Boolean);
-    const detail = lines.length
-      ? `<div class="hs-override-detail">${lines.join("<br>")}</div>`
-      : "";
-    return `${detail}<button type="button" class="secondary hs-dismiss-btn" data-entity-id="${esc(row.id)}">Dismiss override</button>`;
+    if (!lines.length) return "";
+    return `<div class="hs-override-detail">${lines.join("<br>")}</div>`;
+  }
+
+  function dismissButton(row) {
+    if (!row.score_zeroed && !dismissedIds.has(row.id)) return "";
+    const pressed = dismissedIds.has(row.id) ? "true" : "false";
+    return `<button type="button" class="secondary hs-dismiss-btn" data-entity-id="${esc(row.id)}" aria-pressed="${pressed}">Dismiss override</button>`;
   }
 
   let reportPayload = null;
@@ -146,7 +165,7 @@
   function sortedEntities(rows) {
     const pinned = [];
     const rest = [];
-    for (const row of rows) (row.score_zeroed ? pinned : rest).push(row);
+    for (const row of rows) (row.score_zeroed || dismissedIds.has(row.id) ? pinned : rest).push(row);
     pinned.sort(compareEntity);
     rest.sort(sortKey === "entity" ? compareEntity : compareScoreThenEntity);
     return pinned.concat(rest);
@@ -182,18 +201,21 @@
   function renderReport(payload) {
     reportPayload = payload;
     const counts = payload.counts || {};
+    const overrideCount = (payload.entities || []).filter(
+      (row) => row.score_zeroed && !dismissedIds.has(row.id),
+    ).length;
     $("hs-report-summary").textContent =
-      `${payload.entity_count} active · ${counts.red || 0} red · ${counts.yellow || 0} yellow · ${counts.green || 0} green · ${counts.unscored || 0} unscored`;
+      `${payload.entity_count} active · ${overrideCount} override · ${counts.red || 0} red · ${counts.yellow || 0} yellow · ${counts.green || 0} green · ${counts.unscored || 0} unscored`;
     const rows = sortedEntities(payload.entities || []);
     markSortHeaders();
     $("hs-report-body").innerHTML = rows.length
       ? rows
           .map(
-            (row) => `<tr class="${row.score_zeroed ? "override" : esc(row.band || "unscored")}">
+            (row) => `<tr class="${showingOverride(row) ? "override" : esc(displayScore(row).band)}">
               <td>${scoreCell(row)}</td>
               <td><a href="/healthscore?entity=${encodeURIComponent(row.id)}">${esc(row.name)}</a>${overrideCell(row)}</td>
               <td class="hs-col-center hs-spark-cell">${reportSparkline(row)}</td>
-              <td class="hs-col-center"><button type="button" class="secondary hs-analysis-btn" data-entity-id="${esc(row.id)}" data-entity-name="${esc(row.name)}">Analysis</button></td>
+              <td class="hs-col-center"><span class="hs-report-actions"><button type="button" class="secondary hs-analysis-btn" data-entity-id="${esc(row.id)}" data-entity-name="${esc(row.name)}">Analysis</button>${dismissButton(row)}</span></td>
             </tr>`,
           )
           .join("")
@@ -226,8 +248,9 @@
     const row = ((reportPayload && reportPayload.entities) || []).find((item) => item.id === entityId);
     $("hs-analysis-title").textContent = entityName;
     const score = $("hs-analysis-score");
-    score.className = `hs-band ${row && row.score_zeroed ? "override" : row && row.band ? row.band : "unscored"}`;
-    score.textContent = row && row.score_zeroed ? "OVERRIDE" : row && row.shown_score != null ? row.shown_score : "—";
+    const shown = row ? displayScore(row) : { text: "—", band: "unscored" };
+    score.className = `hs-band ${shown.band}`;
+    score.textContent = shown.text;
     $("hs-analysis-meta").textContent = "Asking Claude about this site's inputs and history…";
     $("hs-analysis-body").innerHTML = "";
     $("hs-analysis-error").hidden = true;
@@ -249,12 +272,14 @@
     }
   }
 
-  async function dismissOverride(entityId, button) {
+  async function toggleOverride(entityId, button) {
     button.disabled = true;
     $("hs-report-error").hidden = true;
     try {
-      await api(`/healthscore/api/entities/${encodeURIComponent(entityId)}/overrides/dismiss`, { method: "POST" });
-      renderReport(await api("/healthscore/api/report"));
+      const result = await api(`/healthscore/api/entities/${encodeURIComponent(entityId)}/overrides/dismiss`, { method: "POST" });
+      if (result.on) dismissedIds.delete(entityId);
+      else dismissedIds.add(entityId);
+      renderReport(reportPayload);
     } catch (error) {
       $("hs-report-error").hidden = false;
       $("hs-report-error").textContent = error.message;
@@ -265,7 +290,7 @@
   $("hs-report-body").addEventListener("click", (event) => {
     const dismiss = event.target.closest(".hs-dismiss-btn");
     if (dismiss) {
-      dismissOverride(dismiss.dataset.entityId, dismiss);
+      toggleOverride(dismiss.dataset.entityId, dismiss);
       return;
     }
     const button = event.target.closest(".hs-analysis-btn");

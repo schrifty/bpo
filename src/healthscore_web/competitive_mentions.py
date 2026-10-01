@@ -197,12 +197,17 @@ def get_competitive_mentions(
         grouped, skipped = _calls_by_entity(engagements, entities, parent_ids, start=start, end=end)
     except CallSentimentGeneratorError as exc:
         raise CompetitiveMentionsGeneratorError(str(exc)) from exc
-    texts = transcripts if transcripts is not None else _fetch_transcripts(_pending_ids(grouped))
+    texts, fetched_links = (
+        (transcripts, {})
+        if transcripts is not None
+        else _fetch_transcripts(_pending_ids(grouped))
+    )
     return _score_month(
         entities,
         grouped,
         texts,
         skipped,
+        _conversation_links(engagements, fetched_links),
         start=start,
         end=end,
         period_key=key,
@@ -255,12 +260,17 @@ def backfill_competitive_mentions(
             )
         except CallSentimentGeneratorError as exc:
             raise CompetitiveMentionsGeneratorError(str(exc)) from exc
-        texts = transcripts if transcripts is not None else _fetch_transcripts(_pending_ids(grouped))
+        texts, fetched_links = (
+            (transcripts, {})
+            if transcripts is not None
+            else _fetch_transcripts(_pending_ids(grouped))
+        )
         result = _score_month(
             entities,
             grouped,
             texts,
             skipped,
+            _conversation_links(engagements, fetched_links),
             start=day,
             end=window_end,
             period_key=month_key(day),
@@ -289,17 +299,58 @@ def backfill_competitive_mentions(
     }
 
 
-def _fetch_transcripts(engagement_ids: list[str]) -> dict[str, str]:
+def _http_url(raw: Any) -> str | None:
+    text = str(raw or "").strip()
+    if text.lower().startswith(("http://", "https://")):
+        return text
+    return None
+
+
+def conversation_link(conversation: Any) -> str | None:
+    """A Chorus conversation page, when the payload includes one."""
+    if not isinstance(conversation, dict):
+        return None
+    data = conversation.get("data") if isinstance(conversation.get("data"), dict) else conversation
+    attrs = data.get("attributes") if isinstance(data.get("attributes"), dict) else data
+    recording = attrs.get("recording") if isinstance(attrs.get("recording"), dict) else {}
+    for source in (conversation, data, attrs, recording):
+        if not isinstance(source, dict):
+            continue
+        for key in ("url", "conversation_url", "recording_url", "share_url"):
+            found = _http_url(source.get(key))
+            if found:
+                return found
+    return None
+
+
+def _conversation_links(
+    engagements: list[dict[str, Any]] | None, fetched: dict[str, str]
+) -> dict[str, str]:
+    """Engagement links, with a link from the conversation payload taking precedence."""
+    links: dict[str, str] = {}
+    for engagement in engagements or []:
+        if not isinstance(engagement, dict):
+            continue
+        engagement_id = str(engagement.get("engagement_id") or engagement.get("id") or "").strip()
+        found = conversation_link(engagement) or _http_url(engagement.get("url"))
+        if engagement_id and found:
+            links[engagement_id] = found
+    links.update({key: value for key, value in fetched.items() if value})
+    return links
+
+
+def _fetch_transcripts(engagement_ids: list[str]) -> tuple[dict[str, str], dict[str, str]]:
     if not engagement_ids:
-        return {}
+        return {}, {}
     from src.chorus_client import ChorusClient, ChorusClientError
 
     failures: list[str] = []
     texts: dict[str, str] = {}
+    links: dict[str, str] = {}
 
-    def _one(engagement_id: str) -> tuple[str, str]:
+    def _one(engagement_id: str) -> tuple[str, str, str | None]:
         body = ChorusClient().get_conversation(engagement_id)
-        return engagement_id, transcript_text(body)
+        return engagement_id, transcript_text(body), conversation_link(body)
 
     workers = min(FETCH_WORKERS, len(engagement_ids))
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -315,7 +366,7 @@ def _fetch_transcripts(engagement_ids: list[str]) -> dict[str, str]:
                     len(engagement_ids),
                 )
             try:
-                found_id, text = future.result()
+                found_id, text, link = future.result()
             except ChorusClientError as exc:
                 failures.append(f"{engagement_id}: {exc}")
                 continue
@@ -323,6 +374,8 @@ def _fetch_transcripts(engagement_ids: list[str]) -> dict[str, str]:
                 failures.append(f"{engagement_id}: {exc}")
                 continue
             texts[found_id] = text
+            if link:
+                links[found_id] = link
     if failures and len(failures) == len(engagement_ids):
         raise CompetitiveMentionsGeneratorError(
             "Chorus transcripts all failed, including " + failures[0]
@@ -333,7 +386,7 @@ def _fetch_transcripts(engagement_ids: list[str]) -> dict[str, str]:
             len(failures),
             failures[0],
         )
-    return texts
+    return texts, links
 
 
 def _score_month(
@@ -341,6 +394,7 @@ def _score_month(
     grouped: dict[str, list[str]],
     transcripts: dict[str, str],
     skipped: dict[str, int],
+    links: dict[str, str] | None = None,
     *,
     start: date,
     end: date,
@@ -367,7 +421,11 @@ def _score_month(
                     if pair in seen:
                         continue
                     seen.add(pair)
-                    hits.append({"competitor": name, "engagement_id": call_id})
+                    hit = {"competitor": name, "engagement_id": call_id}
+                    link = (links or {}).get(call_id)
+                    if link:
+                        hit["url"] = link
+                    hits.append(hit)
             raised = bool(hits)
             meta = {
                 "calls": len(grouped.get(entity_id) or []),

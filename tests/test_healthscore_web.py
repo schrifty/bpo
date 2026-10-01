@@ -372,7 +372,7 @@ def test_healthscore_report_lists_entities_by_score_then_name(
     assert [row["shown_score"] for row in body["entities"]] == [100, 75, 67, 0, None]
     assert [row["weighted_score"] for row in body["entities"]] == [6, 9, 4, 0, None]
     assert [row["band"] for row in body["entities"]] == ["green", "green", "yellow", "red", None]
-    assert body["counts"] == {"red": 1, "yellow": 1, "green": 2, "unscored": 1}
+    assert body["counts"] == {"red": 1, "yellow": 1, "green": 2, "unscored": 1, "override": 0}
     assert body["entity_count"] == 5
 
 
@@ -455,7 +455,14 @@ def test_override_flag_sets_healthscore_to_zero(
 
     dismissed = client.post("/healthscore/api/entities/001-flagged/overrides/dismiss")
     assert dismissed.status_code == 200, dismissed.text
+    assert dismissed.json()["on"] is False
     assert dismissed.json()["dismissed"] == ["merger_acquisition"]
+    brought_back = client.post("/healthscore/api/entities/001-flagged/overrides/dismiss")
+    assert brought_back.status_code == 200, brought_back.text
+    assert brought_back.json()["on"] is True
+    assert client.get("/healthscore/api/entities/001-flagged/score").json()["score_zeroed"] is True
+    dismissed = client.post("/healthscore/api/entities/001-flagged/overrides/dismiss")
+    assert dismissed.json()["on"] is False
     restored = client.get("/healthscore/api/entities/001-flagged/score")
     assert restored.json()["score"] == 100
     assert restored.json()["score_zeroed"] is False
@@ -516,16 +523,28 @@ def test_report_names_who_left_and_which_competitor(
             value=1,
             points=None,
             generator="get_competitive_mentions",
-            meta={"competitors": ["Kinaxis", "o9 Solutions"]},
+            meta={
+                "competitors": ["Kinaxis", "o9 Solutions"],
+                "mentions": [
+                    {
+                        "competitor": "Kinaxis",
+                        "engagement_id": "eng-1",
+                        "url": "https://chorus.ai/meeting/eng-1",
+                    }
+                ],
+            },
         )
     finally:
         conn.close()
 
     report = client.get("/healthscore/api/report")
     assert report.status_code == 200, report.text
-    rows = report.json()["entities"]
+    payload = report.json()
+    rows = payload["entities"]
     assert [row["name"] for row in rows] == ["Left Entity", "Rival Entity", "Calm Entity"]
     assert rows[0]["shown_score"] == 0
+    assert rows[0]["underlying_shown_score"] == 100
+    assert rows[0]["underlying_band"] == "green"
     assert rows[0]["overrides"][0]["detail"] == "Champion / executive departure: Alex Morgan, Sam Lee"
     # Web Research supplies the link; anything that is not http(s) is dropped.
     assert rows[0]["overrides"][0]["items"] == [
@@ -533,7 +552,12 @@ def test_report_names_who_left_and_which_competitor(
         {"text": "Sam Lee", "url": None},
     ]
     assert rows[1]["overrides"][0]["detail"] == "Competitive mentions: Kinaxis, o9 Solutions"
-    assert rows[1]["overrides"][0]["items"][0] == {"text": "Kinaxis", "url": None}
+    assert rows[1]["overrides"][0]["items"][0] == {
+        "text": "Kinaxis",
+        "url": "https://chorus.ai/meeting/eng-1",
+    }
+    assert rows[1]["overrides"][0]["items"][1] == {"text": "o9 Solutions", "url": None}
+    assert payload["counts"]["override"] == 2
     assert rows[2]["score_zeroed"] is False
 
     dismissed = client.post("/healthscore/api/entities/001-left/overrides/dismiss")

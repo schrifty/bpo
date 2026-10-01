@@ -94,8 +94,18 @@ def test_parent_call_raises_the_flag_for_child_entities() -> None:
     assert readings[SITE_B]["value"] == 1
     assert readings[SITE_A]["points"] is None
     assert readings[SITE_A]["meta"]["competitors"] == ["Kinaxis"]
+    assert "url" not in readings[SITE_A]["meta"]["mentions"][0]
     assert readings[OTHER]["value"] == 0
     assert readings[OTHER]["meta"]["calls"] == 1
+
+
+def test_a_chorus_conversation_link_is_stored_on_the_mention() -> None:
+    call = _call("eng-1")
+    call["url"] = "https://chorus.ai/meeting/eng-1"
+    readings = _score([call], {"eng-1": "They demoed Kinaxis."})
+    mention = readings[SITE_A]["meta"]["mentions"][0]
+    assert mention["competitor"] == "Kinaxis"
+    assert mention["url"] == "https://chorus.ai/meeting/eng-1"
 
 
 def test_no_calls_and_calls_outside_the_month_leave_the_flag_off() -> None:

@@ -386,10 +386,10 @@ def latest_metric_rows(
     rows = conn.execute(
         f"""
         SELECT entity_id, entity_name, metric_name, grain, period_key, as_of,
-               value, points, override_value, override_points, meta_json
+               value, points, override_value, override_points, override_note, meta_json
         FROM (
             SELECT entity_id, entity_name, metric_name, grain, period_key, as_of,
-                   value, points, override_value, override_points, meta_json,
+                   value, points, override_value, override_points, override_note, meta_json,
                    ROW_NUMBER() OVER (
                        PARTITION BY entity_id, metric_name
                        ORDER BY period_key DESC

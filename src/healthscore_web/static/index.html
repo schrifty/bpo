@@ -6,7 +6,7 @@
   <title>Cortex Healthscore</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="stylesheet" href="/static/styles.css?v=available-sources-2" />
-  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=source-links" />
+  <link rel="stylesheet" href="/healthscore/static/healthscore.css?v=override-count" />
 </head>
 <body>
   <header class="top">
@@ -71,6 +71,7 @@
             <div class="hs-score-stat-value" id="hs-score-coverage">—</div>
           </div>
           <div class="hs-score-note"></div>
+          <button type="button" id="hs-dismiss-override" class="secondary hs-dismiss-btn hs-hero-dismiss" hidden aria-pressed="false">Dismiss override</button>
         </div>
       </div>
 
@@ -107,6 +108,6 @@
 
   <div id="hs-row-menu" class="hs-row-menu hidden" role="menu"></div>
 
-  <script src="/healthscore/static/healthscore.js?v=source-links"></script>
+  <script src="/healthscore/static/healthscore.js?v=override-count"></script>
 </body>
 </html>
