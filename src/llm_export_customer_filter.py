@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import yaml
 
@@ -85,22 +85,6 @@ def _gather_exclude_labels(
             if z:
                 lowered.add(z)
     return frozenset(lowered)
-
-
-def _resolve_portfolio_exclude() -> Callable[[str], bool]:
-    try:
-        from .pendo_client import customer_is_excluded_from_portfolio as _fn
-        return _fn
-    except ImportError:
-
-        def customer_is_excluded_from_portfolio(_k: str) -> bool:
-            logger.warning(
-                "llm_export_customer_filter: customer_is_excluded_from_portfolio unavailable — "
-                "portfolio denylist skips disabled",
-            )
-            return False
-
-        return customer_is_excluded_from_portfolio
 
 
 @dataclass(frozen=True)

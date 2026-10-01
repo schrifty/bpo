@@ -263,22 +263,6 @@ def _merge_guide_event_rows(results: list[dict]) -> list[dict]:
     return list(merged.values())
 
 
-def _aggregate_customer_page_events(
-    events: list[dict],
-    visitor_ids: set[str],
-) -> dict[str, dict[str, int]]:
-    page_counts: dict[str, dict[str, int]] = {}
-    for ev in events:
-        if ev.get("visitorId") not in visitor_ids:
-            continue
-        pid = ev.get("pageId", "")
-        if pid not in page_counts:
-            page_counts[pid] = {"events": 0, "minutes": 0}
-        page_counts[pid]["events"] += int(ev.get("numEvents", 0) or 0)
-        page_counts[pid]["minutes"] += int(ev.get("numMinutes", 0) or 0)
-    return page_counts
-
-
 def _aggregate_customer_feature_events(
     events: list[dict],
     visitor_ids: set[str],

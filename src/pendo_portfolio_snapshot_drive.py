@@ -359,10 +359,6 @@ def _snapshot_calendar_zone() -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
-def _calendar_today_for_snapshot() -> date:
-    return datetime.now(_snapshot_calendar_zone()).date()
-
-
 def is_weekend_in_snapshot_tz() -> bool:
     """True if local calendar day (``CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``) is Saturday or Sunday."""
     now = datetime.now(_snapshot_calendar_zone())

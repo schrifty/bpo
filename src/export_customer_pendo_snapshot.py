@@ -765,15 +765,6 @@ def _md_table_cell(value: Any) -> str:
     return text
 
 
-def _ordered_table_columns(rows: list[dict[str, Any]], preferred: tuple[str, ...]) -> list[str]:
-    seen: set[str] = set()
-    for row in rows:
-        seen |= {k for k in row.keys() if row.get(k) not in (None, "", [])}
-    ordered = [k for k in preferred if k in seen]
-    ordered.extend(sorted(k for k in seen if k not in preferred))
-    return ordered
-
-
 def render_csr_markdown(report: dict[str, Any], *, section_number: int = 13) -> str:
     """Render CS Report factory data for a single-customer Pendo export."""
     csr = report.get("csr")

@@ -181,27 +181,6 @@ def _get_drive():
     return get_drive()
 
 
-def _find_folder_in_parent(name: str, parent_id: str) -> str | None:
-    from .drive_config import _drive_q_escape
-
-    esc = _drive_q_escape(name)
-    q = (
-        f"name = '{esc}' and mimeType = '{_MIME_FOLDER}' and '{parent_id}' in parents "
-        "and trashed = false"
-    )
-    with drive_api_lock:
-        drive = _get_drive()
-        results = drive.files().list(
-            q=q,
-            fields="files(id)",
-            pageSize=5,
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        ).execute()
-        files = results.get("files") or []
-        return files[0]["id"] if files else None
-
-
 def _list_folder_children(parent_id: str) -> list[dict[str, Any]]:
     q = f"'{parent_id}' in parents and trashed = false"
     out: list[dict[str, Any]] = []
@@ -429,47 +408,6 @@ def _flatten_legacy_container(
         )
     delete_drive_file(container_id)
     return moved, True
-
-def _migrate_legacy_containers_under_folder(
-    folder_id: str,
-    *,
-    historical_id: str,
-    context: str = "",
-    today: dt.date | None = None,
-    include_todays_dated: bool = False,
-) -> tuple[list[dict[str, str]], list[str]]:
-    """Flatten nested legacy ``{date} - Output`` folders into ``Historical Data/{YYYY-MM}/``."""
-    moved: list[dict[str, str]] = []
-    trashed: list[str] = []
-    for child in _list_folder_children(folder_id):
-        name = str(child.get("name") or "")
-        mime = str(child.get("mimeType") or "")
-        cid = str(child.get("id") or "")
-        if not cid or mime != _MIME_FOLDER:
-            continue
-        if not _is_legacy_container_folder(
-            name,
-            today=today,
-            include_todays_dated=include_todays_dated,
-        ):
-            continue
-        inner_moved, _ = _flatten_legacy_container(
-            container_id=cid,
-            container_name=name,
-            historical_id=historical_id,
-            include_todays_dated=include_todays_dated,
-        )
-        moved.extend(inner_moved)
-        trashed.append(name)
-        logger.info(
-            "Migrated nested legacy folder %s → %s/%s (%s)",
-            name,
-            HISTORICAL_DATA_FOLDER,
-            inner_moved[0]["month"] if inner_moved else previous_month_key(today=today),
-            context or folder_id[:12],
-        )
-    return moved, trashed
-
 
 def _relocate_stray_base_month_folder(
     *,

@@ -23,14 +23,6 @@ class GmailClientError(RuntimeError):
     pass
 
 
-def gmail_configured(email: str, *, session_secret: str) -> bool:
-    """True when a refresh token is stored for ``email``."""
-    try:
-        return bool(load_refresh_token(email, session_secret=session_secret))
-    except GoogleTokenStoreError as exc:
-        raise GmailClientError(str(exc)) from exc
-
-
 class GmailClient:
     """Read one user's mailbox with the refresh token from their Google sign-in."""
 

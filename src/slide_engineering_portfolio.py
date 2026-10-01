@@ -690,10 +690,6 @@ def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict
 
 
 # ── Reorganized engineering team slides (current sprint / backlog / capacity) ──
-# Shared geometry: bottom-anchored scope footer per SLIDE_DESIGN_STANDARDS.
-_ENG_FOOTER_H = 22.0
-_ENG_FOOTER_Y = float(SLIDE_H) - 10.0 - _ENG_FOOTER_H
-
 # Bottom "what this means" takeaway band: a divider, a small label, and one
 # LLM-written implication sentence. Replaces the old illegible gray scope footer on
 # the slide face; data slides reserve space above it via ``_ENG_CONTENT_BOTTOM``.
@@ -702,11 +698,6 @@ _ENG_TAKEAWAY_Y = float(SLIDE_H) - 4.0 - _ENG_TAKEAWAY_H
 _ENG_CONTENT_BOTTOM = _ENG_TAKEAWAY_Y - 8.0
 _ENG_TAKEAWAY_LABEL = "WHAT THIS MEANS"
 _ENG_DIVIDER_FILL = {"red": 0.84, "green": 0.89, "blue": 0.96}
-
-
-def _eng_scope_footer(reqs: list[dict[str, Any]], sid: str, text: str) -> None:
-    _box(reqs, f"{sid}_scope", sid, MARGIN, _ENG_FOOTER_Y, CONTENT_W, _ENG_FOOTER_H, text)
-    _style(reqs, f"{sid}_scope", 0, len(text), size=8, color=GRAY, font=FONT)
 
 
 def _eng_takeaway_bar(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], key: str) -> None:

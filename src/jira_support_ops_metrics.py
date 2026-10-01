@@ -52,15 +52,6 @@ def _as_of_datetime(as_of: date | datetime | None) -> datetime | None:
     return datetime(as_of.year, as_of.month, as_of.day, tzinfo=timezone.utc)
 
 
-def _as_of_iso(as_of: date | datetime | None) -> str | None:
-    if as_of is None:
-        return None
-    if isinstance(as_of, datetime):
-        dt = as_of if as_of.tzinfo else as_of.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc).date().isoformat()
-    return as_of.isoformat()[:10]
-
-
 def _weekday_count(start: datetime, end: datetime) -> int:
     """Inclusive-of-start, exclusive-of-end weekday count (Mon–Fri)."""
     n = 0

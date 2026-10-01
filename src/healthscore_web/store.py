@@ -409,14 +409,6 @@ def latest_metric_rows(
     return grouped
 
 
-def latest_effective_points_by_entity(
-    conn: sqlite3.Connection,
-) -> dict[str, dict[str, float | None]]:
-    """Newest effective points per entity and metric."""
-    points, _values = latest_effective_by_entity(conn)
-    return points
-
-
 def latest_by_metric(
     observations: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:

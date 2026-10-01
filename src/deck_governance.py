@@ -292,13 +292,6 @@ def _source_status_map(
     return statuses
 
 
-def _truncate_line(text: str, limit: int = 118) -> str:
-    t = (text or "").strip()
-    if len(t) <= limit:
-        return t
-    return t[: limit - 3] + "..."
-
-
 def _collect_deck_scoped_lineage(
     report: dict[str, Any],
     slide_plan: list[dict[str, Any]] | None,

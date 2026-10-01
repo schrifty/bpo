@@ -66,13 +66,6 @@ def _event_dt(event: dict[str, Any]) -> datetime | None:
         return None
 
 
-def _event_tokens(event: dict[str, Any]) -> int:
-    tu = event.get("tokenUsage")
-    if not isinstance(tu, dict):
-        return 0
-    return int(tu.get("inputTokens") or 0) + int(tu.get("outputTokens") or 0)
-
-
 def _event_io_tokens(event: dict[str, Any]) -> tuple[int, int]:
     """(input_tokens, output_tokens) for an event."""
     tu = event.get("tokenUsage") if isinstance(event.get("tokenUsage"), dict) else {}

@@ -69,21 +69,6 @@ def _blank_person() -> dict[str, Any]:
     return {**_EMPTY_PERSON, "repos_touched": []}
 
 
-def _sum_person(target: dict[str, Any], source: dict[str, Any]) -> None:
-    target["commits"] += int(source.get("commits") or 0)
-    target["merged_prs"] += int(source.get("merged_prs") or 0)
-    target["lines_added"] += int(source.get("lines_added") or 0)
-    target["lines_deleted"] += int(source.get("lines_deleted") or 0)
-    repos = set(target.get("repos_touched") or [])
-    repos.update(source.get("repos_touched") or [])
-    target["repos_touched"] = sorted(repos)
-    src_cycle = source.get("avg_pr_cycle_hours")
-    if src_cycle is not None:
-        cycles = target.get("_cycle_hours") or []
-        cycles.append(float(src_cycle))
-        target["_cycle_hours"] = cycles
-
-
 def _finalize_person(row: dict[str, Any]) -> dict[str, Any]:
     cycles = row.pop("_cycle_hours", None)
     if cycles:
